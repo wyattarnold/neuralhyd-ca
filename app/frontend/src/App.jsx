@@ -2,19 +2,22 @@ import { useState, useCallback } from "react";
 import WatershedMap from "./components/WatershedMap";
 import SidePanel from "./components/SidePanel";
 import LayerSelector from "./components/LayerSelector";
+import TopBar from "./components/TopBar";
+import InfoDrawer from "./components/InfoDrawer";
 
 const LAYER_ORDER = ["huc8", "huc10", "training_watersheds"];
 const COLOR_MODES = [
-  { id: "tier", label: "Tier" },
   { id: "lstm_nse", label: "LSTM NSE" },
   { id: "vic_nse", label: "VIC NSE" },
+  { id: "tier", label: "Tier" },
 ];
 
 export default function App() {
   const [activeLayer, setActiveLayer] = useState("training_watersheds");
   const [selected, setSelected] = useState(null);
-  const [panelWidth, setPanelWidth] = useState(520);
-  const [colorMode, setColorMode] = useState("tier");
+  const [panelWidth, setPanelWidth] = useState(700);
+  const [colorMode, setColorMode] = useState("lstm_nse");
+  const [docsOpen, setDocsOpen] = useState(false);
 
   const panelOpen = selected !== null;
 
@@ -24,7 +27,7 @@ export default function App() {
       const startX = e.clientX;
       const startW = panelWidth;
       const onMove = (ev) =>
-        setPanelWidth(Math.min(700, Math.max(280, startW + (ev.clientX - startX))));
+        setPanelWidth(Math.min(1200, Math.max(280, startW + (ev.clientX - startX))));
       const onUp = () => {
         window.removeEventListener("mousemove", onMove);
         window.removeEventListener("mouseup", onUp);
@@ -36,7 +39,11 @@ export default function App() {
   );
 
   return (
-    <div className="flex h-full w-full">
+    <div className="flex flex-col h-full w-full">
+      <TopBar onInfoClick={() => setDocsOpen(true)} />
+      <InfoDrawer open={docsOpen} onClose={() => setDocsOpen(false)} />
+
+      <div className="flex flex-1 min-h-0">
       {/* Left side panel */}
       {panelOpen && (
         <>
@@ -89,6 +96,7 @@ export default function App() {
           onSelect={(layerKey, id, name, props) => setSelected({ layerKey, id, name, props })}
           colorMode={colorMode}
         />
+      </div>
       </div>
     </div>
   );

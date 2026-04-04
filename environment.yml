@@ -28,4 +28,7 @@ dependencies:
       - fastapi
       - uvicorn[standard]
       - pydantic>=2.10
+      - orjson>=3.9
       - optuna>=3.0
+      - sphinx>=7.0
+      - furo>=2024.0
