@@ -4,13 +4,87 @@ Daily streamflow prediction for 216 California USGS watersheds using LSTM networ
 
 The model predicts today's streamflow from a lookback window of observed daily climate forcing (precipitation, tmax, tmin) combined with static watershed properties. This is a **hindcast** model — it uses observed climate inputs, not future predictions.
 
-## Architecture
+## Installation
 
-Two model variants are available, selected via `model_type` in `config.toml`. All hyperparameters (hidden sizes, window lengths, feature lists, etc.) are configurable — see `config.toml` for current values.
+Create the conda environment from the included `environment.yml`:
+
+```bash
+conda env create -f environment.yml
+conda activate neuralhyd
+```
+
+## Quick Start
+
+### 1. Prepare data
+
+The data pipeline downloads USGS streamflow, builds climate forcing, computes static attributes, and runs QA/QC. Steps 1–8 must run in order for a fresh setup:
+
+```bash
+cd scripts
+python prepare_data.py                        # all steps (1–8)
+python prepare_data.py --step 1               # single step
+python prepare_data.py --step 2 --meteo-dir /path/to/gridded/meteo
+```
+
+Step 2 requires a `--meteo-dir` pointing to gridded meteorological files. After all steps complete, optional analysis tasks are available:
+
+```bash
+python prepare_data.py --analysis map_watersheds
+python prepare_data.py --analysis tier_characteristics
+```
+
+### 2. Train
+
+Run k-fold cross-validation (all hyperparameters in `scripts/config.toml`):
+
+```bash
+python train_kfold.py                         # uses config.toml → data/training/output/
+python train_kfold.py config_single.toml      # named experiment → data/training/output/single/
+```
+
+## Project Structure
+
+```
+scripts/
+  train_kfold.py          # Entry point: k-fold stratified spatial CV
+  train_final.py          # Train on full dataset for deployment
+  prepare_data.py         # Data preparation pipeline (steps 1–8 + analysis)
+  config.toml             # Default experiment configuration
+src/
+  lstm/                   # LSTM model package
+    config.py             # Config dataclass + load_config() — typed container for TOML values
+    dataset.py            # load_all_data(), create_folds(), compute_norm_stats(), HydroDataset
+    model.py              # DualPathwayLSTM, SingleLSTM, StaticEncoder, build_model()
+    train.py              # train_epoch(), validate_epoch(), train_model()
+    loss.py               # mse_loss, blended_loss, pathway_auxiliary_loss, NSE/KGE/FHV/FLV metrics
+    evaluate.py           # evaluate_basin(), evaluate_fold()
+  data/                   # Data preparation modules (called by prepare_data.py)
+app/
+  __main__.py             # CLI: python -m app serve
+  server.py               # FastAPI app factory (Streamflow Explorer)
+  routers/                # /api/layers, /api/timeseries endpoints
+  frontend/               # React + Leaflet source (Vite build)
+  static/                 # Pre-built frontend bundle
+  data/                   # GeoJSON layers, timeseries parquet
+data/
+  training/               # All final training/evaluation inputs and model outputs
+    climate/              # climate_<basin_id>.csv — daily precip_mm, tmax_c, tmin_c
+    flow/                 # tier_{1,2,3}/<basin_id>_cleaned.csv — daily flow + climate
+    static/               # Physical_Attributes_Watersheds.csv, Climate_Statistics_Watersheds.csv
+    watersheds/           # watersheds.geojson, watersheds.csv
+    output/               # Created at runtime — per-fold checkpoints, basin results, timeseries
+  raw/                    # Immutable source data (USGS flow downloads, watershed geometry)
+  prepare/                # Intermediate pipeline outputs (see data/README.md)
+  external/               # External comparison data (CEC process-based model results)
+```
+
+## LSTM Architecture
+
+Two model variants are available, selected via `model_type` in `config.toml`. All hyperparameters (hidden sizes, window lengths, feature lists, etc.) are configurable — see `scripts/config.toml` for current values.
 
 ### Dual-Pathway LSTM (`model_type="dual"`, default)
 
-Two parallel LSTM branches model distinct hydrological response timescales with **multiplicative composition** and an **information gap** that enforces physical separation between pathways.
+Two parallel LSTM branches model distinct hydrological response timescales with **multiplicative composition** and an optional **information gap** that can enforce physical separation between pathways.
 
 ```mermaid
 graph LR
@@ -24,8 +98,8 @@ graph LR
     SE --> |"tile across<br/>timesteps"| CAT["Concatenate"]
     D --> CAT
 
-    CAT --> |"recent days<br/>(fast_window)"| FAST["Fast LSTM"]
-    CAT --> |"earlier days only<br/>(info gap: blind to<br/>recent window)"| SLOW["Slow LSTM"]
+    CAT --> |"recent days<br/>(fast_window=18)"| FAST["Fast LSTM<br/>(hidden=64)"]
+    CAT --> |"full or gapped<br/>(info_gap configurable)"| SLOW["Slow LSTM<br/>(hidden=128)"]
 
     FAST --> FH["Fast Head → Softplus"]
     SLOW --> SLH["Slow Head → Softplus"]
@@ -49,7 +123,7 @@ graph LR
 | Feature | Design | Rationale |
 |---------|--------|-----------|
 | **Multiplicative composition** | `q_total = q_slow × (1 + q_fast_raw)` | Fast pathway amplifies baseflow during storms. Storm contribution scales with antecedent wetness — physically realistic. |
-| **Information gap** | Slow LSTM is blind to the last `fast_window` days | Prevents slow pathway from learning storm responses. Forces all event-scale signal through the fast pathway. |
+| **Information gap** (optional) | When `info_gap=true`, slow LSTM is blind to the last `fast_window` days | Prevents slow pathway from learning storm responses. When off (default), separation is driven by the multiplicative structure and head activations alone. |
 | **Softplus activation** | `Softplus(x)` on both heads | Strictly positive, smooth gradients, well-behaved near zero. |
 
 #### Pathway interpretation
@@ -91,7 +165,7 @@ Both architectures use the same static encoder — a small MLP that projects raw
 
 Static features include watershed geometry (area, slope), land cover (forest fraction), soil texture, river network characteristics, geology/lithology classes, and long-term climate normals (mean precipitation, PET, aridity index, snow fraction). Features with heavy right skew (e.g. area) are log-transformed before normalisation.
 
-## Loss Function
+### Loss Function
 
 The total training loss has up to three components:
 
@@ -99,7 +173,7 @@ The total training loss has up to three components:
 L_total = L_primary + w_aux × L_aux
 ```
 
-### Primary loss
+#### Primary loss
 
 The primary loss supervises total predicted streamflow (`q_total`) against observed flow (both normalised by per-basin std).
 
@@ -114,7 +188,7 @@ Two modes are available:
 
   The `λ` parameter controls the low-flow emphasis; `ε` prevents log(0).
 
-### Auxiliary loss (dual-pathway only)
+#### Auxiliary loss (dual-pathway only)
 
 The primary loss alone doesn't constrain *how* flow is divided between pathways — the model could route all flow through either branch and still minimise total error. Without guidance, the multiplicative structure tends to collapse toward one pathway dominating.
 
@@ -131,7 +205,7 @@ The fast-pathway term uses **asymmetric weighting** — under-prediction of stor
 
 These are **soft targets**, not hard constraints. The model can deviate from the Lyne-Hollick decomposition where the data supports it — the filter is a rough heuristic, and the model may learn a better separation.
 
-## Training
+### Training
 
 The training loop uses:
 - **Adam optimiser** with weight decay
@@ -141,7 +215,7 @@ The training loop uses:
 - **Gradient clipping** for training stability
 - **Early stopping** with a minimum relative improvement threshold
 
-## Data
+### Data
 
 - **216 basins** across 3 hydroclimatic tiers:
   - **Tier 1** (88): Warm, low-elevation, rainfall-dominated
@@ -151,9 +225,9 @@ The training loop uses:
 - **Streamflow records**: Variable per basin (typically 1950s–present)
 - **Static attributes**: Derived from BasinATLAS and climate statistics
 
-## Validation
+### Validation
 
-3-fold stratified spatial cross-validation:
+5-fold stratified spatial cross-validation:
 - Basins (not timesteps) are the unit of splitting
 - Each fold holds out ~20% of **flow-days** per tier
 - No watershed appears in both train and validation within a fold
@@ -183,7 +257,7 @@ graph TD
     style TR3 fill:#27ae60,color:#fff
 ```
 
-## Normalisation
+### Normalisation
 
 | Component | Method |
 |-----------|--------|
@@ -192,52 +266,7 @@ graph TD
 | Static attributes | z-score (global, training basins); selected features log-transformed first |
 
 
-## Project Structure
-
-```
-train_kfold.py          # Entry point: k-fold stratified spatial CV
-train_final.py          # Train on full dataset for deployment
-prepare_data.py         # Data preparation pipeline (steps 1–8 + analysis)
-config.toml             # Default experiment configuration
-src/
-  config.py             # Config dataclass + load_config() — typed container for TOML values
-  dataset.py            # load_all_data(), create_folds(), compute_norm_stats(), HydroDataset
-  model.py              # DualPathwayLSTM, SingleLSTM, StaticEncoder, build_model()
-  train.py              # train_epoch(), validate_epoch(), train_model()
-  loss.py               # mse_loss, blended_loss, pathway_auxiliary_loss, NSE/KGE/FHV/FLV metrics
-  evaluate.py           # evaluate_basin(), evaluate_fold()
-  data/                 # Data preparation modules (called by prepare_data.py)
-    paths.py            # Centralised path constants
-    retrieve_flows.py   # Step 1: download USGS flows
-    develop_climate.py  # Step 2: develop climate forcing
-    verify_climate.py   # Step 3: verify climate data
-    develop_static_attr.py  # Step 4: compute basin physical attributes
-    develop_static_clim.py  # Step 5: compute climate statistics
-    clean_flows.py      # Step 6: flow/precip exceedance filter
-    run_qa_qc.py        # Step 7: QA/QC report
-    flow_precip_qaqc.py # Step 8: tier sort + final QA CSVs
-    map_watersheds.py   # Analysis: watershed map
-    plot_cdf_distributions.py  # Analysis: tier characterisation CDFs
-data/
-  training/             # All final training/evaluation inputs and model outputs
-    climate/            # climate_<basin_id>.csv — daily precip_mm, tmax_c, tmin_c
-    flow/               # tier_{1,2,3}/<basin_id>_cleaned.csv — daily flow + climate
-    static/             # Physical_Attributes_Watersheds.csv, Climate_Statistics_Watersheds.csv
-    watersheds/         # watersheds.geojson, watersheds.csv
-    output/             # Created at runtime — per-fold checkpoints, basin results, timeseries
-  raw/                  # Immutable source data (USGS flow downloads, watershed geometry)
-  prepare/              # Intermediate pipeline outputs (see data/README.md)
-  external/             # External comparison data (CEC process-based model results)
-```
-
-## Running
-
-All hyperparameters live in `config.toml`. Pass an alternate TOML file to run a named experiment — the output directory is derived from the filename:
-
-```bash
-python train_kfold.py                      # uses config.toml → data/training/output/
-python train_kfold.py config_single.toml   # → data/training/output/single/
-```
+### Running
 
 To switch between model architectures, set `model_type` in the TOML:
 
@@ -251,11 +280,11 @@ model_type = "dual"   # or "single"
 Checkpoints bundle model weights and normalisation statistics (climate mean/std, static mean/std, per-basin flow std) so that a trained model can be applied to basins it has never seen — without access to the original training data:
 
 ```python
-from src.train import load_checkpoint
-from src.model import build_model
-from src.config import load_config
+from src.lstm.train import load_checkpoint
+from src.lstm.model import build_model
+from src.lstm.config import load_config
 
-config = load_config("config.toml")
+config = load_config("scripts/config.toml")
 model = build_model(config)
 norm_stats = load_checkpoint("data/training/output/fold_0/best_model.pt", model, device)
 
@@ -263,10 +292,13 @@ clim_mean, clim_std = norm_stats["climate"]
 stat_mean, stat_std = norm_stats["static"]
 # Normalise a new basin's inputs with these, then run model.forward()
 ```
+## Web Application
 
-## Requirements
+**Streamflow Explorer** is an interactive web app for visualising model results. It serves a map of California watersheds coloured by tier or performance metric (NSE, KGE), with a side panel showing observed vs. predicted streamflow timeseries and pathway decomposition (fast/slow) for any selected basin. It also displays VIC process-based model results for comparison.
 
-- Python ≥ 3.11
-- PyTorch ≥ 2.0
-- pandas, numpy, scikit-learn, matplotlib, tqdm
-- macOS Apple Silicon (MPS) recommended; CUDA and CPU also supported
+```bash
+python -m app serve                           # http://127.0.0.1:8000
+python -m app serve --port 9000
+```
+
+The frontend is a React + Leaflet application; a pre-built bundle is served from `app/static/`. The backend is FastAPI, serving GeoJSON layers and timeseries data from `app/data/`.

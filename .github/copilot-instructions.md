@@ -9,29 +9,32 @@ This is a **daily streamflow prediction** project using LSTM networks trained on
 - **Python**: 3.14 via miniforge3 (`/Users/wyatt/miniforge3/envs/llm/bin/python`)
 - **Key deps**: PyTorch ≥ 2.0, pandas, numpy, scikit-learn, matplotlib, tqdm
 - **OS**: macOS (Apple Silicon). Set `KMP_DUPLICATE_LIB_OK=TRUE` to avoid duplicate OpenMP crashes.
-- **Device preference**: MPS → CUDA → CPU (auto-detected in `train_kfold.py`)
+- **Device preference**: MPS → CUDA → CPU (auto-detected in `scripts/train_kfold.py`)
 
 ## Running
 
 ```bash
-KMP_DUPLICATE_LIB_OK=TRUE /Users/wyatt/miniforge3/envs/llm/bin/python train_kfold.py
+KMP_DUPLICATE_LIB_OK=TRUE /Users/wyatt/miniforge3/envs/llm/bin/python scripts/train_kfold.py
 ```
 
-All hyperparameters live in `config.toml` at the project root. Pass an alternate TOML file as the first argument to `train_kfold.py` to run a named experiment — the output directory is derived automatically from the filename (e.g. `config_single.toml` → `data/training/output/single/`). The `Config` dataclass in `src/config.py` is the typed container; use `load_config(path)` from that module to instantiate it.
+All hyperparameters live in `scripts/config.toml`. Pass an alternate TOML file as the first argument to `scripts/train_kfold.py` to run a named experiment — the output directory is derived automatically from the filename (e.g. `config_single.toml` → `data/training/output/single/`). The `Config` dataclass in `src/lstm/config.py` is the typed container; use `load_config(path)` from that module to instantiate it.
 
 ## Repository Structure
 
 ```
-train_kfold.py       # Entry point: k-fold stratified spatial cross-validation
-train_final.py       # Train on full dataset for deployment
-prepare_data.py      # Data preparation pipeline (steps 1–8 + analysis)
+scripts/
+  train_kfold.py     # Entry point: k-fold stratified spatial cross-validation
+  train_final.py     # Train on full dataset for deployment
+  prepare_data.py    # Data preparation pipeline (steps 1–8 + analysis)
+  config.toml        # Default experiment configuration
 src/
-  config.py          # Config dataclass + load_config() — typed container for TOML values
-  dataset.py         # load_all_data(), create_folds(), compute_norm_stats(), HydroDataset
-  model.py           # DualPathwayLSTM, SingleLSTM, StaticEncoder, build_model()
-  train.py           # train_epoch(), validate_epoch(), train_model()
-  loss.py            # mse_loss (training), compute_nse / compute_kge / compute_fhv / compute_flv (eval)
-  evaluate.py        # evaluate_basin(), evaluate_fold()
+  lstm/              # LSTM model package
+    config.py        # Config dataclass + load_config() — typed container for TOML values
+    dataset.py       # load_all_data(), create_folds(), compute_norm_stats(), HydroDataset
+    model.py         # DualPathwayLSTM, SingleLSTM, StaticEncoder, build_model()
+    train.py         # train_epoch(), validate_epoch(), train_model()
+    loss.py          # mse_loss (training), compute_nse / compute_kge / compute_fhv / compute_flv (eval)
+    evaluate.py      # evaluate_basin(), evaluate_fold()
   data/              # Data preparation modules called by prepare_data.py
     paths.py         # Centralised path constants
 data/
@@ -52,14 +55,14 @@ data/
 
 Two LSTM branches with **multiplicative composition** and an **information gap**:
 
-- **Fast pathway**: LSTM (hidden=48), sees last 7 days. Captures storm runoff, event recession, direct surface response.
-- **Slow pathway**: LSTM (hidden=96), sees days 1–358 (365 minus 7-day info gap — blind to recent storms). Captures baseflow, snowmelt dynamics, seasonal soil moisture.
-- **Information gap**: Slow LSTM does not see the last `fast_window` days, preventing it from learning storm responses. All event-scale signal must flow through the fast pathway.
+- **Fast pathway**: LSTM (hidden=64), sees last 18 days. Captures storm runoff, event recession, direct surface response.
+- **Slow pathway**: LSTM (hidden=128), sees the full 365-day window (or, when `info_gap=true`, days 1–347 — blind to the last 18 days). Captures baseflow, snowmelt dynamics, seasonal soil moisture.
+- **Information gap** (optional, default off): When enabled, slow LSTM does not see the last `fast_window` days, preventing it from learning storm responses. When off, separation is driven by the multiplicative structure and head activations alone.
 - **Multiplicative composition**: `q_total = q_slow × (1 + q_fast_raw)`. The slow pathway sets the baseflow level; the fast pathway acts as a dimensionless storm amplifier. Storm contribution scales with antecedent wetness.
 - **Softplus activation**: `Softplus(x)` — strictly positive, smooth gradients, well-behaved near zero.
 - **Static encoder**: MLP (16 features → 32 hidden → 10-dim embedding) concatenated to each dynamic timestep. Conditions all pathways on watershed properties (elevation, soil texture, snow fraction, aridity, etc.).
 - **Auxiliary loss**: Asymmetric MSE supervision of pathway components against Lyne-Hollick baseflow separation targets (α=0.925, weight=0.3, peak asymmetry=2.0×).
-- **Parameters**: ~60k
+- **Parameters**: ~101k
 
 ### Single LSTM Baseline (`model_type="single"`)
 
@@ -73,7 +76,6 @@ Both models return `(q_total, q_fast, q_slow)` from `forward()`. Use `build_mode
 
 - **3-fold stratified spatial cross-validation** — basins are the unit of splitting, not timesteps
 - Each fold holds out ~20% of each tier (Tier 1: rainfall-dominated, Tier 2: transitional, Tier 3: snow-dominated)
-- Fold composition: ~174 train / ~42 held-out basins (17 T1 + 19 T2 + 6 T3)
 - **No watershed appears in both train and val within a fold** — this tests ungauged-basin generalization
 - Primary metric: **per-tier median NSE, KGE, FHV, and FLV** on held-out basins
 
@@ -112,7 +114,7 @@ Use `load_checkpoint(path, model, device)` from `src.train` to load a checkpoint
 - Type hints throughout; `from __future__ import annotations` in every module.
 - PyTorch conventions: `batch_first=True` for LSTMs, `@torch.no_grad()` for inference.
 - Data flows as: `load_all_data()` → `create_folds()` → `compute_norm_stats()` → `HydroDataset` → `DataLoader` → `train_model(norm_stats=norm)` → `evaluate_fold()`.
-- Checkpoints bundle model weights + norm stats. Use `load_checkpoint()` from `src.train` to load them.
+- Checkpoints bundle model weights + norm stats. Use `load_checkpoint()` from `src.lstm.train` to load them.
 - The `HydroDataset.__getitem__` returns a 6-tuple: `(x_dynamic, x_static, y_norm, y_components, basin_id, flow_std)`.
 - Evaluation denormalises predictions by multiplying by `flow_std` before computing NSE/KGE/FHV/FLV.
 
@@ -120,8 +122,8 @@ Use `load_checkpoint(path, model, device)` from `src.train` to load a checkpoint
 
 - To add new dynamic features: update `Config.dynamic_features`, ensure they exist in the climate CSVs. `n_dynamic` in the model is auto-computed as `len(dynamic_features)`.
 - To add new static features: update `Config.static_features`, ensure they exist in the static attribute CSVs (joined from BasinATLAS + Climate Statistics tables on `PourPtID`).
-- To change the architecture: modify `src/model.py`. Both models share the `forward()` signature `(x_dynamic, x_static) → (q_total, q_fast, q_slow)` used by train, evaluate, and train_kfold — keep it stable or update all three. Use `build_model(config)` for instantiation.
-- To change the loss: modify `src/loss.py`. The training loop calls `mse_loss(q_total, y)` — swap in an NSE-based loss there if desired.
+- To change the architecture: modify `src/lstm/model.py`. Both models share the `forward()` signature `(x_dynamic, x_static) → (q_total, q_fast, q_slow)` used by train, evaluate, and train_kfold — keep it stable or update all three. Use `build_model(config)` for instantiation.
+- To change the loss: modify `src/lstm/loss.py`. The training loop calls `mse_loss(q_total, y)` — swap in an NSE-based loss there if desired.
 
 ## Documentation Alignment
 
