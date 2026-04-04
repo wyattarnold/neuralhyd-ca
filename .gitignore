@@ -4,7 +4,7 @@ _archive/
 .vscode/
 *.zip
 !*gdb.zip
-app/static/assets/
+app/static/
 node_modules/
 data/prepare/verify_climate_data/
 data/prepare/flow_precip_exceedance_filter/
