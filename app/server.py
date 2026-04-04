@@ -37,6 +37,11 @@ def create_app(data_dir: str | None = None) -> FastAPI:
     app.include_router(layers.router)
     app.include_router(timeseries.router)
 
+    # Serve built Sphinx docs if they exist
+    docs_dir = Path(__file__).resolve().parents[1] / "docs" / "_build" / "html"
+    if docs_dir.is_dir():
+        app.mount("/docs", StaticFiles(directory=str(docs_dir), html=True), name="docs")
+
     # Serve built frontend if it exists
     static_dir = Path(__file__).parent / "static"
     if static_dir.is_dir():
