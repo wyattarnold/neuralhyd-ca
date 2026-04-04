@@ -1,7 +1,7 @@
 # Exclude heavy directories that aren't needed for the web app build
 data/
-src/
-scripts/
+/src/
+/scripts/
 _archive/
 *.pt
 *.gdb
