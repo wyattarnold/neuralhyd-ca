@@ -74,7 +74,7 @@ Both models return `(q_total, q_fast, q_slow)` from `forward()`. Use `build_mode
 
 ## Validation Design
 
-- **3-fold stratified spatial cross-validation** — basins are the unit of splitting, not timesteps
+- **5-fold stratified spatial cross-validation** — basins are the unit of splitting, not timesteps
 - Each fold holds out ~20% of each tier (Tier 1: rainfall-dominated, Tier 2: transitional, Tier 3: snow-dominated)
 - **No watershed appears in both train and val within a fold** — this tests ungauged-basin generalization
 - Primary metric: **per-tier median NSE, KGE, FHV, and FLV** on held-out basins

@@ -1,19 +1,19 @@
 # =============================================================================
 # lstmhyd-ca — experiment configuration
-# Run with: python main.py [config.toml]
+# Run with: python train_kfold.py [config.toml]
 #
 # output_dir is derived automatically from this filename:
-#   config.toml          → data/training/output/
-#   config_<name>.toml   → data/training/output/<name>/
+#   config.toml          → ../data/training/output/
+#   config_<name>.toml   → ../data/training/output/<name>/
 # Override by setting output_dir explicitly below.
 # =============================================================================
 
 [paths]
-data_dir             = "data"
-climate_dir          = "data/training/climate"
-flow_dir             = "data/training/flow"
-static_basin_atlas   = "data/training/static/Physical_Attributes_Watersheds.csv"
-static_climate       = "data/training/static/Climate_Statistics_Watersheds.csv"
+data_dir             = "../data"
+climate_dir          = "../data/training/climate"
+flow_dir             = "../data/training/flow"
+static_basin_atlas   = "../data/training/static/Physical_Attributes_Watersheds.csv"
+static_climate       = "../data/training/static/Climate_Statistics_Watersheds.csv"
 # output_dir         = "outputs"  # uncomment to override the auto-derived path
 
 [sequence]
@@ -23,12 +23,12 @@ info_gap             = false # blind slow pathway to last fast_window days (forc
 
 [model]
 model_type           = "single"   # "dual" or "single"
-fast_hidden_size     = 48
-slow_hidden_size     = 96
+fast_hidden_size     = 64
+slow_hidden_size     = 128
 single_hidden_size   = 128
 static_embedding_dim = 10
 static_hidden_size   = 32
-dropout              = 0.10     # fixed from sweep: softplus top-5 all 0.10, ρ=-0.44
+dropout              = 0.20     # fixed from sweep: softplus top-5 all 0.10, ρ=-0.44
 static_dropout       = 0.10
 
 [aux_loss]
@@ -52,11 +52,11 @@ min_delta            = 0.002  # minimum relative improvement to reset patience
 num_workers          = 0      # 0 for macOS spawn
 grad_clip            = 1.0
 use_swa              = true   # Stochastic Weight Averaging after first plateau
-swa_lr               = 1e-4
+swa_lr               = 2e-4
 swa_patience         = 10     # SWA makes small gradual gains — give it room
 
 [validation]
-n_folds              = 3
+n_folds              = 5
 holdout_fraction     = 0.2
 seed                 = 42
 
@@ -81,3 +81,12 @@ static_features  = [
     "lit_cl_smj",
 ]
 log_transform_static = ["total_Shape_Area_km2", "ria_ha_usu"]
+exclude_climate_statics = false
+climate_static_features = [
+    "precip_mean",
+    "pet_mean",
+    "aridity_index",
+    "snow_fraction",
+    "low_precip_dur",
+]
+use_window_snow_fraction = false

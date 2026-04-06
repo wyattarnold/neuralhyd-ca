@@ -46,7 +46,7 @@ class DualPathwayLSTM(nn.Module):
     def __init__(self, config: Config):
         super().__init__()
         n_dynamic = len(config.dynamic_features)
-        n_static = len(config.static_features)
+        n_static = len(config.effective_static_features)
         self.fast_window = config.fast_window
         self.info_gap = config.info_gap
 
@@ -154,7 +154,7 @@ class SingleLSTM(nn.Module):
     def __init__(self, config: Config):
         super().__init__()
         n_dynamic = len(config.dynamic_features)
-        n_static = len(config.static_features)
+        n_static = len(config.effective_static_features)
 
         self.static_encoder = StaticEncoder(
             n_static, config.static_embedding_dim,
