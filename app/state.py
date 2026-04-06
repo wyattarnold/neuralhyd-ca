@@ -73,10 +73,14 @@ class Layer:
 
         # Timeseries sources (all LazyParquet, None if file missing)
         self.vic = _lazy(f"vic_{key}.parquet")
+        self.vic_baseflow = _lazy(f"vic_baseflow_{key}.parquet") if key == "training_watersheds" else None
+        self.vic_surface = _lazy(f"vic_surface_{key}.parquet") if key == "training_watersheds" else None
         self.obs = _lazy("obs.parquet") if key == "training_watersheds" else None
+        self.obs_baseflow = _lazy("obs_baseflow.parquet") if key == "training_watersheds" else None
         self.lstm_pred = _lazy("lstm_pred.parquet") if key == "training_watersheds" else None
         self.lstm_fast = _lazy("lstm_fast.parquet") if key == "training_watersheds" else None
         self.lstm_slow = _lazy("lstm_slow.parquet") if key == "training_watersheds" else None
+        self.lstm_single_pred = _lazy("lstm_single_pred.parquet") if key == "training_watersheds" else None
 
     @property
     def geojson(self) -> dict:
@@ -96,7 +100,8 @@ class Layer:
     @property
     def available_series(self) -> list[str]:
         out = []
-        for attr in ("vic", "obs", "lstm_pred", "lstm_fast", "lstm_slow"):
+        for attr in ("vic", "vic_baseflow", "vic_surface", "obs", "obs_baseflow",
+                     "lstm_pred", "lstm_fast", "lstm_slow", "lstm_single_pred"):
             if getattr(self, attr) is not None:
                 out.append(attr)
         return out

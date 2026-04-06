@@ -1,6 +1,11 @@
 Overview
 ========
 
+.. warning::
+
+   This project is under active development. Model outputs, evaluation metrics,
+   and application features may change without notice.
+
 neuralhyd-ca predicts daily streamflow for 216 California USGS watersheds
 using LSTM networks conditioned on static watershed attributes. The model
 takes a lookback window of observed daily climate forcing (precipitation,

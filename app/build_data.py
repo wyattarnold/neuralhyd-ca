@@ -3,11 +3,15 @@ Pre-build optimised data files for the Streamflow Explorer app.
 
 Outputs go to app/data/:
   geojson/{layer_key}.geojson           — simplified polygons (EPSG:4326)
-  timeseries/vic_{layer_key}.parquet    — VIC-Sim runoff (CFS, Int32)
+  timeseries/vic_{layer_key}.parquet    — VIC-Sim total runoff (CFS, Int32)
+  timeseries/vic_baseflow_{lk}.parquet  — VIC-Sim baseflow component (CFS)
+  timeseries/vic_surface_{lk}.parquet   — VIC-Sim surface runoff component (CFS)
   timeseries/obs.parquet                — observed streamflow (CFS, Int32)
+  timeseries/obs_baseflow.parquet       — Lyne–Hollick baseflow (CFS)
   timeseries/lstm_pred.parquet          — LSTM dual predicted total Q (CFS, Int32)
   timeseries/lstm_fast.parquet          — LSTM dual fast pathway (CFS, Int32)
   timeseries/lstm_slow.parquet          — LSTM dual slow pathway (CFS, Int32)
+  timeseries/lstm_single_pred.parquet   — LSTM single predicted total Q (CFS)
 
 Run once (or whenever source data changes):
     python -m app.build_data
@@ -37,6 +41,7 @@ STATIC_CSV = REPO / "data" / "training" / "static" / "Physical_Attributes_Waters
 CLIMATE_STATIC_CSV = REPO / "data" / "training" / "static" / "Climate_Statistics_Watersheds.csv"
 VIC_KGE_CSV = REPO / "data" / "external" / "cec" / "model_kge_comparison.csv"
 LSTM_DIR = REPO / "data" / "training" / "output" / "dual_lstm_kfold"
+LSTM_SINGLE_DIR = REPO / "data" / "training" / "output" / "single_lstm_kfold"
 
 OUT = Path(__file__).parent / "data"
 GEO_DIR = OUT / "geojson"
@@ -88,7 +93,7 @@ def build_training_watersheds_geojson(tol: float) -> None:
     out_path = GEO_DIR / "training_watersheds.geojson"
     print("  GeoJSON training_watersheds … ", end="", flush=True)
 
-    # --- Basin tier + LSTM KGE/NSE from 5-fold basin_results ---
+    # --- Basin tier + LSTM Dual KGE/NSE from 5-fold basin_results ---
     tier_map: dict[str, int] = {}
     lstm_kge_map: dict[str, float] = {}
     lstm_nse_map: dict[str, float] = {}
@@ -99,6 +104,15 @@ def build_training_watersheds_geojson(tol: float) -> None:
             tier_map[bid] = int(row["tier"])
             lstm_kge_map[bid] = float(row["kge"])
             lstm_nse_map[bid] = float(row["nse"])
+
+    # --- LSTM Single KGE/NSE from 5-fold basin_results ---
+    lstm_single_nse_map: dict[str, float] = {}
+    if LSTM_SINGLE_DIR.exists():
+        for br in sorted(LSTM_SINGLE_DIR.glob("fold_*/basin_results.csv")):
+            df = pd.read_csv(br, usecols=["basin_id", "nse"])
+            for _, row in df.iterrows():
+                bid = str(int(row["basin_id"]))
+                lstm_single_nse_map[bid] = float(row["nse"])
 
     # --- VIC regionalized KGE ---
     vic_kge_map: dict[str, float] = {}
@@ -154,6 +168,7 @@ def build_training_watersheds_geojson(tol: float) -> None:
     gdf["lstm_kge"]  = gdf["Pour Point ID"].map(lstm_kge_map)
     gdf["vic_kge"]   = gdf["Pour Point ID"].map(vic_kge_map)
     gdf["lstm_nse"]  = gdf["Pour Point ID"].map(lstm_nse_map)
+    gdf["lstm_single_nse"] = gdf["Pour Point ID"].map(lstm_single_nse_map)
     gdf["vic_nse"]   = gdf["Pour Point ID"].map(vic_nse_map)
 
     out_path.write_text(gdf.to_json())
@@ -269,6 +284,136 @@ def build_lstm_parquets() -> None:
 
 
 # ---------------------------------------------------------------------------
+# LSTM single results builder
+# ---------------------------------------------------------------------------
+
+def build_lstm_single_parquets() -> None:
+    """Combine LSTM single results across all folds into a wide Parquet (CFS).
+
+    Only pred is meaningful — q_fast/q_slow are zero-filled for the single model.
+    """
+    if not LSTM_SINGLE_DIR.exists():
+        print("  lstm_single_pred … skipped (no directory)")
+        return
+
+    static = pd.read_csv(STATIC_CSV, usecols=["PourPtID", "total_Shape_Area_km2"])
+    area_map = dict(zip(static["PourPtID"].astype(str), static["total_Shape_Area_km2"]))
+
+    pred_series: dict[str, pd.Series] = {}
+
+    for fold_dir in sorted(LSTM_SINGLE_DIR.glob("fold_*")):
+        ts_dir = fold_dir / "timeseries"
+        if not ts_dir.is_dir():
+            continue
+        for csv in sorted(ts_dir.glob("*.csv")):
+            bid = csv.stem
+            area = area_map.get(bid)
+            if area is None:
+                continue
+            cfs_factor = area * _MM_DAY_TO_CFS_FACTOR
+
+            lstm = pd.read_csv(csv)
+            obs_file = None
+            for tier in [1, 2, 3]:
+                candidate = FLOW_DIR / f"tier_{tier}" / f"{bid}_cleaned.csv"
+                if candidate.exists():
+                    obs_file = candidate
+                    break
+            if obs_file is None:
+                continue
+
+            obs_dates = pd.read_csv(obs_file, usecols=["date"], parse_dates=True)["date"]
+            if len(obs_dates) != len(lstm):
+                n = min(len(obs_dates), len(lstm))
+                obs_dates = obs_dates.iloc[-n:].reset_index(drop=True)
+                lstm = lstm.iloc[-n:].reset_index(drop=True)
+
+            idx = pd.DatetimeIndex(obs_dates, name="date")
+            pred_series[bid] = pd.Series((lstm["pred"].values * cfs_factor).round(1), index=idx)
+
+    out_path = TS_DIR / "lstm_single_pred.parquet"
+    print(f"  lstm_single_pred … ", end="", flush=True)
+    wide = pd.DataFrame(pred_series).round(1)
+    wide.index.name = "date"
+    wide.to_parquet(out_path, engine="pyarrow", compression="zstd")
+    size_mb = out_path.stat().st_size / 1e6
+    print(f"{wide.shape[0]} days × {wide.shape[1]} basins → {size_mb:.2f} MB")
+
+
+# ---------------------------------------------------------------------------
+# Observed baseflow (Lyne–Hollick digital filter)
+# ---------------------------------------------------------------------------
+
+def _lyne_hollick(flow: np.ndarray, alpha: float = 0.925, passes: int = 3) -> np.ndarray:
+    """Return baseflow via Lyne–Hollick recursive digital filter.
+
+    Forward–backward filtering with ``passes`` total passes for zero phase lag.
+    """
+    q = flow.copy().astype(float)
+    n = len(q)
+    for p in range(passes):
+        qf = np.zeros(n)
+        direction = 1 if p % 2 == 0 else -1
+        rng = range(n) if direction == 1 else range(n - 1, -1, -1)
+        prev_i = None
+        for i in rng:
+            if prev_i is None:
+                qf[i] = 0.0
+            else:
+                qf[i] = alpha * qf[prev_i] + (1 + alpha) / 2 * (q[i] - q[prev_i])
+            qf[i] = max(0.0, min(qf[i], q[i]))
+            prev_i = i
+        q = q - qf  # q becomes baseflow after subtracting quickflow
+    return np.maximum(q, 0.0)
+
+
+def build_obs_baseflow_parquet() -> None:
+    """Apply Lyne–Hollick filter to observed flow and save baseflow Parquet."""
+    out_path = TS_DIR / "obs_baseflow.parquet"
+    print("  obs_baseflow … ", end="", flush=True)
+
+    series: dict[str, pd.Series] = {}
+    for tier in [1, 2, 3]:
+        tier_dir = FLOW_DIR / f"tier_{tier}"
+        for csv in sorted(tier_dir.glob("*_cleaned.csv")):
+            bid = csv.stem.replace("_cleaned", "")
+            df = pd.read_csv(csv, usecols=["date", "flow"], index_col="date", parse_dates=True)
+            flow = df["flow"].values
+            # Fill NaN gaps with 0 for filter stability, restore NaN after
+            mask = np.isnan(flow)
+            flow_filled = np.where(mask, 0.0, flow)
+            bf = _lyne_hollick(flow_filled)
+            bf[mask] = np.nan
+            series[bid] = pd.Series(bf.round(1), index=df.index)
+
+    wide = pd.DataFrame(series)
+    wide.index.name = "date"
+    wide.to_parquet(out_path, engine="pyarrow", compression="zstd")
+    size_mb = out_path.stat().st_size / 1e6
+    print(f"{wide.shape[0]} days × {wide.shape[1]} basins → {size_mb:.2f} MB")
+
+
+# ---------------------------------------------------------------------------
+# VIC component Parquet builders (baseflow + surface runoff)
+# ---------------------------------------------------------------------------
+
+def build_vic_component_parquets() -> None:
+    """Build VIC baseflow and surface runoff Parquets for training_watersheds."""
+    for component in ("baseflow", "surface"):
+        csv_path = AGG / f"training_watersheds_runoff_{component}.csv"
+        out_path = TS_DIR / f"vic_{component}_training_watersheds.parquet"
+        print(f"  vic_{component}_training_watersheds … ", end="", flush=True)
+        if not csv_path.exists():
+            print("skipped (no CSV — run aggregate_runoff.py --components)")
+            continue
+        df = pd.read_csv(csv_path, index_col="date", parse_dates=True)
+        df = df.round(1)
+        df.to_parquet(out_path, engine="pyarrow", compression="zstd")
+        size_mb = out_path.stat().st_size / 1e6
+        print(f"{df.shape[0]} days × {df.shape[1]} cols → {size_mb:.2f} MB")
+
+
+# ---------------------------------------------------------------------------
 # California outline builder (dissolve HUC-8 polygons)
 # ---------------------------------------------------------------------------
 
@@ -367,8 +512,17 @@ def main() -> None:
     print("\nBuilding observed streamflow Parquet …")
     build_obs_parquet()
 
+    print("\nBuilding observed baseflow (Lyne–Hollick) Parquet …")
+    build_obs_baseflow_parquet()
+
     print("\nBuilding LSTM dual result Parquets …")
     build_lstm_parquets()
+
+    print("\nBuilding LSTM single result Parquets …")
+    build_lstm_single_parquets()
+
+    print("\nBuilding VIC component Parquets …")
+    build_vic_component_parquets()
 
     print("\nDone. Output:")
     for f in sorted((OUT).rglob("*")):

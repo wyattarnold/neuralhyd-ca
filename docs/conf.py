@@ -16,6 +16,8 @@ html_theme = "furo"
 html_title = "NeuralHydrology Explorer"
 html_theme_options = {
     "sidebar_hide_name": True,
+    "light_css_variables": {},
+    "dark_css_variables": {},
 }
 # Hide the "Built with Sphinx" footer
 html_show_sourcelink = False

@@ -7,7 +7,8 @@ import InfoDrawer from "./components/InfoDrawer";
 
 const LAYER_ORDER = ["huc8", "huc10", "training_watersheds"];
 const COLOR_MODES = [
-  { id: "lstm_nse", label: "LSTM NSE" },
+  { id: "lstm_nse", label: "LSTM Dual NSE" },
+  { id: "lstm_single_nse", label: "LSTM Single NSE" },
   { id: "vic_nse", label: "VIC NSE" },
   { id: "tier", label: "Tier" },
 ];

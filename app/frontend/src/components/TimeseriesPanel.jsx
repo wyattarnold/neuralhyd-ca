@@ -13,7 +13,7 @@ import {
 import { fetchTimeseries } from "../api/client";
 import HexDensityPlot from "./HexDensityPlot";
 import {
-  CHART_SERIES, GRID_PROPS, XAXIS_PROPS, LEGEND_PROPS,
+  CHART_SERIES, QDAILY_HIDDEN_DEFAULT, GRID_PROPS, XAXIS_PROPS, LEGEND_PROPS,
   JUMP_YEARS, DEFAULT_WINDOW_DAYS, makeDateTickFormatter, makeYAxisProps,
   makeYearTicks,
 } from "../chartConfig";
@@ -144,7 +144,7 @@ export default function TimeseriesPanel({ layerKey, polygonId, name, obsStart, o
   const spanDays = effectiveRange[1] - effectiveRange[0];
 
   const [logScale, setLogScale] = useState(false);
-  const [hiddenSeries, setHiddenSeries] = useState(new Set());
+  const [hiddenSeries, setHiddenSeries] = useState(new Set(QDAILY_HIDDEN_DEFAULT));
 
   const handleLegendClick = useCallback((entry) => {
     setHiddenSeries((prev) => {

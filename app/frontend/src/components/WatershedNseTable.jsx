@@ -33,6 +33,7 @@ export default function WatershedNseTable({ selectedId, onSelectBasin }) {
           id: String(p["Pour Point ID"]),
           tier: p.tier != null ? Math.round(p.tier) : null,
           lstm_nse: p.lstm_nse != null ? Number(p.lstm_nse) : null,
+          lstm_single_nse: p.lstm_single_nse != null ? Number(p.lstm_single_nse) : null,
           vic_nse: p.vic_nse != null ? Number(p.vic_nse) : null,
         };
       })
@@ -54,7 +55,8 @@ export default function WatershedNseTable({ selectedId, onSelectBasin }) {
             <th className="text-left px-2 py-1 font-medium text-gray-600">#</th>
             <th className="text-left px-2 py-1 font-medium text-gray-600">Basin</th>
             <th className="text-center px-2 py-1 font-medium text-gray-600">Tier</th>
-            <th className="text-right px-2 py-1 font-medium text-gray-600">LSTM NSE</th>
+            <th className="text-right px-2 py-1 font-medium text-gray-600">Dual NSE</th>
+            <th className="text-right px-2 py-1 font-medium text-gray-600">Single NSE</th>
             <th className="text-right px-2 py-1 font-medium text-gray-600">VIC NSE</th>
           </tr>
         </thead>
@@ -77,6 +79,9 @@ export default function WatershedNseTable({ selectedId, onSelectBasin }) {
               <td className="px-2 py-0.5 text-center text-gray-500">{tierLabel[r.tier] ?? "—"}</td>
               <td className="px-2 py-0.5 text-right font-mono text-gray-900">
                 {r.lstm_nse != null ? r.lstm_nse.toFixed(3) : "—"}
+              </td>
+              <td className="px-2 py-0.5 text-right font-mono text-gray-700">
+                {r.lstm_single_nse != null ? r.lstm_single_nse.toFixed(3) : "—"}
               </td>
               <td className="px-2 py-0.5 text-right font-mono text-gray-500">
                 {r.vic_nse != null ? r.vic_nse.toFixed(3) : "—"}

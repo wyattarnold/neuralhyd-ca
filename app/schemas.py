@@ -21,7 +21,11 @@ class TimeseriesResponse(BaseModel):
     layer: str
     dates: list[str]
     vic: list[float | None] | None = None
+    vic_baseflow: list[float | None] | None = None
+    vic_surface: list[float | None] | None = None
     obs: list[float | None] | None = None
+    obs_baseflow: list[float | None] | None = None
     lstm_pred: list[float | None] | None = None
     lstm_fast: list[float | None] | None = None
     lstm_slow: list[float | None] | None = None
+    lstm_single_pred: list[float | None] | None = None

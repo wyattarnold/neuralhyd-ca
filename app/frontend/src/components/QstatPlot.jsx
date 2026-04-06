@@ -1,5 +1,5 @@
 import { useMemo, useState, useCallback } from "react";
-import { SERIES_COLORS, SERIES_LABELS, GRID_PROPS, makeYAxisProps, symlog, tooltipValFmt, CFS_TO_AF_DAY, makeSymlogTicks } from "../chartConfig";
+import { SERIES_COLORS, SERIES_LABELS, QSTAT_HIDDEN_DEFAULT, TOOLTIP_PROPS, GRID_PROPS, makeYAxisProps, symlog, tooltipValFmt, CFS_TO_AF_DAY, makeSymlogTicks } from "../chartConfig";
 import {
   ResponsiveContainer,
   LineChart,
@@ -24,7 +24,7 @@ export default function QstatPlot({ data, activeSeries, monthly = false, unit = 
   const [show5_95, setShow5_95] = useState(true);
   const [show1_99, setShow1_99] = useState(false);
   const [logScale, setLogScale] = useState(false);
-  const [hiddenSeries, setHiddenSeries] = useState(new Set());
+  const [hiddenSeries, setHiddenSeries] = useState(new Set(QSTAT_HIDDEN_DEFAULT));
 
   const handleLegendClick = useCallback((entry) => {
     // entry.dataKey is like "obs_med" — extract base key
@@ -43,7 +43,8 @@ export default function QstatPlot({ data, activeSeries, monthly = false, unit = 
   const stats = useMemo(() => {
     if (!data?.dates) return {};
     const result = {};
-    const keys = activeSeries.filter((k) => k !== "lstm_fast" && k !== "lstm_slow");
+    const keys = activeSeries.filter((k) => k !== "lstm_fast" && k !== "lstm_slow"
+      && k !== "obs_baseflow" && k !== "vic_baseflow" && k !== "vic_surface");
 
     for (const key of keys) {
       const arr = data[key];
@@ -188,6 +189,7 @@ export default function QstatPlot({ data, activeSeries, monthly = false, unit = 
             />
             <YAxis {...makeYAxisProps(logScale, unit, symlogTicks)} />
             <Tooltip
+              {...TOOLTIP_PROPS}
               labelFormatter={(d) => {
                 if (monthly) return MONTH_LABELS[d] ?? "";
                 const idx = DOY_TICKS.findIndex((t, i) => (DOY_TICKS[i + 1] ?? 366) > d);

@@ -34,7 +34,7 @@ export default function InfoDrawer({ open, onClose }) {
         {/* Sphinx docs iframe — only mount when open so it doesn't load eagerly */}
         {open && (
           <iframe
-            src="/docs/"
+            src="/docs/overview.html"
             title="Documentation"
             className="w-full border-0"
             style={{ height: "calc(100% - 48px)" }}
