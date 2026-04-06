@@ -10,7 +10,8 @@ from app.state import state
 
 router = APIRouter(prefix="/api/timeseries", tags=["timeseries"])
 
-_SERIES_ATTRS = ("vic", "obs", "lstm_pred", "lstm_fast", "lstm_slow")
+_SERIES_ATTRS = ("vic", "vic_baseflow", "vic_surface", "obs", "obs_baseflow",
+                 "lstm_pred", "lstm_fast", "lstm_slow", "lstm_single_pred")
 
 
 def _read_series(source, polygon_id: str) -> pd.Series | None:

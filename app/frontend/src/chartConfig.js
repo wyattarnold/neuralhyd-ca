@@ -1,8 +1,34 @@
 /** Single source of truth for chart series labels, colors, and stroke widths. */
 export const CHART_SERIES = {
-  obs:       { label: "Observed", color: "#3b3b3d", width: 1.2 },
-  vic:       { label: "VIC-Sim",  color: "#668bdc", width: 1.2 },
-  lstm_pred: { label: "LSTM",     color: "#e89c0f", width: 1.2 },
+  obs:              { label: "Observed",    color: "#3b3b3d", width: 1.2 },
+  vic:              { label: "VIC-Sim",     color: "#668bdc", width: 1.2 },
+  lstm_pred:        { label: "LSTM Dual",   color: "#e89c0f", width: 1.2 },
+  lstm_single_pred: { label: "LSTM Single", color: "#9b59b6", width: 1.2 },
+};
+
+/** Series that are hidden by default on the Qdaily chart (legend click toggles). */
+export const QDAILY_HIDDEN_DEFAULT = new Set(["lstm_single_pred", "vic"]);
+
+/** Series hidden by default on Qstat (same rationale — show LSTM Dual + Obs). */
+export const QSTAT_HIDDEN_DEFAULT = new Set(["lstm_single_pred", "vic"]);
+
+/** Flow separation chart series config (stacked area charts). */
+export const FLOW_SEP_SERIES = {
+  // Observed components (always visible — dark grey)
+  obs_baseflow:  { label: "Obs Baseflow",     color: "#555555", group: "obs" },
+  obs_quickflow: { label: "Obs Quickflow",     color: "#888888", group: "obs" },
+  // LSTM dual components (orange — toggleable)
+  lstm_slow:     { label: "LSTM Slow (Base)",  color: "#c87a0a", group: "lstm" },
+  lstm_fast:     { label: "LSTM Fast (Quick)", color: "#fdca6b", group: "lstm" },
+  // VIC components (blue — toggleable)
+  vic_baseflow:  { label: "VIC Baseflow",      color: "#3568b8", group: "vic" },
+  vic_surface:   { label: "VIC Surface",       color: "#8bb4e8", group: "vic" },
+};
+
+/** Shared tooltip content styling (smaller font). */
+export const TOOLTIP_PROPS = {
+  contentStyle: { fontSize: 10, padding: "4px 8px" },
+  labelStyle: { fontSize: 10, fontWeight: 600 },
 };
 
 /** Convenience maps derived from CHART_SERIES for components that need separate lookups. */
@@ -121,7 +147,8 @@ export function tooltipValFmt(v, logScale = false) {
 // ---------------------------------------------------------------------------
 // Monthly aggregation — CFS daily → AF monthly
 // ---------------------------------------------------------------------------
-const _ALL_SERIES = ["obs", "vic", "lstm_pred", "lstm_fast", "lstm_slow"];
+const _ALL_SERIES = ["obs", "vic", "lstm_pred", "lstm_fast", "lstm_slow",
+                     "lstm_single_pred", "obs_baseflow", "vic_baseflow", "vic_surface"];
 
 export function aggregateMonthly(data) {
   if (!data?.dates?.length) return data;

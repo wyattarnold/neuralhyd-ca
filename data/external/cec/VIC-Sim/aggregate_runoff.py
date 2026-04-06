@@ -46,7 +46,7 @@ RUNOFF_DIR = HERE / "runoff"
 BASEFLOW_DIR = HERE / "baseflow"
 OUT_DIR = HERE / "aggregated"
 GDB = Path(__file__).parents[4] / "data" / "raw" / "neuralhyd-ca.gdb"
-WS_PATH = Path(__file__).parents[4] / "data" / "raw" / "watershed_geometry" / "output_watershed.geojson"
+WS_PATH = Path(__file__).parents[4] / "data" / "training" / "watersheds" / "watersheds.geojson"
 
 OUT_DIR.mkdir(exist_ok=True)
 
@@ -136,44 +136,59 @@ def make_cos_weights(lat2d: np.ndarray) -> np.ndarray:
 # Aggregate one year
 # ---------------------------------------------------------------------------
 
+def _weighted_mean(data_2d: np.ndarray, cos_w: np.ndarray, masks: dict[str, np.ndarray], dates) -> pd.DataFrame:
+    """Compute cos-weighted spatial mean for each polygon. data_2d shape = (ntime, npix)."""
+    rows: dict[str, np.ndarray] = {}
+    for pid, idx in masks.items():
+        w = cos_w[idx]
+        data = data_2d[:, idx]
+        valid = ~np.isnan(data)
+        w_broadcast = w[np.newaxis, :]
+        wsum = np.where(valid, w_broadcast, 0.0).sum(axis=1)
+        wdata = np.where(valid, data * w_broadcast, 0.0).sum(axis=1)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            rows[pid] = np.where(wsum > 0, wdata / wsum, np.nan)
+    return pd.DataFrame(rows, index=dates)
+
+
 def aggregate_year(
     runoff_path: Path,
     baseflow_path: Path,
     masks_list: list[dict[str, np.ndarray]],
     cos_w: np.ndarray,
-) -> list[pd.DataFrame]:
+    components: bool = False,
+) -> tuple[list[pd.DataFrame], list[pd.DataFrame] | None, list[pd.DataFrame] | None]:
     """
-    Load one year's RUNOFF + BASEFLOW NCs, sum them, apply each layer's masks,
-    return list of DataFrames (rows=days, cols=polygon_ids).
+    Load one year's RUNOFF + BASEFLOW NCs, sum them, apply each layer's masks.
+
+    Returns (total_dfs, baseflow_dfs, surface_dfs).  When *components* is False
+    the second and third elements are None (backward-compatible).
     """
     ds_r = xr.open_dataset(runoff_path)
     ds_b = xr.open_dataset(baseflow_path)
-    # Both have shape (lat, lon, time) in mm/day
-    runoff_arr = ds_r["RUNOFF"].values    # (lat, lon, time)
-    baseflow_arr = ds_b["BASEFLOW"].values  # (lat, lon, time)
-    total = runoff_arr + baseflow_arr
-    # Reshape to (time, lat*lon)
-    total = total.reshape(-1, total.shape[2]).T
+    runoff_arr = ds_r["RUNOFF"].values      # (lat, lon, time) mm/day
+    baseflow_arr = ds_b["BASEFLOW"].values  # (lat, lon, time) mm/day
+    total_arr = runoff_arr + baseflow_arr
+    # Reshape to (time, npix)
+    total_flat = total_arr.reshape(-1, total_arr.shape[2]).T
     dates = pd.to_datetime(ds_r["time"].values)
     ds_r.close()
     ds_b.close()
 
-    results = []
-    for masks in masks_list:
-        rows: dict[str, np.ndarray] = {}
-        for pid, idx in masks.items():
-            w = cos_w[idx]                           # (npix,)
-            data = total[:, idx]                    # (ntime, npix)
-            valid = ~np.isnan(data)                  # (ntime, npix)
-            # weighted sum over valid pixels; NaN where no valid pixels exist
-            w_broadcast = w[np.newaxis, :]           # (1, npix)
-            wsum = np.where(valid, w_broadcast, 0.0).sum(axis=1)   # (ntime,)
-            wdata = np.where(valid, data * w_broadcast, 0.0).sum(axis=1)
-            with np.errstate(invalid="ignore", divide="ignore"):
-                rows[pid] = np.where(wsum > 0, wdata / wsum, np.nan)
-        results.append(pd.DataFrame(rows, index=dates))
+    total_results = [_weighted_mean(total_flat, cos_w, m, dates) for m in masks_list]
 
-    return results
+    if not components:
+        return total_results, None, None
+
+    bf_flat = baseflow_arr.reshape(-1, baseflow_arr.shape[2]).T
+    sf_flat = runoff_arr.reshape(-1, runoff_arr.shape[2]).T
+    # Only compute components for the last layer (training_watersheds)
+    bf_results = [None] * len(masks_list)
+    sf_results = [None] * len(masks_list)
+    last = len(masks_list) - 1
+    bf_results[last] = _weighted_mean(bf_flat, cos_w, masks_list[last], dates)
+    sf_results[last] = _weighted_mean(sf_flat, cos_w, masks_list[last], dates)
+    return total_results, bf_results, sf_results
 
 
 # ---------------------------------------------------------------------------
@@ -181,6 +196,12 @@ def aggregate_year(
 # ---------------------------------------------------------------------------
 
 def main() -> None:
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--components", action="store_true",
+                        help="Also output baseflow and surface runoff CSVs")
+    args = parser.parse_args()
+
     nc_files = sorted(RUNOFF_DIR.glob("*.nc"))
     if not nc_files:
         raise FileNotFoundError(f"No .nc files found in {RUNOFF_DIR}")
@@ -225,28 +246,61 @@ def main() -> None:
         areas_list.append(areas)
 
     # Accumulate DataFrames across years
-    accumulated: list[list[pd.DataFrame]] = [[] for _ in LAYERS]
+    n_layers = len(LAYERS)
+    accumulated_total: list[list[pd.DataFrame]] = [[] for _ in range(n_layers)]
+    accumulated_bf: list[list[pd.DataFrame]] = [[] for _ in range(n_layers)]
+    accumulated_sf: list[list[pd.DataFrame]] = [[] for _ in range(n_layers)]
 
     for nc_path in tqdm(nc_files, desc="Processing years"):
         bf_path = BASEFLOW_DIR / nc_path.name
-        year_dfs = aggregate_year(nc_path, bf_path, masks_list, cos_w)
-        for i, df in enumerate(year_dfs):
-            accumulated[i].append(df)
+        total_dfs, bf_dfs, sf_dfs = aggregate_year(
+            nc_path, bf_path, masks_list, cos_w, components=args.components,
+        )
+        for i, df in enumerate(total_dfs):
+            accumulated_total[i].append(df)
+        if bf_dfs is not None:
+            for i, df in enumerate(bf_dfs):
+                if df is not None:
+                    accumulated_bf[i].append(df)
+            for i, df in enumerate(sf_dfs):
+                if df is not None:
+                    accumulated_sf[i].append(df)
 
-    # Concatenate, convert mm/day → CFS, and write
+    # Helper to concat, convert mm/day → CFS, and write
+    def _write(accumulated, areas, stem_suffix=""):
+        for i, (out_stem, _) in enumerate(layers_meta):
+            out_path = OUT_DIR / f"{out_stem}{stem_suffix}.csv"
+            df = pd.concat(accumulated[i]).sort_index()
+            df.index.name = "date"
+            a = areas_list[i]
+            for col in df.columns:
+                if col in a:
+                    df[col] = (df[col] * a[col] * _MM_DAY_M2_TO_CFS).round(0)
+            df.to_csv(out_path, float_format="%.0f")
+            print(f"  {out_path.relative_to(HERE.parent.parent.parent.parent)}  "
+                  f"({len(df)} days × {df.shape[1]} polygons)")
+
     print("Writing output CSVs …")
-    for i, (out_stem, _) in enumerate(layers_meta):
-        out_path = OUT_DIR / f"{out_stem}.csv"
-        df = pd.concat(accumulated[i]).sort_index()
-        df.index.name = "date"
-        areas = areas_list[i]
-        # multiply each column by its polygon area × unit conversion, then round
-        for col in df.columns:
-            if col in areas:
-                df[col] = (df[col] * areas[col] * _MM_DAY_M2_TO_CFS).round(0)
-        df.to_csv(out_path, float_format="%.0f")
-        print(f"  {out_path.relative_to(HERE.parent.parent.parent.parent)}  "
-              f"({len(df)} days × {df.shape[1]} polygons)")
+    _write(accumulated_total, areas_list)
+    if args.components:
+        # Only write component CSVs for training_watersheds (last layer)
+        def _write_last(accumulated, areas, stem_suffix):
+            i = len(layers_meta) - 1
+            out_stem, _ = layers_meta[i]
+            out_path = OUT_DIR / f"{out_stem}{stem_suffix}.csv"
+            df = pd.concat(accumulated[i]).sort_index()
+            df.index.name = "date"
+            a = areas_list[i]
+            for col in df.columns:
+                if col in a:
+                    df[col] = (df[col] * a[col] * _MM_DAY_M2_TO_CFS).round(0)
+            df.to_csv(out_path, float_format="%.0f")
+            print(f"  {out_path.relative_to(HERE.parent.parent.parent.parent)}  "
+                  f"({len(df)} days × {df.shape[1]} polygons)")
+        print("Writing baseflow CSV (training_watersheds) …")
+        _write_last(accumulated_bf, areas_list, "_baseflow")
+        print("Writing surface runoff CSV (training_watersheds) …")
+        _write_last(accumulated_sf, areas_list, "_surface")
 
     print("Done.")
 

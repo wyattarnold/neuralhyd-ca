@@ -41,7 +41,7 @@ const LAYER_COLORS = { huc8: "#0891b2", huc10: "#059669" };
 
 function defaultStyle(layerKey, feature, colorMode) {
   if (layerKey === "training_watersheds" && feature) {
-    if (colorMode === "lstm_nse" || colorMode === "vic_nse") {
+    if (colorMode === "lstm_nse" || colorMode === "lstm_single_nse" || colorMode === "vic_nse") {
       const nse = feature.properties?.[colorMode];
       const c = nseColor(nse);
       return { color: c.stroke, weight: 1.5, opacity: 0.8, fillOpacity: 0.55, fillColor: c.fill };
@@ -71,7 +71,9 @@ function selectedStyle() {
 
 // --- KGE Legend ---
 function NSELegend({ colorMode }) {
-  const label = colorMode === "lstm_nse" ? "LSTM NSE" : "VIC NSE";
+  const label = colorMode === "lstm_nse" ? "LSTM Dual NSE"
+    : colorMode === "lstm_single_nse" ? "LSTM Single NSE"
+    : "VIC NSE";
   const stops = [-0.5, 0.0, 0.25, 0.5, 0.75, 1.0];
   return (
     <div className="bg-white/95 rounded shadow px-2 py-1.5 text-xs border border-gray-200">
@@ -396,7 +398,7 @@ export default function WatershedMap({ layerKey, selectedId, onSelect, colorMode
       {/* Legend — positioned outside MapContainer to avoid Leaflet z-index issues */}
       {layerKey === "training_watersheds" && (
         <div className="absolute bottom-4 right-4 z-[1000]">
-          {(colorMode === "lstm_nse" || colorMode === "vic_nse") ? (
+          {(colorMode === "lstm_nse" || colorMode === "lstm_single_nse" || colorMode === "vic_nse") ? (
             <NSELegend colorMode={colorMode} />
           ) : colorMode === "tier" ? (
             <TierLegend />
