@@ -3,17 +3,17 @@
 # Run with: python train_kfold.py [config.toml]
 #
 # output_dir is derived automatically from this filename:
-#   config.toml          → data/training/output/
-#   config_<name>.toml   → data/training/output/<name>/
+#   config.toml          → ../data/training/output/
+#   config_<name>.toml   → ../data/training/output/<name>/
 # Override by setting output_dir explicitly below.
 # =============================================================================
 
 [paths]
-data_dir             = "data"
-climate_dir          = "data/training/climate"
-flow_dir             = "data/training/flow"
-static_basin_atlas   = "data/training/static/Physical_Attributes_Watersheds.csv"
-static_climate       = "data/training/static/Climate_Statistics_Watersheds.csv"
+data_dir             = "../data"
+climate_dir          = "../data/training/climate"
+flow_dir             = "../data/training/flow"
+static_basin_atlas   = "../data/training/static/Physical_Attributes_Watersheds.csv"
+static_climate       = "../data/training/static/Climate_Statistics_Watersheds.csv"
 # output_dir         = "outputs"  # uncomment to override the auto-derived path
 
 [sequence]
@@ -81,3 +81,12 @@ static_features  = [
     "lit_cl_smj",
 ]
 log_transform_static = ["total_Shape_Area_km2", "ria_ha_usu"]
+exclude_climate_statics = false
+climate_static_features = [
+    "precip_mean",
+    "pet_mean",
+    "aridity_index",
+    "snow_fraction",
+    "low_precip_dur",
+]
+use_window_snow_fraction = false

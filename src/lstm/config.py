@@ -73,11 +73,29 @@ class Config:
     static_features: List[str]
     log_transform_static: List[str]
 
+    # ----- Optional climate-static handling -----
+    exclude_climate_statics: bool = False
+    climate_static_features: List[str] | None = None
+    use_window_snow_fraction: bool = False
+
     def __post_init__(self) -> None:
         for f in _PATH_FIELDS:
             val = getattr(self, f)
             if isinstance(val, str):
                 setattr(self, f, Path(val))
+
+    @property
+    def effective_static_features(self) -> List[str]:
+        """Static features after optional exclusion/addition of climate-derived ones."""
+        feats = list(self.static_features)
+        if self.exclude_climate_statics and self.climate_static_features:
+            exclude = set(self.climate_static_features)
+            feats = [f for f in feats if f not in exclude]
+        if self.use_window_snow_fraction:
+            # Append window-derived snow_fraction (computed in dataset)
+            if "snow_fraction" not in feats:
+                feats.append("snow_fraction")
+        return feats
 
 
 def load_config(path: str | Path = _DEFAULT_CONFIG) -> Config:
@@ -103,11 +121,11 @@ def load_config(path: str | Path = _DEFAULT_CONFIG) -> Config:
     if "output_dir" not in flat:
         stem = path.stem  # e.g. "config", "config_single", "my_exp"
         if stem == "config":
-            flat["output_dir"] = "data/training/output"
+            flat["output_dir"] = "../data/training/output"
         elif stem.startswith("config_"):
-            flat["output_dir"] = f"data/training/output/{stem[len('config_'):]}"
+            flat["output_dir"] = f"../data/training/output/{stem[len('config_'):]}"
         else:
-            flat["output_dir"] = f"data/training/output/{stem}"
+            flat["output_dir"] = f"../data/training/output/{stem}"
 
     cfg = Config(**flat)
 
@@ -117,5 +135,12 @@ def load_config(path: str | Path = _DEFAULT_CONFIG) -> Config:
         val = getattr(cfg, f)
         if not val.is_absolute():
             setattr(cfg, f, (config_dir / val).resolve())
+
+    # Apply defaults for optional fields not present in the TOML.
+    if not hasattr(cfg, "climate_static_features") or cfg.climate_static_features is None:
+        cfg.climate_static_features = [
+            "precip_mean", "pet_mean", "aridity_index",
+            "snow_fraction", "low_precip_dur",
+        ]
 
     return cfg

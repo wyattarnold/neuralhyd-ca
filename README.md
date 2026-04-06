@@ -1,8 +1,12 @@
 # neuralhyd-ca
 
+> **⚠️ This project is under active development.** APIs, model architectures, and results may change without notice.
+
 Daily streamflow prediction for 216 California USGS watersheds using LSTM networks conditioned on static watershed attributes.
 
 The model predicts today's streamflow from a lookback window of observed daily climate forcing (precipitation, tmax, tmin) combined with static watershed properties. This is a **hindcast** model — it uses observed climate inputs, not future predictions.
+
+A web-based viewer of the results is available at [https://neuralhyd-ca.onrender.com](https://neuralhyd-ca.onrender.com).
 
 ## Installation
 
@@ -46,36 +50,18 @@ python train_kfold.py config_single.toml      # named experiment → data/traini
 
 ```
 scripts/
-  train_kfold.py          # Entry point: k-fold stratified spatial CV
-  train_final.py          # Train on full dataset for deployment
-  prepare_data.py         # Data preparation pipeline (steps 1–8 + analysis)
-  config.toml             # Default experiment configuration
+  train_kfold.py        # K-fold stratified spatial cross-validation
+  train_final.py        # Train on full dataset for deployment
+  prepare_data.py       # Data pipeline (steps 1–8 + analysis tasks)
+  config.toml           # All hyperparameters
 src/
-  lstm/                   # LSTM model package
-    config.py             # Config dataclass + load_config() — typed container for TOML values
-    dataset.py            # load_all_data(), create_folds(), compute_norm_stats(), HydroDataset
-    model.py              # DualPathwayLSTM, SingleLSTM, StaticEncoder, build_model()
-    train.py              # train_epoch(), validate_epoch(), train_model()
-    loss.py               # mse_loss, blended_loss, pathway_auxiliary_loss, NSE/KGE/FHV/FLV metrics
-    evaluate.py           # evaluate_basin(), evaluate_fold()
-  data/                   # Data preparation modules (called by prepare_data.py)
-app/
-  __main__.py             # CLI: python -m app serve
-  server.py               # FastAPI app factory (Streamflow Explorer)
-  routers/                # /api/layers, /api/timeseries endpoints
-  frontend/               # React + Leaflet source (Vite build)
-  static/                 # Pre-built frontend bundle
-  data/                   # GeoJSON layers, timeseries parquet
+  lstm/                 # Model package (config, dataset, model, train, loss, evaluate)
+  data/                 # Data preparation modules
+app/                    # Streamflow Explorer web app (FastAPI + React/Leaflet)
 data/
-  training/               # All final training/evaluation inputs and model outputs
-    climate/              # climate_<basin_id>.csv — daily precip_mm, tmax_c, tmin_c
-    flow/                 # tier_{1,2,3}/<basin_id>_cleaned.csv — daily flow + climate
-    static/               # Physical_Attributes_Watersheds.csv, Climate_Statistics_Watersheds.csv
-    watersheds/           # watersheds.geojson, watersheds.csv
-    output/               # Created at runtime — per-fold checkpoints, basin results, timeseries
-  raw/                    # Immutable source data (USGS flow downloads, watershed geometry)
-  prepare/                # Intermediate pipeline outputs (see data/README.md)
-  external/               # External comparison data (CEC process-based model results)
+  training/             # Model inputs: climate/, flow/, static/, watersheds/, output/
+  raw/                  # Immutable source data
+  external/             # CEC VIC/NOAH-MP process-based model results for comparison
 ```
 
 ## LSTM Architecture
@@ -84,7 +70,7 @@ Two model variants are available, selected via `model_type` in `config.toml`. Al
 
 ### Dual-Pathway LSTM (`model_type="dual"`, default)
 
-Two parallel LSTM branches model distinct hydrological response timescales with **multiplicative composition** and an optional **information gap** that can enforce physical separation between pathways.
+Two parallel LSTM branches model distinct hydrological response timescales with **multiplicative composition**.
 
 ```mermaid
 graph LR
@@ -118,20 +104,12 @@ graph LR
     style Q fill:#ff8c00,color:#fff
 ```
 
-#### Key design choices
+#### Design
 
-| Feature | Design | Rationale |
-|---------|--------|-----------|
-| **Multiplicative composition** | `q_total = q_slow × (1 + q_fast_raw)` | Fast pathway amplifies baseflow during storms. Storm contribution scales with antecedent wetness — physically realistic. |
-| **Information gap** (optional) | When `info_gap=true`, slow LSTM is blind to the last `fast_window` days | Prevents slow pathway from learning storm responses. When off (default), separation is driven by the multiplicative structure and head activations alone. |
-| **Softplus activation** | `Softplus(x)` on both heads | Strictly positive, smooth gradients, well-behaved near zero. |
-
-#### Pathway interpretation
-
-| Pathway | Role |
-|---------|------|
-| **Fast** | Short lookback — storm runoff, event recession, direct surface response |
-| **Slow** | Long lookback minus info gap — baseflow, snowmelt dynamics, seasonal soil-moisture storage |
+- **Multiplicative composition**: `q_total = q_slow × (1 + q_fast_raw)` — the fast pathway amplifies baseflow during storms, so storm contribution scales with antecedent wetness.
+- **Softplus activation** on both heads — strictly positive, smooth gradients, well-behaved near zero.
+- **Fast pathway**: short lookback (18 days) — captures storm runoff, event recession, direct surface response.
+- **Slow pathway**: full lookback (365 days) — captures baseflow, snowmelt dynamics, seasonal soil-moisture storage.
 
 ### Single LSTM Baseline (`model_type="single"`)
 
@@ -207,64 +185,50 @@ These are **soft targets**, not hard constraints. The model can deviate from the
 
 ### Training
 
-The training loop uses:
-- **Adam optimiser** with weight decay
-- **Warmup → cosine annealing** LR schedule
-- **Stochastic Weight Averaging (SWA)** — activates on the first learning plateau and averages model weights until a second plateau, which often improves generalisation
-- **Gaussian input noise** on normalised climate inputs for regularisation
-- **Gradient clipping** for training stability
-- **Early stopping** with a minimum relative improvement threshold
+Training uses Adam with weight decay, a warmup → cosine annealing LR schedule, gradient clipping, and early stopping. **Gaussian input noise** is added to normalised climate inputs during training — this acts as a strong regulariser that improves generalisation to unseen basins by preventing the model from overfitting to exact input values. **Stochastic Weight Averaging (SWA)** activates on the first learning plateau and averages weights until a second plateau, further improving generalisation.
 
-### Data
+### Data and Normalisation
 
-- **216 basins** across 3 hydroclimatic tiers:
-  - **Tier 1** (88): Warm, low-elevation, rainfall-dominated
-  - **Tier 2** (97): Transitional, mixed rain-snow — hardest to generalise
-  - **Tier 3** (31): Cold, high-elevation, snow-dominated — requires long memory
-- **Climate records**: 1915–2018 (~38k days), area-weighted daily precip, tmax, tmin
-- **Streamflow records**: Variable per basin (typically 1950s–present)
-- **Static attributes**: Derived from BasinATLAS and climate statistics
+The dataset covers **216 basins** across 3 hydroclimatic tiers — Tier 1 (88 warm, rainfall-dominated), Tier 2 (97 transitional rain-snow), and Tier 3 (31 cold, snow-dominated). Climate records span 1915–2018 (~38k days of daily precip, tmax, tmin); streamflow records vary by basin (typically 1950s–present). Static attributes are derived from BasinATLAS and climate statistics.
+
+Flow targets are converted from cfs to **mm/day** using basin area, then divided by per-basin std — this removes area as a confound and makes flow comparable across basins. Climate inputs are z-score normalised using training-basin statistics only. Static attributes are also z-scored globally, with selected features (e.g. area) log-transformed first.
 
 ### Validation
 
-5-fold stratified spatial cross-validation:
-- Basins (not timesteps) are the unit of splitting
-- Each fold holds out ~20% of **flow-days** per tier
-- No watershed appears in both train and validation within a fold
-- Tests ungauged-basin generalisation
-- Primary metrics: **per-tier median NSE, KGE, FHV (peak flow bias), FLV (low flow bias)**
+5-fold stratified spatial cross-validation ensures the model is tested on basins it has never seen. Basins — not timesteps — are the unit of splitting, with each fold holding out ~20% of flow-days per tier. No watershed appears in both train and validation within a fold. Primary metrics are **NSE, KGE, FHV (peak flow bias), and FLV (low flow bias)**.
 
 ```mermaid
 graph TD
-    subgraph "216 Basins"
-        T1["Tier 1: 88 basins<br/>(rainfall-dominated)"]
-        T2["Tier 2: 97 basins<br/>(transitional)"]
-        T3["Tier 3: 31 basins<br/>(snow-dominated)"]
+    subgraph "216 Basins (stratified by tier)"
+        T1["Tier 1: 88 basins"]
+        T2["Tier 2: 97 basins"]
+        T3["Tier 3: 31 basins"]
     end
 
-    T1 --> |"~20% flow-days"| V1["Val T1"]
-    T1 --> |"~80% flow-days"| TR1["Train T1"]
-    T2 --> |"~20% flow-days"| V2["Val T2"]
-    T2 --> |"~80% flow-days"| TR2["Train T2"]
-    T3 --> |"~20% flow-days"| V3["Val T3"]
-    T3 --> |"~80% flow-days"| TR3["Train T3"]
+    T1 & T2 & T3 --> SPLIT["Stratified split<br/>~20% flow-days per tier"]
 
-    style V1 fill:#e74c3c,color:#fff
-    style V2 fill:#e74c3c,color:#fff
-    style V3 fill:#e74c3c,color:#fff
-    style TR1 fill:#27ae60,color:#fff
-    style TR2 fill:#27ae60,color:#fff
-    style TR3 fill:#27ae60,color:#fff
+    SPLIT --> F0["Fold 0"]
+    SPLIT --> F1["Fold 1"]
+    SPLIT --> F2["Fold 2"]
+    SPLIT --> F3["Fold 3"]
+    SPLIT --> F4["Fold 4"]
+
+    F0 --> |"Val basins"| V0["Hold-out set"]
+    F0 --> |"Train basins"| TR0["Training set"]
+
+    style T1 fill:#f0f0f0,stroke:#333
+    style T2 fill:#f0f0f0,stroke:#333
+    style T3 fill:#f0f0f0,stroke:#333
+    style V0 fill:#e74c3c,color:#fff
+    style TR0 fill:#27ae60,color:#fff
+    style F0 fill:#dbeafe,stroke:#3b82f6
+    style F1 fill:#dbeafe,stroke:#3b82f6
+    style F2 fill:#dbeafe,stroke:#3b82f6
+    style F3 fill:#dbeafe,stroke:#3b82f6
+    style F4 fill:#dbeafe,stroke:#3b82f6
 ```
 
-### Normalisation
-
-| Component | Method |
-|-----------|--------|
-| Flow target | Converted **cfs → mm/day** using basin area, then divided by per-basin std |
-| Climate inputs | z-score (global, training basins only) |
-| Static attributes | z-score (global, training basins); selected features log-transformed first |
-
+Each basin appears in exactly one fold's validation set — every basin is evaluated as if ungauged.
 
 ### Running
 
@@ -294,7 +258,7 @@ stat_mean, stat_std = norm_stats["static"]
 ```
 ## Web Application
 
-**Streamflow Explorer** is an interactive web app for visualising model results. It serves a map of California watersheds coloured by tier or performance metric (NSE, KGE), with a side panel showing observed vs. predicted streamflow timeseries and pathway decomposition (fast/slow) for any selected basin. It also displays VIC process-based model results for comparison.
+**Streamflow Explorer** is an interactive web app for visualising model results. It serves a map of California watersheds coloured by tier or performance metric (NSE, KGE), with a side panel showing observed vs. predicted streamflow timeseries and pathway decomposition (fast/slow) for any selected basin. It also displays VIC process-based model results from the [CEC C-DAWG](https://www.energy.ca.gov/programs-and-topics/topics/research-and-development/climate-data-and-analysis-working-group-c-dawg) for comparison (see [Bass et al., 2025](https://www.energy.ca.gov/sites/default/files/2025-04/05_HydrologyProjections_DataJustificationMemo_BassEtAl_Adopted_v3_ada.pdf); [model documentation](https://wrf-cmip6-noversioning.s3.amazonaws.com/ben_temp/d03_3km/CEC/0_Hyd_Model_Documentation/CEC_Noah_MP_VIC_Hydrology_Model_Description.pdf)).
 
 ```bash
 python -m app serve                           # http://127.0.0.1:8000
