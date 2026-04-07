@@ -32,7 +32,7 @@ dropout              = 0.20     # fixed from sweep: softplus top-5 all 0.10, ρ=
 static_dropout       = 0.10
 
 [aux_loss]
-aux_loss_weight      = 0.30   # fixed from sweep: ρ=-0.02 (no signal); exp best trials 0.25-0.40
+aux_loss_weight      = 0.40   # fixed from sweep: ρ=-0.02 (no signal); exp best trials 0.25-0.40
 baseflow_alpha       = 0.925  # Lyne-Hollick filter parameter
 aux_peak_asymmetry   = 2.5    # penalise fast-pathway under-prediction by this factor (1.0 = symmetric)
 

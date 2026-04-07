@@ -1,0 +1,92 @@
+# =============================================================================
+# lstmhyd-ca — experiment configuration
+# Run with: python train_kfold.py [config.toml]
+#
+# output_dir is derived automatically from this filename:
+#   config.toml          → ../data/training/output/
+#   config_<name>.toml   → ../data/training/output/<name>/
+# Override by setting output_dir explicitly below.
+# =============================================================================
+
+[paths]
+data_dir             = "../data"
+climate_dir          = "../data/training/climate"
+flow_dir             = "../data/training/flow"
+static_basin_atlas   = "../data/training/static/Physical_Attributes_Watersheds.csv"
+static_climate       = "../data/training/static/Climate_Statistics_Watersheds.csv"
+# output_dir         = "outputs"  # uncomment to override the auto-derived path
+
+[sequence]
+seq_len              = 365   # full lookback for slow pathway
+fast_window          = 18    # short lookback for fast (event) pathway
+info_gap             = false # blind slow pathway to last fast_window days (forces separation)
+
+[model]
+model_type           = "single"   # "dual" or "single"
+fast_hidden_size     = 64
+slow_hidden_size     = 128
+single_hidden_size   = 128
+static_embedding_dim = 10
+static_hidden_size   = 32
+dropout              = 0.20     # fixed from sweep: softplus top-5 all 0.10, ρ=-0.44
+static_dropout       = 0.10
+
+[aux_loss]
+aux_loss_weight      = 0.30   # fixed from sweep: ρ=-0.02 (no signal); exp best trials 0.25-0.40
+baseflow_alpha       = 0.925  # Lyne-Hollick filter parameter
+aux_peak_asymmetry   = 2.5    # penalise fast-pathway under-prediction by this factor (1.0 = symmetric)
+
+[blended_loss]
+log_loss_lambda      = 0.05                         # blended loss: (1-λ)·MSE + λ·log-MSE  (0 = pure MSE)
+log_loss_epsilon     = 0.001                        # ε added inside log to avoid log(0)
+
+[training]
+batch_size           = 512
+learning_rate        = 4e-4
+weight_decay         = 1e-4
+input_noise_std      = 0.1    # Gaussian noise on normalised climate inputs during training
+warmup_epochs        = 3
+num_epochs           = 80
+patience             = 5      # epochs without improvement before SWA trigger / stop
+min_delta            = 0.002  # minimum relative improvement to reset patience
+num_workers          = 0      # 0 for macOS spawn
+grad_clip            = 1.0
+use_swa              = true   # Stochastic Weight Averaging after first plateau
+swa_lr               = 2e-4
+swa_patience         = 10     # SWA makes small gradual gains — give it room
+
+[validation]
+n_folds              = 5
+holdout_fraction     = 0.2
+seed                 = 42
+
+[features]
+dynamic_features = ["precip_mm", "tmax_c", "tmin_c"]
+static_features  = [
+    "total_Shape_Area_km2",
+    "ele_mt_uav",
+    "slp_dg_uav",
+    "for_pc_use",
+    "cly_pc_uav",
+    "snd_pc_uav",
+    "ria_ha_usu",
+    "riv_tc_usu",
+    "sgr_dk_sav",
+    "precip_mean",
+    "pet_mean",
+    "aridity_index",
+    "snow_fraction",
+    "low_precip_dur",
+    "clz_cl_smj",
+    "lit_cl_smj",
+]
+log_transform_static = ["total_Shape_Area_km2", "ria_ha_usu"]
+exclude_climate_statics = false
+climate_static_features = [
+    "precip_mean",
+    "pet_mean",
+    "aridity_index",
+    "snow_fraction",
+    "low_precip_dur",
+]
+use_window_snow_fraction = false

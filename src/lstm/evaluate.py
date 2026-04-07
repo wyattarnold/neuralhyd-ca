@@ -72,6 +72,7 @@ def evaluate_basin(
         "pred": pred,
         "fast": fast,
         "slow": slow,
+        "valid_idx": valid_idx,
     }
 
 
@@ -106,8 +107,10 @@ def evaluate_fold(
         )
 
         # Save per-basin timeseries (obs, pred, pathway components)
+        dates = bdata["dates"]
         ts = pd.DataFrame(
             {
+                "date": dates[res["valid_idx"]].strftime("%Y-%m-%d"),
                 "obs": res["obs"],
                 "pred": res["pred"],
                 "q_fast": res["fast"],

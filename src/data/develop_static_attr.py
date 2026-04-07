@@ -9,7 +9,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from src.data.paths import BASIN_ATLAS_INPUT, BASIN_ATLAS_OUTPUT, WATERSHED_GEOMETRY
+from src.paths import BASIN_ATLAS_INPUT, BASIN_ATLAS_OUTPUT, WATERSHED_GEOMETRY
 
 BASIN_ATLAS_STATIC_ATTR = {
     "ria_ha_usu": {"description": "River Area (ha) sum upstream of pour point", "units": "hectares"},

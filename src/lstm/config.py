@@ -5,9 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List
 
-# Project root is three levels up from this file (src/lstm/config.py → lstm/ → src/ → project root)
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-_DEFAULT_CONFIG = _PROJECT_ROOT / "scripts" / "config.toml"
+from src.paths import DEFAULT_CONFIG, TRAINING_OUTPUT_DIR
 
 _PATH_FIELDS = frozenset(
     ["data_dir", "climate_dir", "flow_dir", "static_basin_atlas", "static_climate", "output_dir"]
@@ -98,7 +96,7 @@ class Config:
         return feats
 
 
-def load_config(path: str | Path = _DEFAULT_CONFIG) -> Config:
+def load_config(path: str | Path = DEFAULT_CONFIG) -> Config:
     """Load a TOML config file and return a Config instance.
 
     output_dir is derived from the config filename when not explicitly set:
@@ -121,11 +119,11 @@ def load_config(path: str | Path = _DEFAULT_CONFIG) -> Config:
     if "output_dir" not in flat:
         stem = path.stem  # e.g. "config", "config_single", "my_exp"
         if stem == "config":
-            flat["output_dir"] = "../data/training/output"
+            flat["output_dir"] = str(TRAINING_OUTPUT_DIR)
         elif stem.startswith("config_"):
-            flat["output_dir"] = f"../data/training/output/{stem[len('config_'):]}"
+            flat["output_dir"] = str(TRAINING_OUTPUT_DIR / stem[len("config_"):])
         else:
-            flat["output_dir"] = f"../data/training/output/{stem}"
+            flat["output_dir"] = str(TRAINING_OUTPUT_DIR / stem)
 
     cfg = Config(**flat)
 

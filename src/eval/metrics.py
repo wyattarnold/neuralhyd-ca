@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 
 from src.lstm.loss import compute_fhv, compute_flv, compute_kge, compute_nse
+from src.paths import FLOW_DIR, VIC_RUNOFF_CSV
 
 METRICS = ["nse", "kge", "fhv", "flv"]
 
@@ -43,23 +44,20 @@ def load_lstm_fold_results(output_dir: Path) -> pd.DataFrame:
 # VIC Simulated — compute metrics from daily timeseries
 # ---------------------------------------------------------------------------
 
-_VIC_RUNOFF = Path("data/external/cec/VIC-Sim/aggregated/training_watersheds_runoff.csv")
 
-
-def _load_vic_runoff(repo_root: Path) -> pd.DataFrame:
+def _load_vic_runoff() -> pd.DataFrame:
     """Load VIC simulated daily runoff (CFS, wide-form)."""
-    return pd.read_csv(repo_root / _VIC_RUNOFF, parse_dates=["date"])
+    return pd.read_csv(VIC_RUNOFF_CSV, parse_dates=["date"])
 
 
-def _load_observed_flow(repo_root: Path) -> Dict[str, pd.DataFrame]:
+def _load_observed_flow() -> Dict[str, pd.DataFrame]:
     """Load observed daily flow (CFS) for all training watersheds.
 
     Returns {basin_id_str: DataFrame(date, flow)}.
     """
-    flow_dir = repo_root / "data" / "training" / "flow"
     flows: Dict[str, pd.DataFrame] = {}
     for tier in (1, 2, 3):
-        tier_dir = flow_dir / f"tier_{tier}"
+        tier_dir = FLOW_DIR / f"tier_{tier}"
         if not tier_dir.exists():
             continue
         for csv in tier_dir.glob("*_cleaned.csv"):
@@ -69,12 +67,11 @@ def _load_observed_flow(repo_root: Path) -> Dict[str, pd.DataFrame]:
     return flows
 
 
-def _load_tier_map(repo_root: Path) -> Dict[str, int]:
+def _load_tier_map() -> Dict[str, int]:
     """Build basin_id -> tier mapping from directory structure."""
-    flow_dir = repo_root / "data" / "training" / "flow"
     tier_map: Dict[str, int] = {}
     for tier in (1, 2, 3):
-        tier_dir = flow_dir / f"tier_{tier}"
+        tier_dir = FLOW_DIR / f"tier_{tier}"
         if not tier_dir.exists():
             continue
         for csv in tier_dir.glob("*_cleaned.csv"):
@@ -83,15 +80,15 @@ def _load_tier_map(repo_root: Path) -> Dict[str, int]:
     return tier_map
 
 
-def compute_vic_metrics(repo_root: Path) -> pd.DataFrame:
+def compute_vic_metrics() -> pd.DataFrame:
     """Compute NSE/KGE/FHV/FLV for VIC simulated runoff vs observed flow.
 
     Both VIC runoff and observed flow are in CFS — compared directly.
     Returns a DataFrame with columns: basin_id, tier, nse, kge, fhv, flv, n_obs
     """
-    vic_df = _load_vic_runoff(repo_root)
-    obs_flows = _load_observed_flow(repo_root)
-    tier_map = _load_tier_map(repo_root)
+    vic_df = _load_vic_runoff()
+    obs_flows = _load_observed_flow()
+    tier_map = _load_tier_map()
 
     vic_dates = vic_df.set_index("date")
     vic_basins = set(vic_dates.columns)

@@ -10,7 +10,7 @@ import os
 import pandas as pd
 from tqdm import tqdm
 
-from src.data.paths import CLIMATE_DIR, CLIMATE_VERIFICATION_DIR
+from src.paths import CLIMATE_DIR, CLIMATE_VERIFICATION_DIR
 
 
 def calculate_monthly_averages(climate_file: str, pourptid: str | int) -> pd.DataFrame:

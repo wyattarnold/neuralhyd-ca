@@ -42,6 +42,7 @@ CLIMATE_STATIC_CSV = REPO / "data" / "training" / "static" / "Climate_Statistics
 VIC_KGE_CSV = REPO / "data" / "external" / "cec" / "model_kge_comparison.csv"
 LSTM_DIR = REPO / "data" / "training" / "output" / "dual_lstm_kfold"
 LSTM_SINGLE_DIR = REPO / "data" / "training" / "output" / "single_lstm_kfold"
+SIM_DIR = REPO / "data" / "eval" / "sim"
 
 OUT = Path(__file__).parent / "data"
 GEO_DIR = OUT / "geojson"
@@ -49,9 +50,6 @@ TS_DIR = OUT / "timeseries"
 
 GEO_DIR.mkdir(parents=True, exist_ok=True)
 TS_DIR.mkdir(parents=True, exist_ok=True)
-
-# mm/day → CFS: CFS = mm/day × area_km² / 2.44577
-_MM_DAY_TO_CFS_FACTOR = 1.0 / 2.44577
 
 # ---------------------------------------------------------------------------
 # Layer definitions
@@ -218,69 +216,74 @@ def build_obs_parquet() -> None:
 
 
 # ---------------------------------------------------------------------------
-# LSTM dual results builder (per-fold/per-basin CSVs → wide Parquets)
+# LSTM sim results builder (per-basin sim CSVs → wide Parquets)
 # ---------------------------------------------------------------------------
 
-def build_lstm_parquets() -> None:
-    """Combine LSTM dual results across all folds into wide Parquets (CFS).
+def _build_sim_parquets(
+    sim_dir: Path,
+    layer_key: str,
+    model_label: str,
+    columns: dict[str, str],
+) -> None:
+    """Read per-basin sim CSVs and write wide Parquets.
 
-    Each basin appears in exactly one fold (spatial cross-validation holdout).
-    Predictions are in mm/day — convert to CFS using basin area.
-    Dates come from the corresponding observed flow file (same length, aligned).
+    Parameters
+    ----------
+    sim_dir   : directory containing <basin_id>.csv files (already in CFS)
+    layer_key : e.g. "training_watersheds", "huc8"
+    model_label : display name for print messages
+    columns   : mapping from sim CSV column → output parquet name prefix,
+                e.g. {"q_total": "lstm_pred", "q_fast": "lstm_fast", ...}
     """
-    # Load basin areas for mm/day → CFS conversion
-    static = pd.read_csv(STATIC_CSV, usecols=["PourPtID", "total_Shape_Area_km2"])
-    area_map = dict(zip(static["PourPtID"].astype(str), static["total_Shape_Area_km2"]))
+    if not sim_dir.is_dir():
+        for prefix in columns.values():
+            print(f"  {prefix}_{layer_key} … skipped (no sim directory)")
+        return
 
-    pred_series: dict[str, pd.Series] = {}
-    fast_series: dict[str, pd.Series] = {}
-    slow_series: dict[str, pd.Series] = {}
+    csvs = sorted(sim_dir.glob("*.csv"))
+    if not csvs:
+        for prefix in columns.values():
+            print(f"  {prefix}_{layer_key} … skipped (no CSVs)")
+        return
 
-    for fold_dir in sorted(LSTM_DIR.glob("fold_*")):
-        ts_dir = fold_dir / "timeseries"
-        if not ts_dir.is_dir():
+    # Read all basin CSVs once
+    basin_data: dict[str, pd.DataFrame] = {}
+    for csv in csvs:
+        bid = csv.stem
+        df = pd.read_csv(csv, parse_dates=["date"], index_col="date")
+        if not df.empty:
+            basin_data[bid] = df
+
+    # Build one wide Parquet per output column
+    for src_col, prefix in columns.items():
+        out_path = TS_DIR / f"{prefix}_{layer_key}.parquet"
+        print(f"  {prefix}_{layer_key} … ", end="", flush=True)
+
+        series = {
+            bid: df[src_col] for bid, df in basin_data.items()
+            if src_col in df.columns
+        }
+        if not series:
+            print("skipped (no data)")
             continue
-        for csv in sorted(ts_dir.glob("*.csv")):
-            bid = csv.stem
-            area = area_map.get(bid)
-            if area is None:
-                continue
-            cfs_factor = area * _MM_DAY_TO_CFS_FACTOR
 
-            # Read LSTM results (no date column — rows align with obs file)
-            lstm = pd.read_csv(csv)
-
-            # Find dates from the observed flow file
-            obs_file = None
-            for tier in [1, 2, 3]:
-                candidate = FLOW_DIR / f"tier_{tier}" / f"{bid}_cleaned.csv"
-                if candidate.exists():
-                    obs_file = candidate
-                    break
-            if obs_file is None:
-                continue
-
-            obs_dates = pd.read_csv(obs_file, usecols=["date"], parse_dates=True)["date"]
-            if len(obs_dates) != len(lstm):
-                # Align by taking the trailing min(len) rows from each
-                n = min(len(obs_dates), len(lstm))
-                obs_dates = obs_dates.iloc[-n:].reset_index(drop=True)
-                lstm = lstm.iloc[-n:].reset_index(drop=True)
-
-            idx = pd.DatetimeIndex(obs_dates, name="date")
-
-            pred_series[bid] = pd.Series((lstm["pred"].values * cfs_factor).round(1), index=idx)
-            fast_series[bid] = pd.Series((lstm["q_fast"].values * cfs_factor).round(1), index=idx)
-            slow_series[bid] = pd.Series((lstm["q_slow"].values * cfs_factor).round(1), index=idx)
-
-    for name, data in [("lstm_pred", pred_series), ("lstm_fast", fast_series), ("lstm_slow", slow_series)]:
-        out_path = TS_DIR / f"{name}.parquet"
-        print(f"  {name} … ", end="", flush=True)
-        wide = pd.DataFrame(data).round(1)
+        wide = pd.DataFrame(series)
         wide.index.name = "date"
         wide.to_parquet(out_path, engine="pyarrow", compression="zstd")
         size_mb = out_path.stat().st_size / 1e6
         print(f"{wide.shape[0]} days × {wide.shape[1]} basins → {size_mb:.2f} MB")
+
+
+def build_lstm_parquets() -> None:
+    """Build LSTM dual sim Parquets for all available layer types."""
+    sim_base = SIM_DIR / "dual_lstm_kfold"
+    for layer_key in ("training_watersheds", "huc8", "huc10"):
+        sim_dir = sim_base / layer_key / "historical"
+        _build_sim_parquets(sim_dir, layer_key, "LSTM Dual", {
+            "q_total": "lstm_pred",
+            "q_fast": "lstm_fast",
+            "q_slow": "lstm_slow",
+        })
 
 
 # ---------------------------------------------------------------------------
@@ -288,56 +291,13 @@ def build_lstm_parquets() -> None:
 # ---------------------------------------------------------------------------
 
 def build_lstm_single_parquets() -> None:
-    """Combine LSTM single results across all folds into a wide Parquet (CFS).
-
-    Only pred is meaningful — q_fast/q_slow are zero-filled for the single model.
-    """
-    if not LSTM_SINGLE_DIR.exists():
-        print("  lstm_single_pred … skipped (no directory)")
-        return
-
-    static = pd.read_csv(STATIC_CSV, usecols=["PourPtID", "total_Shape_Area_km2"])
-    area_map = dict(zip(static["PourPtID"].astype(str), static["total_Shape_Area_km2"]))
-
-    pred_series: dict[str, pd.Series] = {}
-
-    for fold_dir in sorted(LSTM_SINGLE_DIR.glob("fold_*")):
-        ts_dir = fold_dir / "timeseries"
-        if not ts_dir.is_dir():
-            continue
-        for csv in sorted(ts_dir.glob("*.csv")):
-            bid = csv.stem
-            area = area_map.get(bid)
-            if area is None:
-                continue
-            cfs_factor = area * _MM_DAY_TO_CFS_FACTOR
-
-            lstm = pd.read_csv(csv)
-            obs_file = None
-            for tier in [1, 2, 3]:
-                candidate = FLOW_DIR / f"tier_{tier}" / f"{bid}_cleaned.csv"
-                if candidate.exists():
-                    obs_file = candidate
-                    break
-            if obs_file is None:
-                continue
-
-            obs_dates = pd.read_csv(obs_file, usecols=["date"], parse_dates=True)["date"]
-            if len(obs_dates) != len(lstm):
-                n = min(len(obs_dates), len(lstm))
-                obs_dates = obs_dates.iloc[-n:].reset_index(drop=True)
-                lstm = lstm.iloc[-n:].reset_index(drop=True)
-
-            idx = pd.DatetimeIndex(obs_dates, name="date")
-            pred_series[bid] = pd.Series((lstm["pred"].values * cfs_factor).round(1), index=idx)
-
-    out_path = TS_DIR / "lstm_single_pred.parquet"
-    print(f"  lstm_single_pred … ", end="", flush=True)
-    wide = pd.DataFrame(pred_series).round(1)
-    wide.index.name = "date"
-    wide.to_parquet(out_path, engine="pyarrow", compression="zstd")
-    size_mb = out_path.stat().st_size / 1e6
-    print(f"{wide.shape[0]} days × {wide.shape[1]} basins → {size_mb:.2f} MB")
+    """Build LSTM single sim Parquets for all available layer types."""
+    sim_base = SIM_DIR / "single_lstm_kfold"
+    for layer_key in ("training_watersheds", "huc8", "huc10"):
+        sim_dir = sim_base / layer_key / "historical"
+        _build_sim_parquets(sim_dir, layer_key, "LSTM Single", {
+            "q_total": "lstm_single_pred",
+        })
 
 
 # ---------------------------------------------------------------------------
