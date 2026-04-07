@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from src.data.paths import (
+from src.paths import (
     BASIN_ATLAS_OUTPUT,
     CLIMATE_DIR,
     FLOW_CLEANED_STRICT_DIR,
@@ -336,7 +336,11 @@ def main() -> None:
         "tier_2": FLOW_DIR / "tier_2",
         "tier_3": FLOW_DIR / "tier_3",
     }
+    # Remove stale files so excluded basins don't persist from prior runs
     for d in tier_dirs.values():
+        if d.exists():
+            for old in d.glob("*_cleaned.csv"):
+                old.unlink()
         d.mkdir(parents=True, exist_ok=True)
 
     n_tiers = {"tier_1": 0, "tier_2": 0, "tier_3": 0, "unclassified": 0}

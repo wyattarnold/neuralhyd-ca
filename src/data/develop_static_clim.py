@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 
-from src.data.paths import CLIMATE_DIR, CLIMATE_STATS_OUTPUT
+from src.paths import CLIMATE_DIR, CLIMATE_STATS_OUTPUT
 
 
 def calculate_pet_hargreaves(

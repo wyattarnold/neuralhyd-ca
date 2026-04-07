@@ -8,15 +8,19 @@ Sections and output files (written to data/prepare/):
   5  Zero Water Years  -> sec5_zero_wy_audit.csv
   6  Zero-WY Drops     -> sec6_null_flow_drops.csv
   7  Cleaned Strict    -> sec7_cleaned_strict.csv
+  8  Excluded Basins   -> sec8_excluded_basins.csv + figures/excluded_basins/
   Report               -> qa_qc_report.txt
 """
 from __future__ import annotations
 
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from pathlib import Path
 
-from src.data.paths import (
+from src.paths import (
     CLIMATE_DIR,
     FLOW_CLEANED_DIR,
     FLOW_DROPPED_DIR,
@@ -42,8 +46,15 @@ COL_TMIN_HI   = f"tmin_above_{_tval(TMIN_MAX_C)}c"
 COL_TMIN_LO   = f"tmin_below_{_tval(TMIN_MIN_C)}c"
 
 INTENTIONAL_EXCLUSIONS = {
-    "11299000": "reservoir storage (not streamflow)",
-    "11446220": "water temperature only (parameter 00010)",
+    "11299000": "wrong gage identifier (reservoir storage, not flow)",
+    "11446220": "water temperature gage, not flow",
+    "11406999": "suspect observations",
+    "11355500": "suspect baseflow",
+    "11195500": "suspect observations",
+    "11274790": "suspect observations",
+    "11376500": "suspect baseflow",
+    "11400000": "suspect baseflow",
+    "10308783": "tiny, sparse observations",
 }
 
 FLOW_COL_ORDER = ["00060_Mean", "00060_2_Mean", "00054_Observation at 24:00"]
@@ -445,11 +456,20 @@ def _run_null_flow_drops() -> tuple[int, int, pd.DataFrame]:
 def _run_cleaned_strict() -> tuple[pd.DataFrame, int, int]:
     print("=== Section 7: cleaned_strict ===")
     STRICT_EXCLUDE = {"A, e", "A, R"}
+    # Remove stale files (e.g. previously-excluded basins) before rewriting
+    if FLOW_CLEANED_STRICT_DIR.exists():
+        for old in FLOW_CLEANED_STRICT_DIR.glob("*_cleaned.csv"):
+            old.unlink()
     FLOW_CLEANED_STRICT_DIR.mkdir(parents=True, exist_ok=True)
 
     strict_rows = []
     for fp_clean in sorted(FLOW_CLEANED_DIR.glob("*_cleaned.csv")):
         sid = _sid(fp_clean, suffix="_cleaned")
+
+        if sid in INTENTIONAL_EXCLUSIONS:
+            print(f"  {sid}: skipped (excluded — {INTENTIONAL_EXCLUSIONS[sid]})")
+            continue
+
         try:
             cf = pd.read_csv(fp_clean, parse_dates=["date"])
         except Exception as e:
@@ -480,6 +500,71 @@ def _run_cleaned_strict() -> tuple[pd.DataFrame, int, int]:
     return strict_df, n_strict_affected, total_strict_excluded
 
 
+def _run_excluded_basins() -> pd.DataFrame:
+    """Section 8: plot observations for intentionally excluded basins."""
+    print("=== Section 8: Excluded basin observation plots ===")
+    fig_dir = STEP_7_OUTPUT_DIR / "figures" / "excluded_basins"
+    fig_dir.mkdir(parents=True, exist_ok=True)
+
+    rows = []
+    for sid, reason in sorted(INTENTIONAL_EXCLUSIONS.items()):
+        fp_clean = FLOW_CLEANED_DIR / f"{sid}_cleaned.csv"
+        fp_raw   = RAW_USGS_DIR / f"{sid}.csv"
+
+        # Try cleaned first, fall back to raw
+        df = None
+        source = None
+        if fp_clean.exists():
+            try:
+                df = pd.read_csv(fp_clean, parse_dates=["date"])
+                source = "cleaned"
+            except Exception:
+                pass
+
+        if df is None and fp_raw.exists():
+            try:
+                rw = pd.read_csv(fp_raw, parse_dates=["datetime"])
+                rw["date"] = _parse_raw_datetimes(rw["datetime"])
+                flow_col = _detect_flow_col(rw.columns)
+                if flow_col is not None:
+                    rw = rw.rename(columns={flow_col: "flow"})
+                    df = rw[["date", "flow"]].dropna(subset=["flow"])
+                    source = "raw"
+            except Exception:
+                pass
+
+        n_obs = len(df) if df is not None else 0
+        rows.append({
+            "station_id": sid,
+            "reason":     reason,
+            "source":     source or "none",
+            "n_obs":      n_obs,
+            "date_start": df["date"].min().date() if df is not None and n_obs else None,
+            "date_end":   df["date"].max().date() if df is not None and n_obs else None,
+        })
+
+        if df is None or n_obs == 0:
+            print(f"  {sid}: no data found — skipping plot")
+            continue
+
+        # --- Plot ---
+        fig, ax = plt.subplots(figsize=(12, 4))
+        ax.plot(df["date"], df["flow"], linewidth=0.5, color="steelblue", alpha=0.8)
+        ax.set_title(f"{sid} — {reason} (n={n_obs:,}, source={source})", fontsize=11)
+        ax.set_xlabel("Date")
+        ax.set_ylabel("Flow (cfs)")
+        ax.grid(True, alpha=0.3)
+        fig.tight_layout()
+        fig.savefig(fig_dir / f"{sid}_observations.png", dpi=150)
+        plt.close(fig)
+        print(f"  {sid}: plotted {n_obs:,} obs -> {sid}_observations.png")
+
+    excl_df = pd.DataFrame(rows)
+    excl_df.to_csv(STEP_7_OUTPUT_DIR / "sec8_excluded_basins.csv", index=False)
+    print(f"  {len(excl_df)} excluded basins -> sec8_excluded_basins.csv")
+    return excl_df
+
+
 # ============================================================================
 # Report generation
 # ============================================================================
@@ -488,6 +573,7 @@ def _write_report(
     clim_df, flow_df, cross_df, audit_df, zero_wy_df,
     n_null_changed, total_null_moved, null_drop_df,
     strict_df, n_strict_affected, total_strict_excluded,
+    excl_df,
 ) -> None:
     print("=== Writing qa_qc_report.txt ===")
 
@@ -609,6 +695,17 @@ def _write_report(
     L(f"  Total excluded (A,e + A,R) days  : {total_strict_excluded:,}")
     L("")
 
+    # -- Section 8: Excluded basins
+    L("\u2501" * 70)
+    L("SECTION 8: EXCLUDED BASINS")
+    L("\u2501" * 70)
+    L(f"  Basins excluded       : {len(excl_df)}")
+    for _, row in excl_df.iterrows():
+        obs_info = f"n={row['n_obs']:,}" if row["n_obs"] else "no data"
+        L(f"    {row['station_id']:12s}  {row['reason']:40s}  ({obs_info})")
+    L(f"  Observation plots     : {STEP_7_OUTPUT_DIR / 'figures' / 'excluded_basins'}/")
+    L("")
+
     # -- Output file index
     L("-" * 70)
     L("OUTPUT FILES")
@@ -619,6 +716,8 @@ def _write_report(
     L("  sec5_zero_wy_audit.csv   - all-zero water years detected in raw data")
     L("  sec6_null_flow_drops.csv - stations where null-flow rows were moved to dropped")
     L("  sec7_cleaned_strict.csv  - per-station summary of A,e / A,R exclusions")
+    L("  sec8_excluded_basins.csv - excluded basins with reasons and obs counts")
+    L("  figures/excluded_basins/ - observation time-series plots for excluded basins")
     L("  qa_qc_report.txt         - this report")
     L("-" * 70)
 
@@ -645,11 +744,13 @@ def main() -> None:
     zero_wy_df = _run_zero_wy_detection()
     n_null_changed, total_null_moved, null_drop_df = _run_null_flow_drops()
     strict_df, n_strict_affected, total_strict_excluded = _run_cleaned_strict()
+    excl_df = _run_excluded_basins()
 
     _write_report(
         clim_df, flow_df, cross_df, audit_df, zero_wy_df,
         n_null_changed, total_null_moved, null_drop_df,
         strict_df, n_strict_affected, total_strict_excluded,
+        excl_df,
     )
 
 

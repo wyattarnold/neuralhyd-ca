@@ -25,8 +25,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from src.data.paths import (
+from src.paths import (
     CLIMATE_DIR,
+    CLIMATE_STATS_OUTPUT,
     FLOW_CLEANED_DIR,
     FLOW_DROPPED_DIR,
     STEP_6_OUTPUT_DIR,
@@ -38,6 +39,12 @@ FIGURES_DIR = STEP_6_OUTPUT_DIR / "figures"
 # Discharge column fallback order (mirrors notebook)
 FLOW_COL_ORDER = ["00060_Mean", "00060_2_Mean", "00054_Observation at 24:00"]
 TOP_N = 15  # number of extreme events to inspect
+
+# Snowmelt exemption — avoid filtering legitimate melt-driven peaks
+SNOW_FRAC_THRESH = 0.1       # basin snow_fraction above which exemption applies
+MELT_MONTHS = {3, 4, 5, 6, 7}  # Mar–Jul
+WINTER_PRECIP_WINDOW = 280    # rolling lookback (days) for winter accumulation
+WINTER_PRECIP_MIN = 100       # mm cumulative to trigger exemption
 
 
 def _detect_flow_col(cols) -> str | None:
@@ -56,13 +63,20 @@ def _build_exc_df(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def _filter_site(df: pd.DataFrame) -> tuple[pd.DataFrame, list]:
+def _filter_site(
+    df: pd.DataFrame,
+    exempt: pd.Index | None = None,
+) -> tuple[pd.DataFrame, list]:
     """Iteratively drop extreme events with implausibly low 3-day precip.
+
+    Dates in *exempt* (snowmelt-season dates with sufficient winter precip)
+    are never dropped, even if they trip the precipitation criteria.
 
     Returns (filtered_df, dropped_dates).
     """
     exc_mast = _build_exc_df(df)
     drop_dates: list = []
+    _exempt = exempt if exempt is not None else pd.Index([])
 
     t = True
     while t:
@@ -70,6 +84,7 @@ def _filter_site(df: pd.DataFrame) -> tuple[pd.DataFrame, list]:
 
         # Criteria 1: 3-day precip < 1 mm
         bad1 = top[top["pr_3day"] < 1].index.tolist()
+        bad1 = [d for d in bad1 if d not in _exempt]
         if bad1:
             exc_mast = exc_mast.drop(bad1)
             drop_dates.extend(bad1)
@@ -80,6 +95,7 @@ def _filter_site(df: pd.DataFrame) -> tuple[pd.DataFrame, list]:
         thresh = np.nanmean(top["pr_3day"]) * 0.1
         bad2_cond = (top["pr_3day"] < thresh) & (top["flow_7day_fit"] == False)  # noqa: E712
         bad2 = top[bad2_cond].index.tolist()
+        bad2 = [d for d in bad2 if d not in _exempt]
         if bad2:
             exc_mast = exc_mast.drop(bad2)
             drop_dates.extend(bad2)
@@ -167,8 +183,8 @@ def _plot_site(
     plt.close("all")
 
 
-def process_site(site: str) -> str:
-    """Process a single site. Returns status string."""
+def process_site(site: str, snow_fraction: float = 0.0) -> dict:
+    """Process a single site. Returns dict with status, kept, dropped."""
     flow_path    = RAW_USGS_DIR / f"{site}.csv"
     climate_path = CLIMATE_DIR  / f"climate_{site}.csv"
     out_clean    = FLOW_CLEANED_DIR / f"{site}_cleaned.csv"
@@ -176,9 +192,9 @@ def process_site(site: str) -> str:
     out_fig      = FIGURES_DIR / f"{site}_filter.png"
 
     if not flow_path.exists():
-        return f"[SKIP] no raw flow: {flow_path.name}"
+        return {"status": f"[SKIP] no raw flow: {flow_path.name}"}
     if not climate_path.exists():
-        return f"[SKIP] no climate: {climate_path.name}"
+        return {"status": f"[SKIP] no climate: {climate_path.name}"}
 
     # ── Load & merge ───────────────────────────────────────────────────────
     flow_df = pd.read_csv(flow_path)
@@ -193,7 +209,7 @@ def process_site(site: str) -> str:
 
     flow_col = _detect_flow_col(merged.columns)
     if flow_col is None:
-        return f"[SKIP] no discharge column"
+        return {"status": "[SKIP] no discharge column"}
 
     cd_col = f"{flow_col}_cd" if f"{flow_col}_cd" in merged.columns else None
     cols = [flow_col] + ([cd_col] if cd_col else []) + ["precip_mm", "tmax_c", "tmin_c"]
@@ -218,9 +234,18 @@ def process_site(site: str) -> str:
 
     orig = merged.copy()
 
+    # ── Snowmelt exemption ─────────────────────────────────────────────────
+    exempt: pd.Index | None = None
+    if snow_fraction > SNOW_FRAC_THRESH:
+        winter_accum = merged["precip_mm"].rolling(
+            window=WINTER_PRECIP_WINDOW, min_periods=1,
+        ).sum()
+        is_melt = merged.index.month.isin(MELT_MONTHS)
+        exempt = merged.index[is_melt & (winter_accum >= WINTER_PRECIP_MIN)]
+
     # ── Filter ─────────────────────────────────────────────────────────────
     exc_full = _build_exc_df(merged)
-    _, drop_dates = _filter_site(merged)
+    _, drop_dates = _filter_site(merged, exempt=exempt)
 
     # ── Plot ───────────────────────────────────────────────────────────────
     _plot_site(orig, exc_full, drop_dates, site, out_fig)
@@ -233,7 +258,11 @@ def process_site(site: str) -> str:
     cleaned.to_csv(out_clean, index=True)
     dropped.to_csv(out_dropped, index=True)
 
-    return f"[OK] kept={len(cleaned)}, dropped={len(dropped)}"
+    return {
+        "status": f"[OK] kept={len(cleaned)}, dropped={len(dropped)}",
+        "kept": len(cleaned),
+        "dropped": len(dropped),
+    }
 
 
 def main() -> None:
@@ -241,13 +270,22 @@ def main() -> None:
     FLOW_DROPPED_DIR.mkdir(parents=True, exist_ok=True)
     FIGURES_DIR.mkdir(parents=True, exist_ok=True)
 
+    # Load snow_fraction per basin for snowmelt exemption
+    snow_map: dict[str, float] = {}
+    if CLIMATE_STATS_OUTPUT.exists():
+        clim_df = pd.read_csv(CLIMATE_STATS_OUTPUT)
+        snow_map = dict(
+            zip(clim_df["PourPtID"].astype(str), clim_df["snow_fraction"])
+        )
+
     sites = sorted(p.stem for p in RAW_USGS_DIR.glob("*.csv"))
     print(f"Found {len(sites)} sites.")
 
     metrics = []
     for i, site in enumerate(sites, 1):
-        print(f"[{i}/{len(sites)}] {site} ... ", end="", flush=True)
-        status = process_site(site)
+        sf = snow_map.get(site, 0.0)
+        print(f"[{i}/{len(sites)}] {site} (snow_frac={sf:.2f}) ... ", end="", flush=True)
+        result = process_site(site, snow_fraction=sf)
         # detect which flow column was used for site_metrics.csv
         flow_path = RAW_USGS_DIR / f"{site}.csv"
         flow_col = None
@@ -257,8 +295,13 @@ def main() -> None:
                 flow_col = _detect_flow_col(cols) or "unknown"
             except Exception:
                 pass
-        metrics.append({"site": site, "metric": flow_col or "unknown"})
-        print(status)
+        metrics.append({
+            "site": site,
+            "metric": flow_col or "unknown",
+            "kept": result.get("kept", ""),
+            "dropped": result.get("dropped", ""),
+        })
+        print(result["status"])
 
     metrics_df = pd.DataFrame(metrics)
     metrics_path = STEP_6_OUTPUT_DIR / "site_metrics.csv"

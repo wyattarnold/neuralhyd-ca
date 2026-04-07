@@ -11,6 +11,7 @@ data/prepare/flow_precip_exceedance_filter/
 data/prepare/qa_qc_report/
 data/prepare/qa_qc_tier_sort/
 *.gdb
+data/eval/sim/
 
 # OS generated files
 .DS_Store

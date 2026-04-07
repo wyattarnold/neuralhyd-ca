@@ -77,10 +77,10 @@ class Layer:
         self.vic_surface = _lazy(f"vic_surface_{key}.parquet") if key == "training_watersheds" else None
         self.obs = _lazy("obs.parquet") if key == "training_watersheds" else None
         self.obs_baseflow = _lazy("obs_baseflow.parquet") if key == "training_watersheds" else None
-        self.lstm_pred = _lazy("lstm_pred.parquet") if key == "training_watersheds" else None
-        self.lstm_fast = _lazy("lstm_fast.parquet") if key == "training_watersheds" else None
-        self.lstm_slow = _lazy("lstm_slow.parquet") if key == "training_watersheds" else None
-        self.lstm_single_pred = _lazy("lstm_single_pred.parquet") if key == "training_watersheds" else None
+        self.lstm_pred = _lazy(f"lstm_pred_{key}.parquet")
+        self.lstm_fast = _lazy(f"lstm_fast_{key}.parquet")
+        self.lstm_slow = _lazy(f"lstm_slow_{key}.parquet")
+        self.lstm_single_pred = _lazy(f"lstm_single_pred_{key}.parquet")
 
     @property
     def geojson(self) -> dict:

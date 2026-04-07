@@ -1,18 +1,21 @@
-"""Post-processing CLI for evaluation metrics and plots.
+"""Post-processing CLI for evaluation metrics, plots, and simulation.
 
 Usage
 -----
 Compute evaluation metrics (CSVs written to data/eval/):
-    python scripts/post_process.py --eval dual_lstm_kfold single_lstm_kfold
+    python post_process.py --eval dual_lstm_kfold single_lstm_kfold
 
 Plot CDF of NSE across models:
-    python scripts/post_process.py --cdf-metric nse kge --runs dual_lstm_kfold single_lstm_kfold
+    python post_process.py --cdf-metric nse kge --runs dual_lstm_kfold single_lstm_kfold
 
 Plot CDF comparing LSTM KGE vs VIC calibrated/regionalized KGE:
-    python scripts/post_process.py --cdf-vic-kge
+    python post_process.py --cdf-vic-kge
 
-Both can be combined:
-    python scripts/post_process.py --eval dual_lstm_kfold single_lstm_kfold --cdf-metric nse kge fhv flv
+Simulate trained models over historical climate inputs:
+    python post_process.py --simulate single_lstm_kfold
+
+All commands can be combined:
+    python post_process.py --eval dual_lstm_kfold --simulate dual_lstm_kfold --cdf-metric nse kge
 """
 
 from __future__ import annotations
@@ -38,11 +41,16 @@ from src.eval.metrics import (
     METRICS,
 )
 from src.eval.plots import plot_metric_cdf
+from src.eval.simulate import simulate_training_watersheds
+from src.paths import (
+    EVAL_DIR,
+    SCRIPTS_DIR,
+    SIM_DIR,
+    TRAINING_OUTPUT_DIR,
+    VIC_CAL_DIR,
+)
 
-TRAINING_OUTPUT = REPO_ROOT / "data" / "training" / "output"
-EVAL_DIR = REPO_ROOT / "data" / "eval"
 VIC_LABEL = "vic_simulated"
-VIC_CAL_DIR = REPO_ROOT / "data" / "external" / "cec" / "VIC-Calibration"
 
 
 # ---------------------------------------------------------------------------
@@ -55,14 +63,14 @@ def run_eval(run_names: list[str]) -> None:
     EVAL_DIR.mkdir(parents=True, exist_ok=True)
 
     print(f"Computing VIC simulated metrics...")
-    vic_df = compute_vic_metrics(REPO_ROOT)
+    vic_df = compute_vic_metrics()
     vic_path = EVAL_DIR / f"{VIC_LABEL}.csv"
     vic_df.to_csv(vic_path, index=False)
     print(f"  VIC: {len(vic_df)} basins → {vic_path}")
     _print_summary(vic_df, "VIC Simulated")
 
     for name in run_names:
-        run_dir = TRAINING_OUTPUT / name
+        run_dir = TRAINING_OUTPUT_DIR / name
         if not run_dir.exists():
             print(f"  WARNING: {run_dir} does not exist, skipping.")
             continue
@@ -224,6 +232,43 @@ def run_cdf_vic_kge() -> None:
 
 
 # ---------------------------------------------------------------------------
+# --simulate: run trained models over climate inputs
+# ---------------------------------------------------------------------------
+
+def _find_config(run_name: str) -> Path:
+    """Locate the TOML config for a run name.
+
+    Checks (in order):
+      1. scripts/config_<run_name>.toml
+      2. data/training/output/<run_name>/config.toml  (copy saved at train time)
+    """
+    candidate = SCRIPTS_DIR / f"config_{run_name}.toml"
+    if candidate.exists():
+        return candidate
+    candidate = TRAINING_OUTPUT_DIR / run_name / "config.toml"
+    if candidate.exists():
+        return candidate
+    raise FileNotFoundError(
+        f"Cannot find config for '{run_name}'. "
+        f"Looked in {SCRIPTS_DIR} and {TRAINING_OUTPUT_DIR / run_name}."
+    )
+
+
+def run_simulate(run_names: list[str]) -> None:
+    """Simulate training watersheds for each requested run."""
+    for name in run_names:
+        run_dir = TRAINING_OUTPUT_DIR / name
+        if not run_dir.exists():
+            print(f"  WARNING: {run_dir} does not exist, skipping.")
+            continue
+        config_path = _find_config(name)
+        print(f"\n{'='*60}")
+        print(f"Simulating {name} (config: {config_path.name})")
+        print(f"{'='*60}")
+        simulate_training_watersheds(config_path, SIM_DIR)
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -258,10 +303,18 @@ def main() -> None:
         help="Plot CDF of KGE comparing LSTM vs VIC calibrated/regionalized "
              "on overlapping basins.",
     )
+    parser.add_argument(
+        "--simulate",
+        nargs="+",
+        metavar="RUN",
+        help="Simulate trained models over historical training-watershed climate. "
+             "Output: data/eval/sim/<run>/training_watersheds/historical/",
+    )
 
     args = parser.parse_args()
 
-    if args.eval is None and args.cdf_metric is None and not args.cdf_vic_kge:
+    if (args.eval is None and args.cdf_metric is None
+            and not args.cdf_vic_kge and args.simulate is None):
         parser.print_help()
         sys.exit(1)
 
@@ -278,6 +331,9 @@ def main() -> None:
 
     if args.cdf_vic_kge:
         run_cdf_vic_kge()
+
+    if args.simulate is not None:
+        run_simulate(args.simulate)
 
 
 if __name__ == "__main__":

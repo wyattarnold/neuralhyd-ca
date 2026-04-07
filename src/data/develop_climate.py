@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from src.data.paths import VICGRIDS_FILE, CLIMATE_DIR
+from src.paths import VICGRIDS_FILE, CLIMATE_DIR
 
 
 def read_meteo_file(lat: float, lon: float, meteo_dir: str) -> pd.DataFrame | None:

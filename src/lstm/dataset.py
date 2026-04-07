@@ -414,6 +414,7 @@ class HydroDataset(Dataset):
                 "flow_std": fstd,
                 "static": torch.from_numpy(sv_norm),
                 "fstd_tensor": torch.tensor(fstd, dtype=torch.float32),
+                "dates": dates,                            # climate DatetimeIndex
             }
 
             # Store raw precip & tmean for window snow_fraction computation

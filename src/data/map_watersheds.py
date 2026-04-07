@@ -17,7 +17,7 @@ import matplotlib.patches as mpatches
 import matplotlib.ticker as mticker
 from pathlib import Path
 
-from src.data.paths import (
+from src.paths import (
     WATERSHED_GEOJSON,
     QAQC_FLOW_PRECIP_CSV,
     MAP_WATERSHEDS_DIR,

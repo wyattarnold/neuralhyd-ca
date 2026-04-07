@@ -23,7 +23,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.lines as mlines
 
-from src.data.paths import (
+from src.paths import (
     CLIMATE_DIR,
     FLOW_DIR,
     BASIN_ATLAS_OUTPUT,

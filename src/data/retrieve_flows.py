@@ -13,7 +13,7 @@ from typing import Optional
 import pandas as pd
 import dataretrieval.nwis as nwis
 
-from src.data.paths import STATION_TABLE, RAW_USGS_DIR
+from src.paths import STATION_TABLE, RAW_USGS_DIR
 
 
 def fetch_and_save_station(station_no: str, start_year: int, end_year: int) -> Optional[Path]:
