@@ -397,9 +397,9 @@ export default function SidePanel({ layerKey, polygonId, name, props, onClose, o
   if (showHexTab) TABS.push({ id: "r2", label: "R²" });
 
   return (
-    <div className="flex flex-col h-full bg-white text-gray-900">
+    <div className="flex flex-col h-full bg-paper text-gray-900">
       {/* Header */}
-      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-gray-200 bg-gray-50 shrink-0">
+      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-gray-200 bg-paper shrink-0">
         <div className="min-w-0 flex-1">
           <span className="font-semibold text-sm">{name || polygonId}</span>
           <span className="text-xs text-gray-400 ml-2">{polygonId}</span>

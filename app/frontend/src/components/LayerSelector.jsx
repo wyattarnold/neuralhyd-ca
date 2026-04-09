@@ -7,7 +7,7 @@ const LABELS = {
 export default function LayerSelector({ layers, active, onChange }) {
   return (
     <select
-      className="bg-white/95 border border-gray-300 rounded px-2 py-1 text-sm shadow
+      className="bg-paper/95 border border-gray-300 rounded px-2 py-1 text-sm shadow
                  focus:outline-none focus:ring-2 focus:ring-blue-400"
       value={active}
       onChange={(e) => onChange(e.target.value)}

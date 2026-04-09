@@ -1,5 +1,11 @@
 @import "tailwindcss";
 
+@layer utilities {
+  .bg-paper    { background-color: #ffffff; }
+  .bg-paper\/90 { background-color: rgb(255 255 255 / 0.90); }
+  .bg-paper\/95 { background-color: rgb(255 255 255 / 0.95); }
+}
+
 html, body, #root {
   height: 100%;
   margin: 0;

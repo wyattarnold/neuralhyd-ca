@@ -1,5 +1,27 @@
 #!/usr/bin/env python3
-"""Entry point: 3-fold stratified spatial cross-validation."""
+"""Entry point for k-fold stratified spatial cross-validation.
+
+For each fold ~20 % of basins per tier (T1 rainfall / T2 transitional /
+T3 snow) are held out as unseen test watersheds, exercising ungauged-basin
+generalisation.  Basins — not timesteps — are the unit of splitting.
+
+Usage
+-----
+Run with the default config::
+
+    python scripts/train_kfold.py
+
+Pass an alternate TOML file to run a named experiment; the output
+directory is derived automatically from the filename::
+
+    python scripts/train_kfold.py scripts/config_dual_lstm_kfold.toml
+
+Outputs (written to ``config.output_dir``):
+    all_fold_results.csv           Tier-median NSE/KGE/FHV/FLV per fold
+    fold_<n>/best_model.pt         Checkpoint: model weights + norm_stats
+    fold_<n>/basin_results.csv     Per-basin metrics for the held-out set
+    fold_<n>/timeseries/           Observed vs predicted CSV per basin
+"""
 
 from __future__ import annotations
 

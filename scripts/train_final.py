@@ -1,5 +1,19 @@
 #!/usr/bin/env python3
-"""Train a final model on ALL watersheds (no held-out basins)."""
+"""Train a final model on all 216 watersheds for deployment.
+
+Unlike ``train_kfold.py`` no basins are withheld; all available data are
+used for training so the checkpoint captures the full distribution of
+California watershed behaviour.  The saved checkpoint bundles model
+weights and normalisation statistics so it can be loaded for inference
+on new basins without the original training data.
+
+Usage
+-----
+    python scripts/train_final.py [config.toml]
+
+Output (written to ``config.output_dir``):
+    best_model.pt    Checkpoint: ``model_state_dict`` + ``norm_stats``
+"""
 
 from __future__ import annotations
 

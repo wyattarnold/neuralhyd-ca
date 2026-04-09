@@ -1,4 +1,25 @@
-"""Loss function and evaluation metrics."""
+"""Training loss and scalar evaluation metrics.
+
+Key exports
+-----------
+mse_loss(q_pred, q_target)
+    Mean-squared error used during training.  Operates on normalised
+    flow values (divided by per-basin std).
+compute_nse(obs, sim)
+    Nash-Sutcliffe Efficiency — primary skill score; 1 is perfect,
+    values below 0 indicate the model is worse than the mean.
+compute_kge(obs, sim)
+    Kling-Gupta Efficiency — composite of correlation, bias, and
+    variability; 1 is perfect.
+compute_fhv(obs, sim)
+    Fractional high-flow bias (top 2 % of flows) — penalises peak
+    over- or under-prediction.
+compute_flv(obs, sim)
+    Fractional low-flow bias (bottom 30 % of flows) — penalises
+    baseflow over- or under-prediction.
+
+All evaluation functions operate on denormalised mm/day values.
+"""
 
 from __future__ import annotations
 

@@ -6,7 +6,9 @@ This is a **daily streamflow prediction** project using LSTM networks trained on
 
 ## Environment
 
-- **Python**: 3.14 via miniforge3 (`/Users/wyatt/miniforge3/envs/llm/bin/python`)
+Use the `neuralhyd` environment for all scripts. The project is tested on Python 3.14 with the following key dependencies:
+
+- **Python**: 3.14 via miniforge3 (`/Users/wyatt/miniforge3/envs/neuralhyd/bin/python`)
 - **Key deps**: PyTorch ≥ 2.0, pandas, numpy, scikit-learn, matplotlib, tqdm
 - **OS**: macOS (Apple Silicon). Set `KMP_DUPLICATE_LIB_OK=TRUE` to avoid duplicate OpenMP crashes.
 - **Device preference**: MPS → CUDA → CPU (auto-detected in `scripts/train_kfold.py`)
@@ -14,7 +16,7 @@ This is a **daily streamflow prediction** project using LSTM networks trained on
 ## Running
 
 ```bash
-KMP_DUPLICATE_LIB_OK=TRUE /Users/wyatt/miniforge3/envs/llm/bin/python scripts/train_kfold.py
+KMP_DUPLICATE_LIB_OK=TRUE /Users/wyatt/miniforge3/envs/neuralhyd/bin/python scripts/train_kfold.py
 ```
 
 All hyperparameters live in `scripts/config.toml`. Pass an alternate TOML file as the first argument to `scripts/train_kfold.py` to run a named experiment — the output directory is derived automatically from the filename (e.g. `config_single.toml` → `data/training/output/single/`). The `Config` dataclass in `src/lstm/config.py` is the typed container; use `load_config(path)` from that module to instantiate it.
@@ -23,20 +25,28 @@ All hyperparameters live in `scripts/config.toml`. Pass an alternate TOML file a
 
 ```
 scripts/
-  train_kfold.py     # Entry point: k-fold stratified spatial cross-validation
-  train_final.py     # Train on full dataset for deployment
-  prepare_data.py    # Data preparation pipeline (steps 1–8 + analysis)
-  config.toml        # Default experiment configuration
+  train_kfold.py              # Entry point: k-fold stratified spatial cross-validation
+  train_final.py              # Train on full dataset for deployment
+  prepare_data.py             # Data preparation pipeline (steps 1–8 + analysis)
+  post_process.py             # Post-training CLI: eval metrics, CDF plots, simulation
+  config.toml                 # Default experiment configuration
+  config_dual_lstm_kfold.toml # Named experiment config (dual model)
+  config_single_lstm_kfold.toml # Named experiment config (single baseline)
 src/
-  lstm/              # LSTM model package
-    config.py        # Config dataclass + load_config() — typed container for TOML values
-    dataset.py       # load_all_data(), create_folds(), compute_norm_stats(), HydroDataset
-    model.py         # DualPathwayLSTM, SingleLSTM, StaticEncoder, build_model()
-    train.py         # train_epoch(), validate_epoch(), train_model()
-    loss.py          # mse_loss (training), compute_nse / compute_kge / compute_fhv / compute_flv (eval)
-    evaluate.py      # evaluate_basin(), evaluate_fold()
-  data/              # Data preparation modules called by prepare_data.py
-    paths.py         # Centralised path constants
+  paths.py                   # Top-level path constants (DEFAULT_CONFIG, TRAINING_OUTPUT_DIR)
+  lstm/                      # LSTM model package
+    config.py                # Config dataclass + load_config() — typed container for TOML values
+    dataset.py               # load_all_data(), create_folds(), compute_norm_stats(), HydroDataset
+    model.py                 # DualPathwayLSTM, SingleLSTM, StaticEncoder, build_model()
+    train.py                 # train_epoch(), validate_epoch(), train_model(), load_checkpoint()
+    loss.py                  # mse_loss, blended_loss, pathway_auxiliary_loss, compute_nse/kge/fhv/flv
+    evaluate.py              # evaluate_basin(), evaluate_fold()
+  data/                      # Data preparation modules called by prepare_data.py
+    paths.py                 # Centralised path constants for the data pipeline
+  eval/                      # Post-training evaluation helpers
+    metrics.py               # Aggregate metric computation
+    plots.py                 # CDF and comparison plots
+    simulate.py              # Re-run trained models to produce timeseries
 data/
   training/          # All final training/evaluation inputs and model outputs
     climate/         # climate_<basin_id>.csv — daily precip_mm, tmax_c, tmin_c (1915–2018)
@@ -44,6 +54,7 @@ data/
     static/          # Physical_Attributes_Watersheds.csv, Climate_Statistics_Watersheds.csv
     watersheds/      # watersheds.geojson, watersheds.csv
     output/          # Created at runtime — per-fold checkpoints, basin results, timeseries
+  eval/              # Evaluation CSVs written by post_process.py --eval
   raw/               # Immutable source data (USGS flow downloads, watershed geometry)
   prepare/           # Intermediate pipeline outputs (geo_ops, verify_climate_data, etc.)
   external/          # External comparison data (CEC process-based model results)
@@ -61,7 +72,7 @@ Two LSTM branches with **multiplicative composition** and an **information gap**
 - **Multiplicative composition**: `q_total = q_slow × (1 + q_fast_raw)`. The slow pathway sets the baseflow level; the fast pathway acts as a dimensionless storm amplifier. Storm contribution scales with antecedent wetness.
 - **Softplus activation**: `Softplus(x)` — strictly positive, smooth gradients, well-behaved near zero.
 - **Static encoder**: MLP (16 features → 32 hidden → 10-dim embedding) concatenated to each dynamic timestep. Conditions all pathways on watershed properties (elevation, soil texture, snow fraction, aridity, etc.).
-- **Auxiliary loss**: Asymmetric MSE supervision of pathway components against Lyne-Hollick baseflow separation targets (α=0.925, weight=0.3, peak asymmetry=2.0×).
+- **Auxiliary loss**: Asymmetric MSE supervision of pathway components against Lyne-Hollick baseflow separation targets (α=0.925, peak asymmetry=2.0×).
 - **Parameters**: ~101k
 
 ### Single LSTM Baseline (`model_type="single"`)
@@ -83,7 +94,7 @@ Both models return `(q_total, q_fast, q_slow)` from `forward()`. Use `build_mode
 
 - **Flow target**: converted from cfs to **mm/day** (`q × 2.44577 / area_km²`, where 2.44577 = 0.0283168 m³/cfs × 86400 s/day × 1000 mm/m ÷ 1e6 m²/km²) using raw basin area, then divided by per-basin std. This removes area as a confound and makes flow physically comparable across basins.
 - **Climate inputs**: z-score normalised globally using training-basin statistics only
-- **Static attributes**: z-score normalised globally using training basins; `total_Shape_Area_km2` is log10-transformed first (the raw value is used for mm/day conversion before the log transform)
+- **Static attributes**: z-score normalised globally using training basins; `total_Shape_Area_km2` and `ria_ha_usu` are log10-transformed first (the raw area value is used for mm/day conversion before the log transform)
 
 ## Data Details
 
@@ -100,13 +111,19 @@ Both models return `(q_total, q_fast, q_slow)` from `forward()`. Use `build_mode
 - **Static conditioning is critical** — the same precipitation can produce completely different runoff depending on elevation, soil type, and snow fraction. Without static attributes, the model cannot distinguish tier behaviors.
 - Flow must be non-negative. The architecture enforces this via Softplus on all pathway outputs.
 
+## Training Schedule
+
+`train_model()` runs in two phases:
+1. **Warmup + ReduceLROnPlateau**: `warmup_epochs` ramp-up, then LR halved on plateau. When `patience` exhausts without improvement, phase 2 begins (or training stops if `use_swa=false`).
+2. **SWA phase** (when `use_swa=true`): fixed low LR (`swa_lr`), model weights averaged each epoch for `swa_patience` epochs. SWA often produces small consistent gains over the best single checkpoint.
+
 ## Checkpoint Format
 
 Checkpoints (`best_model.pt`) are saved as dicts with two keys:
 - `model_state_dict`: the `nn.Module` state dict
 - `norm_stats`: the normalisation statistics dict (climate mean/std, static mean/std, per-basin flow std) — needed to normalise inputs for new basins at inference time
 
-Use `load_checkpoint(path, model, device)` from `src.train` to load a checkpoint and recover the norm stats. It also handles legacy bare-state-dict files gracefully.
+Use `load_checkpoint(path, model, device)` from `src.lstm.train` to load a checkpoint and recover the norm stats. It also handles legacy bare-state-dict files gracefully.
 
 ## Coding Conventions
 
@@ -123,7 +140,7 @@ Use `load_checkpoint(path, model, device)` from `src.train` to load a checkpoint
 - To add new dynamic features: update `Config.dynamic_features`, ensure they exist in the climate CSVs. `n_dynamic` in the model is auto-computed as `len(dynamic_features)`.
 - To add new static features: update `Config.static_features`, ensure they exist in the static attribute CSVs (joined from BasinATLAS + Climate Statistics tables on `PourPtID`).
 - To change the architecture: modify `src/lstm/model.py`. Both models share the `forward()` signature `(x_dynamic, x_static) → (q_total, q_fast, q_slow)` used by train, evaluate, and train_kfold — keep it stable or update all three. Use `build_model(config)` for instantiation.
-- To change the loss: modify `src/lstm/loss.py`. The training loop calls `mse_loss(q_total, y)` — swap in an NSE-based loss there if desired.
+- To change the loss: modify `src/lstm/loss.py`. By default the training loop uses `blended_loss` (MSE + log-MSE, controlled by `log_loss_lambda`; set to 0 for pure MSE). Swap in an NSE-based loss by replacing the `blended_loss` / `mse_loss` call in `train_epoch`.
 
 ## Documentation Alignment
 
