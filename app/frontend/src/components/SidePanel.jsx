@@ -269,9 +269,7 @@ export default function SidePanel({ layerKey, polygonId, name, props, onClose, o
     if (!displayDates.length) return [];
     const [s, e] = effectiveRange;
     const slice = [];
-    const len = e - s + 1;
-    const step = len > 3000 ? Math.ceil(len / 3000) : 1;
-    for (let i = s; i <= e; i += step) {
+    for (let i = s; i <= e; i++) {
       const pt = { date: displayDates[i] };
       for (const k of activeSeries) {
         const raw = displayData[k]?.[i] ?? null;
@@ -365,9 +363,7 @@ export default function SidePanel({ layerKey, polygonId, name, props, onClose, o
     if (!showFlowSep || !displayDates.length) return [];
     const [s, e] = effectiveRange;
     const slice = [];
-    const len = e - s + 1;
-    const step = len > 3000 ? Math.ceil(len / 3000) : 1;
-    for (let i = s; i <= e; i += step) {
+    for (let i = s; i <= e; i++) {
       const pt = { date: displayDates[i] };
 
       // Observed components (always shown)
@@ -571,7 +567,7 @@ export default function SidePanel({ layerKey, polygonId, name, props, onClose, o
                       return (
                         <Line
                           key={k}
-                          type="monotone"
+                          type="linear"
                           dataKey={k}
                           name={cfg.label}
                           stroke={cfg.color}
@@ -634,7 +630,7 @@ export default function SidePanel({ layerKey, polygonId, name, props, onClose, o
                     />
                     {/* Observed baseflow + quickflow (always visible, stacked) */}
                     <Area
-                      type="monotone"
+                      type="linear"
                       dataKey="obs_baseflow"
                       name={FLOW_SEP_SERIES.obs_baseflow.label}
                       stackId="obs"
@@ -646,7 +642,7 @@ export default function SidePanel({ layerKey, polygonId, name, props, onClose, o
                       isAnimationActive={false}
                     />
                     <Area
-                      type="monotone"
+                      type="linear"
                       dataKey="obs_quickflow"
                       name={FLOW_SEP_SERIES.obs_quickflow.label}
                       stackId="obs"
@@ -661,7 +657,7 @@ export default function SidePanel({ layerKey, polygonId, name, props, onClose, o
                     {flowSepGroups.lstm && hasLstmComponents && (
                       <>
                         <Area
-                          type="monotone"
+                          type="linear"
                           dataKey="lstm_slow"
                           name={FLOW_SEP_SERIES.lstm_slow.label}
                           stackId="lstm"
@@ -673,7 +669,7 @@ export default function SidePanel({ layerKey, polygonId, name, props, onClose, o
                           isAnimationActive={false}
                         />
                         <Area
-                          type="monotone"
+                          type="linear"
                           dataKey="lstm_fast"
                           name={FLOW_SEP_SERIES.lstm_fast.label}
                           stackId="lstm"
@@ -690,7 +686,7 @@ export default function SidePanel({ layerKey, polygonId, name, props, onClose, o
                     {flowSepGroups.vic && hasVicComponents && (
                       <>
                         <Area
-                          type="monotone"
+                          type="linear"
                           dataKey="vic_baseflow"
                           name={FLOW_SEP_SERIES.vic_baseflow.label}
                           stackId="vic"
@@ -702,7 +698,7 @@ export default function SidePanel({ layerKey, polygonId, name, props, onClose, o
                           isAnimationActive={false}
                         />
                         <Area
-                          type="monotone"
+                          type="linear"
                           dataKey="vic_surface"
                           name={FLOW_SEP_SERIES.vic_surface.label}
                           stackId="vic"
