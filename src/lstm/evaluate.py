@@ -1,4 +1,19 @@
-"""Per-basin evaluation and result aggregation."""
+"""Per-basin evaluation and fold-level result aggregation.
+
+Predictions are denormalised (multiplied by per-basin flow std) before
+metrics are computed so that NSE/KGE/FHV/FLV are in physical units
+(mm/day) and comparable across basins of different size.
+
+Key exports
+-----------
+evaluate_basin(model, dataset, basin_id, norm_stats, config, device)
+    Run inference for a single basin and return a metrics dict plus the
+    observed-vs-predicted timeseries DataFrame.
+evaluate_fold(model, val_basins, basin_data, norm_stats, config, device)
+    Evaluate all held-out basins in a fold; write per-basin CSVs to
+    ``output_dir/fold_<n>/timeseries/`` and return a combined
+    ``basin_results.csv`` DataFrame with tier-grouped summary rows.
+"""
 
 from __future__ import annotations
 

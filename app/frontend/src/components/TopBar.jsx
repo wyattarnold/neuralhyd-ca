@@ -1,6 +1,6 @@
 export default function TopBar({ onInfoClick }) {
   return (
-    <header className="h-12 bg-white border-b border-gray-200 flex items-center px-4 shrink-0 z-[1100]">
+    <header className="h-12 bg-paper border-b border-gray-200 flex items-center px-4 shrink-0 z-[1100]">
       {/* DWR logo — left */}
       <img
         src="/dwr-logo.png"

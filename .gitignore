@@ -12,6 +12,7 @@ data/prepare/qa_qc_report/
 data/prepare/qa_qc_tier_sort/
 *.gdb
 data/eval/sim/
+*.nc
 
 # OS generated files
 .DS_Store

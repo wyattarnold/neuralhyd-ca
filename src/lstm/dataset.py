@@ -1,4 +1,27 @@
-"""Data loading, fold creation, and PyTorch Dataset."""
+"""Data loading, fold creation, normalisation, and PyTorch Dataset.
+
+Typical call order::
+
+    basin_data  = load_all_data(config)
+    folds       = create_folds(basin_data, config)
+    norm_stats  = compute_norm_stats(train_basins, basin_data, config)
+    dataset     = HydroDataset(basin_data, basin_ids, norm_stats, config)
+
+Key exports
+-----------
+load_all_data(config)
+    Read climate CSVs, flow CSVs, and static attribute tables; return a
+    dict mapping basin_id → combined DataFrame.
+create_folds(basin_data, config)
+    Produce ``config.n_folds`` stratified folds, keeping each tier
+    (T1/T2/T3) proportionally represented in every held-out set.
+compute_norm_stats(train_ids, basin_data, config)
+    Compute global z-score statistics from training basins only
+    (climate + static) and per-basin flow std for denormalisation.
+HydroDataset
+    ``torch.utils.data.Dataset`` returning 6-tuples:
+    ``(x_dynamic, x_static, y_norm, y_components, basin_id, flow_std)``.
+"""
 
 from __future__ import annotations
 

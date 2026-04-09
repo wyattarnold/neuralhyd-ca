@@ -2,20 +2,17 @@
 
 Usage
 -----
-Compute evaluation metrics (CSVs written to data/eval/):
+Compute evaluation metrics (CSVs written to data/eval/); matching VIC basins are included automatically:
     python post_process.py --eval dual_lstm_kfold single_lstm_kfold
 
-Plot CDF of NSE across models:
-    python post_process.py --cdf-metric nse kge --runs dual_lstm_kfold single_lstm_kfold
-
-Plot CDF comparing LSTM KGE vs VIC calibrated/regionalized KGE:
-    python post_process.py --cdf-vic-kge
+Plot CDF for all metrics (NSE, KGE, FHV, FLV) + VIC calibrated/regionalized KGE comparison:
+    python post_process.py --cdf --runs dual_lstm_kfold single_lstm_kfold
 
 Simulate trained models over historical climate inputs:
     python post_process.py --simulate single_lstm_kfold
 
 All commands can be combined:
-    python post_process.py --eval dual_lstm_kfold --simulate dual_lstm_kfold --cdf-metric nse kge
+    python post_process.py --eval dual_lstm_kfold --simulate dual_lstm_kfold --cdf
 """
 
 from __future__ import annotations
@@ -59,16 +56,11 @@ VIC_LABEL = "vic_simulated"
 
 def run_eval(run_names: list[str]) -> None:
     """Compute and write evaluation CSVs for the requested runs + VIC."""
-    # Always compute VIC metrics
     EVAL_DIR.mkdir(parents=True, exist_ok=True)
 
-    print(f"Computing VIC simulated metrics...")
-    vic_df = compute_vic_metrics()
-    vic_path = EVAL_DIR / f"{VIC_LABEL}.csv"
-    vic_df.to_csv(vic_path, index=False)
-    print(f"  VIC: {len(vic_df)} basins → {vic_path}")
-    _print_summary(vic_df, "VIC Simulated")
-
+    # Collect basin IDs from all LSTM runs first
+    lstm_basin_ids: set[str] = set()
+    lstm_frames: dict[str, pd.DataFrame] = {}
     for name in run_names:
         run_dir = TRAINING_OUTPUT_DIR / name
         if not run_dir.exists():
@@ -76,6 +68,21 @@ def run_eval(run_names: list[str]) -> None:
             continue
         print(f"Computing metrics for {name}...")
         df = load_lstm_fold_results(run_dir)
+        lstm_frames[name] = df
+        lstm_basin_ids |= set(df["basin_id"].astype(str))
+
+    # Compute VIC metrics, filtered to basins present in the folds
+    print(f"Computing VIC simulated metrics...")
+    vic_df = compute_vic_metrics()
+    if lstm_basin_ids:
+        vic_df = vic_df[vic_df["basin_id"].astype(str).isin(lstm_basin_ids)].copy()
+    vic_path = EVAL_DIR / f"{VIC_LABEL}.csv"
+    vic_df.to_csv(vic_path, index=False)
+    print(f"  VIC: {len(vic_df)} basins → {vic_path}")
+    _print_summary(vic_df, "VIC Simulated")
+
+    # Write LSTM results
+    for name, df in lstm_frames.items():
         out_path = EVAL_DIR / f"{name}.csv"
         df.to_csv(out_path, index=False)
         print(f"  {name}: {len(df)} basins → {out_path}")
@@ -139,6 +146,7 @@ def run_cdf(metric: str, run_names: list[str]) -> None:
     plot_kwargs: dict = {}
     if metric in ("nse", "kge"):
         plot_kwargs["ylim"] = (-1.0, 1.0)
+        plot_kwargs["hline_at"] = 0.0
     elif metric == "fhv":
         plot_kwargs["hline_at"] = 0.0
     elif metric == "flv":
@@ -225,6 +233,7 @@ def run_cdf_vic_kge() -> None:
         metric_name="KGE",
         title=f"CDF of KGE \u2014 LSTM vs VIC ({len(common)} overlapping basins)",
         ylim=(-1.0, 1.0),
+        hline_at=0.0,
         out_path=out_path,
     )
     print(f"Saved CDF plot → {out_path}")
@@ -284,24 +293,18 @@ def main() -> None:
              "VIC simulated is always included automatically.",
     )
     parser.add_argument(
-        "--cdf-metric",
-        nargs="+",
-        metavar="METRIC",
-        help=f"Plot CDF for these metrics ({', '.join(METRICS)}). "
-             f"Uses run names from --runs or --eval.",
+        "--cdf",
+        action="store_true",
+        help="Plot CDF for all metrics (NSE, KGE, FHV, FLV) plus a "
+             "VIC calibrated/regionalized KGE comparison. "
+             "Uses run names from --runs or --eval.",
     )
     parser.add_argument(
         "--runs",
         nargs="+",
         metavar="RUN",
-        help="LSTM output folder names for CDF plotting (used with --cdf-metric). "
+        help="LSTM output folder names for CDF plotting (used with --cdf). "
              "If omitted, falls back to --eval run names.",
-    )
-    parser.add_argument(
-        "--cdf-vic-kge",
-        action="store_true",
-        help="Plot CDF of KGE comparing LSTM vs VIC calibrated/regionalized "
-             "on overlapping basins.",
     )
     parser.add_argument(
         "--simulate",
@@ -313,23 +316,20 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    if (args.eval is None and args.cdf_metric is None
-            and not args.cdf_vic_kge and args.simulate is None):
+    if (args.eval is None and not args.cdf and args.simulate is None):
         parser.print_help()
         sys.exit(1)
 
     if args.eval is not None:
         run_eval(args.eval)
 
-    if args.cdf_metric is not None:
+    if args.cdf:
         runs = args.runs if args.runs else (args.eval or [])
         if not runs:
             print("ERROR: Provide run names via --runs or --eval.")
             sys.exit(1)
-        for metric in args.cdf_metric:
+        for metric in METRICS:
             run_cdf(metric, runs)
-
-    if args.cdf_vic_kge:
         run_cdf_vic_kge()
 
     if args.simulate is not None:

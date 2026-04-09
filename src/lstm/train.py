@@ -1,4 +1,19 @@
-"""Training loop with early stopping and LR scheduling."""
+"""Training loop, early stopping, LR scheduling, and checkpoint I/O.
+
+Key exports
+-----------
+train_epoch(model, loader, optimiser, config)
+    One forward + backward pass over all batches; returns mean loss.
+validate_epoch(model, loader, config)
+    Inference-only pass; returns mean validation loss.
+train_model(model, train_loader, val_loader, config, norm_stats)
+    Full training run with ``ReduceLROnPlateau`` scheduling and
+    patience-based early stopping.  Saves ``best_model.pt`` when
+    validation loss improves; bundles ``norm_stats`` into the checkpoint.
+load_checkpoint(path, model, device)
+    Load a ``best_model.pt`` checkpoint into *model* in-place and return
+    the attached ``norm_stats`` dict.  Handles legacy bare state-dicts.
+"""
 
 from __future__ import annotations
 
@@ -20,8 +35,8 @@ def train_epoch(
 ) -> tuple[float, float]:
     """Returns (primary_mse, total_loss_with_aux)."""
     model.train()
-    sum_primary = 0.0
-    sum_total = 0.0
+    sum_primary = torch.tensor(0.0, device=device)
+    sum_total = torch.tensor(0.0, device=device)
     n = 0
     use_aux = config.aux_loss_weight > 0 and config.model_type == "dual"
     noise_std = config.input_noise_std
@@ -49,10 +64,10 @@ def train_epoch(
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=config.grad_clip)
         optimizer.step()
-        sum_primary += primary.item()
-        sum_total += loss.item()
+        sum_primary += primary.detach()
+        sum_total += loss.detach()
         n += 1
-    return sum_primary / max(n, 1), sum_total / max(n, 1)
+    return sum_primary.item() / max(n, 1), sum_total.item() / max(n, 1)
 
 
 @torch.no_grad()
@@ -63,7 +78,7 @@ def validate_epoch(
 ) -> tuple[float, float, float]:
     """Returns (mse, median_nse, median_kge) computed per basin then aggregated."""
     model.eval()
-    total_loss = 0.0
+    total_loss = torch.tensor(0.0, device=device)
     n = 0
     # Accumulate per-basin predictions and observations
     basin_pred: dict[int, list] = {}
@@ -71,7 +86,7 @@ def validate_epoch(
     for x_d, x_s, y, _ycomp, bids, fstd in loader:
         x_d, x_s, y = x_d.to(device), x_s.to(device), y.to(device)
         q_total, _, _ = model(x_d, x_s)
-        total_loss += mse_loss(q_total, y).item()
+        total_loss += mse_loss(q_total, y)
         n += 1
         # denormalise for NSE/KGE
         scale = fstd.to(device)
@@ -82,7 +97,7 @@ def validate_epoch(
             bid = int(bid)
             basin_pred.setdefault(bid, []).append(pred_de[i])
             basin_obs.setdefault(bid, []).append(obs_de[i])
-    mse = total_loss / max(n, 1)
+    mse = total_loss.item() / max(n, 1)
     # Per-basin NSE/KGE, then take median
     nses, kges = [], []
     for bid in basin_pred:
@@ -179,6 +194,10 @@ def train_model(
     # SWA (created lazily on activation)
     swa_model: AveragedModel | None = None
     swa_scheduler: torch.optim.lr_scheduler.LRScheduler | None = None
+
+    # torch.compile for graph-level optimisations (skipped on MPS — limited backend support)
+    if device.type != "mps" and hasattr(torch, "compile"):
+        model = torch.compile(model)
 
     ckpt_dir = config.output_dir / f"fold_{fold_idx}"
     ckpt_dir.mkdir(parents=True, exist_ok=True)

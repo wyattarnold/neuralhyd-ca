@@ -1,3 +1,18 @@
+"""Typed configuration container for experiment hyperparameters.
+
+All tuneable values live in a TOML file (default ``scripts/config.toml``).
+The ``Config`` dataclass is the single source of truth consumed by every
+other module — no magic numbers should appear elsewhere.
+
+Key exports
+-----------
+Config
+    Dataclass holding every hyperparameter; path fields are resolved to
+    absolute ``Path`` objects automatically on load.
+load_config(path)
+    Parse a TOML file and return a validated ``Config`` instance.  Pass
+    an alternate path to run a named experiment.
+"""
 from __future__ import annotations
 
 import tomllib

@@ -12,10 +12,12 @@ boundary layer:
   aggregated/training_watersheds_runoff.csv
 
 Each CSV has a 'date' column plus one column per polygon (named by the layer's
-ID field).  Values are volumetric runoff in CFS, computed as the cos(lat)-weighted
-mean total runoff depth (mm/day) × polygon area (m², from EPSG:5070 Conus Albers
-projection) × unit conversion, rounded to the nearest integer.  Polygons with
-no grid cells inside are silently dropped.
+ID field).  Values are volumetric runoff in CFS, computed as the
+overlap-fraction × cos(lat)-weighted mean total runoff depth (mm/day) × polygon
+area (m², from EPSG:5070 Conus Albers projection) × unit conversion, rounded to
+the nearest integer.  Grid cells partially overlapping a polygon are weighted by
+their fractional overlap area, so even sub-grid-cell watersheds receive valid
+estimates.  Polygons with no intersecting grid cells are silently dropped.
 
 VIC partitions total runoff into two components:
   - RUNOFF:   surface (fast) runoff
@@ -33,7 +35,6 @@ import numpy as np
 import pandas as pd
 import shapely
 import xarray as xr
-from pyproj import Transformer
 from shapely.strtree import STRtree
 from tqdm import tqdm
 
@@ -81,6 +82,13 @@ def compute_areas_m2(gdf: gpd.GeoDataFrame, id_col: str) -> dict[str, float]:
 
 
 # ---------------------------------------------------------------------------
+# Mask type: polygon_id → (flat_pixel_indices, overlap_fraction_weights)
+# ---------------------------------------------------------------------------
+
+Mask = dict[str, tuple[np.ndarray, np.ndarray]]
+
+
+# ---------------------------------------------------------------------------
 # Build pixel masks for one boundary layer
 # ---------------------------------------------------------------------------
 
@@ -90,35 +98,53 @@ def build_masks(
     lat2d: np.ndarray,
     lon2d: np.ndarray,
     src_crs: str = "EPSG:4326",
-) -> dict[str, np.ndarray]:
-    """Return {polygon_id: flat_pixel_indices} for all polygons with ≥1 pixel."""
+) -> Mask:
+    """Return {polygon_id: (flat_pixel_indices, overlap_fraction_weights)}.
 
-    nlat, nlon = lat2d.shape
-    n_pixels = nlat * nlon
+    Grid cells are constructed as boxes around each pixel centre.  Each
+    polygon is intersected with overlapping grid cells, and the weight for
+    each cell is the fraction of the cell area covered by the polygon.
+    Watersheds smaller than a single cell still receive valid estimates
+    (the overlapping cell gets a fractional weight).
+    """
+    dlat = abs(float(lat2d[1, 0] - lat2d[0, 0]))
+    dlon = abs(float(lon2d[0, 1] - lon2d[0, 0]))
 
-    # Reproject pixel centres to the layer's CRS if needed
-    layer_crs = gdf.crs.to_epsg()
-    if layer_crs is None or str(layer_crs) == "4326" or str(layer_crs) == "4269":
-        # NAD83 / WGS84 — treat as geographic, use lon/lat directly
-        px = lon2d.ravel()
-        py = lat2d.ravel()
-    else:
-        # Projected — transform lon/lat → layer CRS
-        transformer = Transformer.from_crs(src_crs, gdf.crs, always_xy=True)
-        px, py = transformer.transform(lon2d.ravel(), lat2d.ravel())
+    # Build grid cell boxes in geographic coords
+    lats_flat = lat2d.ravel()
+    lons_flat = lon2d.ravel()
+    cell_boxes = shapely.box(
+        lons_flat - dlon / 2, lats_flat - dlat / 2,
+        lons_flat + dlon / 2, lats_flat + dlat / 2,
+    )
+    cell_areas = shapely.area(cell_boxes)
 
-    # Build shapely Points array (shapely 2.x vectorised)
-    points = shapely.points(px, py)
+    # Bring polygons into geographic coords to match the grid
+    polys = gdf[[id_col, "geometry"]].to_crs(src_crs)
 
-    # STRtree over polygon geometries, then bulk within-query
-    tree = STRtree(gdf.geometry.values)
-    # Returns shape (2, K): row0 = input (point) index, row1 = tree (polygon) index
-    pt_idx, poly_idx = tree.query(points, predicate="within")
+    # Bulk spatial query: which cells intersect which polygons
+    tree = STRtree(cell_boxes)
+    poly_idx, cell_idx = tree.query(polys.geometry.values, predicate="intersects")
 
-    masks: dict[str, np.ndarray] = {}
+    if len(poly_idx) == 0:
+        return {}
+
+    # Vectorised intersection → area fractions
+    int_areas = shapely.area(
+        shapely.intersection(polys.geometry.values[poly_idx], cell_boxes[cell_idx])
+    )
+    fractions = int_areas / cell_areas[cell_idx]
+
+    # Group by polygon
+    masks: Mask = {}
     for p_i in np.unique(poly_idx):
-        pid = gdf.iloc[p_i][id_col]
-        masks[str(pid)] = pt_idx[poly_idx == p_i]
+        sel = poly_idx == p_i
+        pid = str(polys.iloc[p_i][id_col])
+        c_idx = cell_idx[sel]
+        frac = fractions[sel]
+        valid = frac > 1e-9  # filter out edge touches
+        if valid.any():
+            masks[pid] = (c_idx[valid], frac[valid])
 
     return masks
 
@@ -136,11 +162,11 @@ def make_cos_weights(lat2d: np.ndarray) -> np.ndarray:
 # Aggregate one year
 # ---------------------------------------------------------------------------
 
-def _weighted_mean(data_2d: np.ndarray, cos_w: np.ndarray, masks: dict[str, np.ndarray], dates) -> pd.DataFrame:
-    """Compute cos-weighted spatial mean for each polygon. data_2d shape = (ntime, npix)."""
+def _weighted_mean(data_2d: np.ndarray, cos_w: np.ndarray, masks: Mask, dates) -> pd.DataFrame:
+    """Compute overlap-fraction × cos-weighted spatial mean. data_2d shape = (ntime, npix)."""
     rows: dict[str, np.ndarray] = {}
-    for pid, idx in masks.items():
-        w = cos_w[idx]
+    for pid, (idx, frac) in masks.items():
+        w = cos_w[idx] * frac
         data = data_2d[:, idx]
         valid = ~np.isnan(data)
         w_broadcast = w[np.newaxis, :]
@@ -154,7 +180,7 @@ def _weighted_mean(data_2d: np.ndarray, cos_w: np.ndarray, masks: dict[str, np.n
 def aggregate_year(
     runoff_path: Path,
     baseflow_path: Path,
-    masks_list: list[dict[str, np.ndarray]],
+    masks_list: list[Mask],
     cos_w: np.ndarray,
     components: bool = False,
 ) -> tuple[list[pd.DataFrame], list[pd.DataFrame] | None, list[pd.DataFrame] | None]:
@@ -240,7 +266,7 @@ def main() -> None:
             gdf = gpd.read_file(src_path, **kwargs)
         masks = build_masks(gdf, id_col, lat2d, lon2d)
         areas = compute_areas_m2(gdf, id_col)
-        print(f"{len(masks)}/{len(gdf)} polygons have ≥1 pixel")
+        print(f"{len(masks)}/{len(gdf)} polygons have ≥1 overlapping cell")
         layers_meta.append((out_stem, id_col))
         masks_list.append(masks)
         areas_list.append(areas)

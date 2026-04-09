@@ -49,7 +49,7 @@ export default function App() {
       {panelOpen && (
         <>
           <div
-            className="bg-white border-r border-gray-200 overflow-hidden shrink-0"
+            className="bg-paper border-r border-gray-200 overflow-hidden shrink-0"
             style={{ width: panelWidth }}
           >
             <SidePanel
@@ -80,7 +80,7 @@ export default function App() {
           />
           {activeLayer === "training_watersheds" && (
             <select
-              className="bg-white/95 border border-gray-300 rounded px-2 py-1 text-sm shadow
+              className="bg-paper/95 border border-gray-300 rounded px-2 py-1 text-sm shadow
                          focus:outline-none focus:ring-2 focus:ring-blue-400"
               value={colorMode}
               onChange={(e) => setColorMode(e.target.value)}

@@ -76,7 +76,7 @@ function NSELegend({ colorMode }) {
     : "VIC NSE";
   const stops = [-0.5, 0.0, 0.25, 0.5, 0.75, 1.0];
   return (
-    <div className="bg-white/95 rounded shadow px-2 py-1.5 text-xs border border-gray-200">
+    <div className="bg-paper/95 rounded shadow px-2 py-1.5 text-xs border border-gray-200">
       <div className="font-medium text-gray-700 mb-1">{label}</div>
       <div className="flex items-center">
         {stops.map((v, i) => {
@@ -101,7 +101,7 @@ function NSELegend({ colorMode }) {
 
 function TierLegend() {
   return (
-    <div className="bg-white/95 rounded shadow px-2 py-1.5 text-xs border border-gray-200">
+    <div className="bg-paper/95 rounded shadow px-2 py-1.5 text-xs border border-gray-200">
       <div className="font-medium text-gray-700 mb-1">Tier</div>
       {[[1, "Rainfall", TIER_COLORS[1]], [2, "Transitional", TIER_COLORS[2]], [3, "Snow", TIER_COLORS[3]]].map(
         ([t, label, c]) => (
@@ -152,7 +152,7 @@ function OverviewMinimap({ mainMap, caOutline }) {
   }, [mainMap]);
 
   return (
-    <div className="w-20 h-25 border border-gray-300 rounded shadow bg-white overflow-hidden">
+    <div className="w-20 h-25 border border-gray-300 rounded shadow bg-paper overflow-hidden">
       <MapContainer
         center={MINI_CENTER}
         zoom={MINI_ZOOM}
@@ -389,7 +389,7 @@ export default function WatershedMap({ layerKey, selectedId, onSelect, colorMode
           />
         )}
         {isLoading && (
-          <div className="absolute top-3 right-3 z-[1000] bg-white/90 px-3 py-1 rounded shadow text-sm">
+          <div className="absolute top-3 right-3 z-[1000] bg-paper/90 px-3 py-1 rounded shadow text-sm">
             Loading…
           </div>
         )}

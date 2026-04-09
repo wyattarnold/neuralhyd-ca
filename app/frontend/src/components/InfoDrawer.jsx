@@ -11,7 +11,7 @@ export default function InfoDrawer({ open, onClose }) {
 
       {/* Drawer */}
       <div
-        className={`fixed top-0 right-0 h-full w-[min(560px,85vw)] bg-white shadow-xl z-[1300]
+        className={`fixed top-0 right-0 h-full w-[min(560px,85vw)] bg-paper shadow-xl z-[1300]
                      transform transition-transform duration-200 ease-in-out
                      ${open ? "translate-x-0" : "translate-x-full"}`}
       >
