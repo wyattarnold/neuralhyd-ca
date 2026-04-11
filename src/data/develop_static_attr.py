@@ -9,7 +9,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from src.paths import BASIN_ATLAS_INPUT, BASIN_ATLAS_OUTPUT, WATERSHED_GEOMETRY
+from src.paths import BASIN_ATLAS_INPUT, BASIN_ATLAS_OUTPUT, WATERSHED_GEOMETRY, get_target_paths
 
 BASIN_ATLAS_STATIC_ATTR = {
     "ria_ha_usu": {"description": "River Area (ha) sum upstream of pour point", "units": "hectares"},
@@ -102,17 +102,21 @@ def calculate_weighted_averages(
     return results_df
 
 
-def main() -> None:
+def main(target: str = "watersheds") -> None:
+    tp = get_target_paths(target)
+    basin_atlas_input = tp["basin_atlas_input"]
+    basin_atlas_output = tp["basin_atlas_output"]
+
     print("=" * 70)
-    print("BasinATLAS Weighted Average Calculator")
+    print(f"BasinATLAS Weighted Average Calculator  [target={target}]")
     print("=" * 70)
 
-    if not BASIN_ATLAS_INPUT.exists():
-        print(f"ERROR: Input file not found: {BASIN_ATLAS_INPUT}")
+    if not basin_atlas_input.exists():
+        print(f"ERROR: Input file not found: {basin_atlas_input}")
         return
 
-    print(f"\nReading input file: {BASIN_ATLAS_INPUT.name}")
-    df = pd.read_csv(BASIN_ATLAS_INPUT)
+    print(f"\nReading input file: {basin_atlas_input.name}")
+    df = pd.read_csv(basin_atlas_input)
     print(f"Loaded {len(df)} rows and {len(df.columns)} columns")
 
     required_cols = ['PourPtID', 'Shape_Area', 'FID_BasinATLAS_v10_lev12']
@@ -127,19 +131,25 @@ def main() -> None:
     print("\nCalculating weighted averages...")
     results_df = calculate_weighted_averages(df)
 
-    # Replace total_Shape_Area with km2 areas from watershed geometry
-    print(f"\nLoading watershed areas from: {WATERSHED_GEOMETRY.name}")
-    ws_df = pd.read_csv(WATERSHED_GEOMETRY)
-    ws_areas = ws_df.set_index('Pour Point ID')['Area Square Kilometers']
-    matched = results_df['PourPtID'].isin(ws_areas.index)
-    results_df.loc[matched, 'total_Shape_Area'] = results_df.loc[matched, 'PourPtID'].map(ws_areas)
-    results_df.rename(columns={'total_Shape_Area': 'total_Shape_Area_km2'}, inplace=True)
-    n_matched = matched.sum()
-    n_missing = (~matched).sum()
-    print(f"  Replaced {n_matched} areas with km2 values from watersheds.csv")
-    if n_missing > 0:
-        missing_ids = results_df.loc[~matched, 'PourPtID'].tolist()
-        print(f"  WARNING: {n_missing} PourPtIDs not found in watersheds.csv: {missing_ids}")
+    if target == "watersheds":
+        # Replace total_Shape_Area with km2 areas from watershed geometry
+        print(f"\nLoading watershed areas from: {WATERSHED_GEOMETRY.name}")
+        ws_df = pd.read_csv(WATERSHED_GEOMETRY)
+        ws_areas = ws_df.set_index('Pour Point ID')['Area Square Kilometers']
+        matched = results_df['PourPtID'].isin(ws_areas.index)
+        results_df.loc[matched, 'total_Shape_Area'] = results_df.loc[matched, 'PourPtID'].map(ws_areas)
+        results_df.rename(columns={'total_Shape_Area': 'total_Shape_Area_km2'}, inplace=True)
+        n_matched = matched.sum()
+        n_missing = (~matched).sum()
+        print(f"  Replaced {n_matched} areas with km2 values from watersheds.csv")
+        if n_missing > 0:
+            missing_ids = results_df.loc[~matched, 'PourPtID'].tolist()
+            print(f"  WARNING: {n_missing} PourPtIDs not found in watersheds.csv: {missing_ids}")
+    else:
+        # Convert intersect m² → km² for non-watershed targets
+        results_df['total_Shape_Area'] = results_df['total_Shape_Area'] / 1e6
+        results_df.rename(columns={'total_Shape_Area': 'total_Shape_Area_km2'}, inplace=True)
+        print(f"\n  Converted Shape_Area m² → km² for {len(results_df)} polygons")
 
     print("\nApplying precision rounding...")
     for col in results_df.columns:
@@ -147,9 +157,9 @@ def main() -> None:
             if pd.api.types.is_numeric_dtype(results_df[col]):
                 results_df[col] = results_df[col].round(1)
 
-    BASIN_ATLAS_OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    print(f"\nSaving results to: {BASIN_ATLAS_OUTPUT.name}")
-    results_df.to_csv(BASIN_ATLAS_OUTPUT, index=False)
+    basin_atlas_output.parent.mkdir(parents=True, exist_ok=True)
+    print(f"\nSaving results to: {basin_atlas_output.name}")
+    results_df.to_csv(basin_atlas_output, index=False)
 
     print(f"\nResults summary:")
     print(f"  - Output rows (unique PourPtIDs): {len(results_df)}")
