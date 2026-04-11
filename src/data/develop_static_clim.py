@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 
-from src.paths import CLIMATE_DIR, CLIMATE_STATS_OUTPUT
+from src.paths import CLIMATE_DIR, CLIMATE_STATS_OUTPUT, get_target_paths
 
 
 def calculate_pet_hargreaves(
@@ -101,16 +101,20 @@ def process_climate_file(filepath: Path, pourpoint_id: str) -> dict:
     return results
 
 
-def main() -> None:
+def main(target: str = "watersheds") -> None:
+    tp = get_target_paths(target)
+    climate_dir = tp["climate_dir"]
+    climate_stats_output = tp["climate_stats_output"]
+
     print("=" * 70)
-    print("Climate Statistics Calculator")
+    print(f"Climate Statistics Calculator  [target={target}]")
     print("=" * 70)
 
-    if not CLIMATE_DIR.exists():
-        print(f"ERROR: Climate directory not found: {CLIMATE_DIR}")
+    if not climate_dir.exists():
+        print(f"ERROR: Climate directory not found: {climate_dir}")
         return
 
-    climate_files = sorted(CLIMATE_DIR.glob("climate_*.csv"))
+    climate_files = sorted(climate_dir.glob("climate_*.csv"))
     print(f"\nFound {len(climate_files)} climate files to process")
 
     if len(climate_files) == 0:
@@ -139,9 +143,9 @@ def main() -> None:
         if col != 'PourPtID' and pd.api.types.is_numeric_dtype(results_df[col]):
             results_df[col] = results_df[col].round(3)
 
-    CLIMATE_STATS_OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    print(f"\nSaving results to: {CLIMATE_STATS_OUTPUT.name}")
-    results_df.to_csv(CLIMATE_STATS_OUTPUT, index=False)
+    climate_stats_output.parent.mkdir(parents=True, exist_ok=True)
+    print(f"\nSaving results to: {climate_stats_output.name}")
+    results_df.to_csv(climate_stats_output, index=False)
 
     print(f"\nResults summary:")
     print(f"  - Successfully processed: {len(results_df)} pourpoints")
