@@ -25,6 +25,7 @@ from src.paths import DEFAULT_CONFIG, TRAINING_OUTPUT_DIR
 _PATH_FIELDS = frozenset(
     ["data_dir", "climate_dir", "flow_dir", "static_basin_atlas", "static_climate", "output_dir"]
 )
+_OPTIONAL_PATH_FIELDS = frozenset(["static_dem", "static_network"])
 
 
 @dataclass
@@ -91,24 +92,95 @@ class Config:
     climate_static_features: List[str] | None = None
     use_window_snow_fraction: bool = False
 
+    # ----- MoE-τ architecture (model_type="moe") -----
+    moe_n_experts: int = 4
+    moe_expert_hidden_size: int = 128
+    moe_gate_hidden_size: int = 64
+    moe_attention_dim: int = 32
+    moe_tau_init: float = 0.5
+
+    # ----- Extreme-flow loss weighting -----
+    extreme_threshold: float = 3.0      # normalised flow above which upweighting begins
+    extreme_weight_max: float = 1.0     # max weight multiplier (1.0 = disabled)
+    extreme_ramp: float = 6.0           # normalised range over which weight ramps 1→max
+    extreme_peak_boost: float = 12.0    # multiplier on fast-pathway aux peak_asymmetry during extremes
+
+    # ----- Additional static attribute CSVs (indexed by PourPtID) -----
+    static_dem: Path | None = None
+    static_network: Path | None = None
+
+    # ----- Probabilistic output -----
+    output_type: str = "deterministic"   # "deterministic" or "cmal"
+    cmal_n_components: int = 3           # K mixture components for CMAL
+    cmal_hidden_size: int = 32           # CMALHead intermediate layer width
+    cmal_loss: str = "nll"               # "nll" or "crps"
+    cmal_crps_n_samples: int = 50        # samples per component for CRPS spread term
+    cmal_entropy_weight: float = 0.0     # weight on mixture-weight entropy reg (0 = off)
+    cmal_scale_reg_weight: float = 0.0   # weight on scale-collapse penalty (0 = off)
+    cmal_beta_crps: float = 0.0          # β-CRPS spread penalty (0 = off; 0.5 typical)
+
+    # ----- Grouped static encoder -----
+    # Ordered dict of group_name → list[feature_name].  When set, features
+    # are concatenated **in group order** and a GroupedStaticEncoder is used
+    # instead of the flat MLP.  Every feature in effective_static_features
+    # must appear in exactly one group.
+    static_feature_groups: dict[str, List[str]] | None = None
+    static_group_hidden: int = 0   # per-group encoder dim (0 = auto)
+
     def __post_init__(self) -> None:
         for f in _PATH_FIELDS:
             val = getattr(self, f)
             if isinstance(val, str):
                 setattr(self, f, Path(val))
+        for f in _OPTIONAL_PATH_FIELDS:
+            val = getattr(self, f, None)
+            if isinstance(val, str):
+                setattr(self, f, Path(val))
 
     @property
     def effective_static_features(self) -> List[str]:
-        """Static features after optional exclusion/addition of climate-derived ones."""
+        """Static features after optional exclusion/addition of climate-derived ones.
+
+        When ``static_feature_groups`` is defined, features are returned in
+        **group order** (group-1 features, then group-2, …) so that
+        ``GroupedStaticEncoder`` can split the flat vector by group sizes.
+        """
         feats = list(self.static_features)
         if self.exclude_climate_statics and self.climate_static_features:
             exclude = set(self.climate_static_features)
             feats = [f for f in feats if f not in exclude]
         if self.use_window_snow_fraction:
-            # Append window-derived snow_fraction (computed in dataset)
             if "snow_fraction" not in feats:
                 feats.append("snow_fraction")
+
+        if self.static_feature_groups is not None:
+            # Re-order features to match group order
+            ordered: list[str] = []
+            for group_feats in self.static_feature_groups.values():
+                ordered.extend(group_feats)
+            # Validate: every effective feature must be in a group
+            feat_set = set(feats)
+            ordered_set = set(ordered)
+            missing = feat_set - ordered_set
+            extra = ordered_set - feat_set
+            if missing:
+                raise ValueError(
+                    f"Features missing from static_feature_groups: {missing}"
+                )
+            if extra:
+                raise ValueError(
+                    f"Features in static_feature_groups but not in "
+                    f"effective_static_features: {extra}"
+                )
+            return ordered
         return feats
+
+    @property
+    def static_group_sizes(self) -> list[int] | None:
+        """Number of features per group (in group order), or None."""
+        if self.static_feature_groups is None:
+            return None
+        return [len(v) for v in self.static_feature_groups.values()]
 
 
 def load_config(path: str | Path = DEFAULT_CONFIG) -> Config:
@@ -125,9 +197,14 @@ def load_config(path: str | Path = DEFAULT_CONFIG) -> Config:
         raw = tomllib.load(fh)
 
     # Flatten TOML sections into a single dict of field → value.
+    # Sections whose name matches a Config field that expects a nested
+    # dict (e.g. static_feature_groups) are preserved as-is.
+    _NESTED_FIELDS = {"static_feature_groups"}
     flat: dict = {}
-    for val in raw.values():
-        if isinstance(val, dict):
+    for key, val in raw.items():
+        if key in _NESTED_FIELDS:
+            flat[key] = val
+        elif isinstance(val, dict):
             flat.update(val)
 
     # Derive output_dir from filename when the TOML doesn't specify it.
@@ -147,6 +224,10 @@ def load_config(path: str | Path = DEFAULT_CONFIG) -> Config:
     for f in _PATH_FIELDS:
         val = getattr(cfg, f)
         if not val.is_absolute():
+            setattr(cfg, f, (config_dir / val).resolve())
+    for f in _OPTIONAL_PATH_FIELDS:
+        val = getattr(cfg, f, None)
+        if val is not None and not val.is_absolute():
             setattr(cfg, f, (config_dir / val).resolve())
 
     # Apply defaults for optional fields not present in the TOML.

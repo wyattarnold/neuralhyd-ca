@@ -81,6 +81,7 @@ QAQC_FLOW_PRECIP_CSV    = STEP_8_OUTPUT_DIR / "qaqc_flow_vs_precip_summary.csv"
 # ---------------------------------------------------------------------------
 MAP_WATERSHEDS_DIR       = QA_DIR / "map_watersheds"
 TIER_CHARACTERISTICS_DIR = QA_DIR / "tier_characteristics"
+SPATIAL_ANALYSIS_DIR     = QA_DIR / "spatial_analysis"
 
 # ---------------------------------------------------------------------------
 # Config

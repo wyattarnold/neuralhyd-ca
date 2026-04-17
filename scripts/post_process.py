@@ -3,10 +3,10 @@
 Usage
 -----
 Compute evaluation metrics (CSVs written to data/eval/); matching VIC basins are included automatically:
-    python post_process.py --eval dual_lstm_kfold single_lstm_kfold
+    python post_process.py --eval dual_lstm_kfold dual_lstm_ext_kfold single_lstm_kfold
 
 Plot CDF for all metrics (NSE, KGE, FHV, FLV) + VIC calibrated/regionalized KGE comparison:
-    python post_process.py --cdf --runs dual_lstm_kfold single_lstm_kfold
+    python post_process.py --cdf --runs  single_lstm_kfold dual_lstm_ext_kfold
 
 Simulate trained models over historical climate inputs:
     python post_process.py --simulate single_lstm_kfold
@@ -149,9 +149,11 @@ def run_cdf(metric: str, run_names: list[str]) -> None:
         plot_kwargs["hline_at"] = 0.0
     elif metric == "fhv":
         plot_kwargs["hline_at"] = 0.0
+        plot_kwargs["ylim"] = (-100,100)
     elif metric == "flv":
         plot_kwargs["hline_at"] = 0.0
-        plot_kwargs["yscale"] = "symlog"
+        # plot_kwargs["yscale"] = "symlog"
+        plot_kwargs["ylim"] = (-150,150)
 
     ylabel = metric.upper()
     if metric in ("fhv", "flv"):

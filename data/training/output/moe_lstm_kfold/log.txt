@@ -1,0 +1,91 @@
+Run started: 2026-04-10T19:16:12
+Config: config_moe_lstm_kfold.toml
+Output: /Users/wyatt/repos/neuralhyd-ca/data/training/output/moe_lstm_kfold
+Model type: moe
+
+Device: mps
+Loading data …
+  Converted 210/210 basins: cfs → mm/day
+  210 basins  (T1=89, T2=92, T3=29)
+
+  Fold partition  (5 folds, 210 basins, 2,442,551 total flow-days)
+    Fold 1: val  43 basins (T1=18, T2=19, T3=6)  | val  519,516 days (21.3%)  | train 1,923,035 days (78.7%)
+    Fold 2: val  43 basins (T1=18, T2=19, T3=6)  | val  509,923 days (20.9%)  | train 1,932,628 days (79.1%)
+    Fold 3: val  42 basins (T1=18, T2=18, T3=6)  | val  500,557 days (20.5%)  | train 1,941,994 days (79.5%)
+    Fold 4: val  42 basins (T1=18, T2=18, T3=6)  | val  455,535 days (18.6%)  | train 1,987,016 days (81.4%)
+    Fold 5: val  40 basins (T1=17, T2=18, T3=5)  | val  457,020 days (18.7%)  | train 1,985,531 days (81.3%)
+
+============================================================
+FOLD 1/5  (train 167  / val 43 basins)
+============================================================
+  Building training dataset  (167 basins) …
+    1,923,035 training samples  (batch size 512 → 3,755 batches/epoch)
+  Building validation dataset  (43 held-out basins) …
+    519,516 validation samples
+  Model: moe — 169,868 parameters  (device: mps)
+  Training …
+  init Epoch   0/80 | MSE train    --- | MSE val 1.1786 | NSE -0.203 | KGE -1.396 | LR 0.00e+00 | τ=0.5000 π=[0.531 0.469]
+  Epoch   1/80 | MSE train 0.7980 | MSE val 0.5204 | NSE 0.490 | KGE 0.448 | LR 1.60e-04 | τ=0.4921 π=[0.009 0.991]
+  Epoch   2/80 | MSE train 0.4606 | MSE val 0.3543 | NSE 0.658 | KGE 0.633 | LR 2.80e-04 | τ=0.4860 π=[0.304 0.696]
+  Epoch   3/80 | MSE train 0.3635 | MSE val 0.3062 | NSE 0.716 | KGE 0.652 | LR 4.00e-04 | τ=0.4860 π=[0.349 0.651]
+  Epoch   4/80 | MSE train 0.3247 | MSE val 0.2825 | NSE 0.757 | KGE 0.717 | LR 4.00e-04 | τ=0.4883 π=[0.374 0.626]
+  Epoch   5/80 | MSE train 0.2993 | MSE val 0.2738 | NSE 0.765 | KGE 0.700 | LR 3.99e-04 | τ=0.4878 π=[0.342 0.658]
+  Epoch   6/80 | MSE train 0.2834 | MSE val 0.2785 | NSE 0.765 | KGE 0.724 | LR 3.99e-04 | τ=0.4869 π=[0.337 0.663]
+  Epoch   7/80 | MSE train 0.2765 | MSE val 0.2712 | NSE 0.768 | KGE 0.722 | LR 3.97e-04 | τ=0.4863 π=[0.354 0.646]
+  Epoch   8/80 | MSE train 0.2691 | MSE val 0.2606 | NSE 0.764 | KGE 0.730 | LR 3.96e-04 | τ=0.4851 π=[0.329 0.671]
+  Epoch   9/80 | MSE train 0.2633 | MSE val 0.2539 | NSE 0.774 | KGE 0.678 | LR 3.94e-04 | τ=0.4840 π=[0.351 0.649]
+  Epoch  10/80 | MSE train 0.2579 | MSE val 0.2559 | NSE 0.788 | KGE 0.712 | LR 3.92e-04 | τ=0.4832 π=[0.352 0.648]
+  Epoch  11/80 | MSE train 0.2540 | MSE val 0.2549 | NSE 0.780 | KGE 0.691 | LR 3.90e-04 | τ=0.4814 π=[0.350 0.650]
+  Epoch  12/80 | MSE train 0.2510 | MSE val 0.2542 | NSE 0.772 | KGE 0.680 | LR 3.87e-04 | τ=0.4803 π=[0.326 0.674]
+  Epoch  13/80 | MSE train 0.2478 | MSE val 0.2507 | NSE 0.774 | KGE 0.700 | LR 3.84e-04 | τ=0.4791 π=[0.355 0.645]
+  Epoch  14/80 | MSE train 0.2438 | MSE val 0.2487 | NSE 0.784 | KGE 0.704 | LR 3.81e-04 | τ=0.4773 π=[0.335 0.665]
+  Epoch  15/80 | MSE train 0.2424 | MSE val 0.2494 | NSE 0.785 | KGE 0.701 | LR 3.77e-04 | τ=0.4764 π=[0.345 0.655]
+  Epoch  16/80 | MSE train 0.2402 | MSE val 0.2542 | NSE 0.762 | KGE 0.732 | LR 3.73e-04 | τ=0.4754 π=[0.345 0.655]
+  Epoch  17/80 | MSE train 0.2367 | MSE val 0.2591 | NSE 0.788 | KGE 0.719 | LR 3.69e-04 | τ=0.4742 π=[0.319 0.681]
+  Epoch  18/80 | MSE train 0.2350 | MSE val 0.2486 | NSE 0.778 | KGE 0.683 | LR 3.65e-04 | τ=0.4719 π=[0.319 0.681]
+  Epoch  19/80 | MSE train 0.2336 | MSE val 0.2483 | NSE 0.780 | KGE 0.679 | LR 3.60e-04 | τ=0.4718 π=[0.327 0.673]
+  >> Val plateau at epoch 19 — activating SWA
+  Epoch  20/80 | MSE train 0.2411 | MSE val 0.2527 | NSE 0.788 | KGE 0.715 | LR 2.80e-04 | τ=0.4769 π=[0.352 0.648] [SWA n=1]
+  Epoch  21/80 | MSE train 0.2372 | MSE val 0.2460 | NSE 0.797 | KGE 0.722 | LR 2.00e-04 | τ=0.4759 π=[0.341 0.659] [SWA n=2]
+  Epoch  22/80 | MSE train 0.2305 | MSE val 0.2434 | NSE 0.788 | KGE 0.684 | LR 2.00e-04 | τ=0.4755 π=[0.343 0.657] [SWA n=3]
+  Epoch  23/80 | MSE train 0.2287 | MSE val 0.2423 | NSE 0.791 | KGE 0.693 | LR 2.00e-04 | τ=0.4751 π=[0.343 0.657] [SWA n=4]
+  Epoch  24/80 | MSE train 0.2265 | MSE val 0.2422 | NSE 0.787 | KGE 0.696 | LR 2.00e-04 | τ=0.4748 π=[0.343 0.657] [SWA n=5]
+  Epoch  25/80 | MSE train 0.2266 | MSE val 0.2429 | NSE 0.788 | KGE 0.697 | LR 2.00e-04 | τ=0.4745 π=[0.345 0.655] [SWA n=6]
+  Epoch  26/80 | MSE train 0.2251 | MSE val 0.2424 | NSE 0.786 | KGE 0.696 | LR 2.00e-04 | τ=0.4743 π=[0.344 0.656] [SWA n=7]
+  Epoch  27/80 | MSE train 0.2252 | MSE val 0.2419 | NSE 0.788 | KGE 0.696 | LR 2.00e-04 | τ=0.4739 π=[0.343 0.657] [SWA n=8]
+  Epoch  28/80 | MSE train 0.2225 | MSE val 0.2418 | NSE 0.788 | KGE 0.696 | LR 2.00e-04 | τ=0.4736 π=[0.344 0.656] [SWA n=9]
+  Epoch  29/80 | MSE train 0.2214 | MSE val 0.2418 | NSE 0.788 | KGE 0.693 | LR 2.00e-04 | τ=0.4732 π=[0.343 0.657] [SWA n=10]
+  Epoch  30/80 | MSE train 0.2219 | MSE val 0.2418 | NSE 0.789 | KGE 0.716 | LR 2.00e-04 | τ=0.4729 π=[0.344 0.656] [SWA n=11]
+  Epoch  31/80 | MSE train 0.2180 | MSE val 0.2414 | NSE 0.789 | KGE 0.719 | LR 2.00e-04 | τ=0.4726 π=[0.345 0.655] [SWA n=12]
+  Epoch  32/80 | MSE train 0.2189 | MSE val 0.2412 | NSE 0.788 | KGE 0.719 | LR 2.00e-04 | τ=0.4722 π=[0.345 0.655] [SWA n=13]
+  Epoch  33/80 | MSE train 0.2179 | MSE val 0.2412 | NSE 0.789 | KGE 0.720 | LR 2.00e-04 | τ=0.4718 π=[0.344 0.656] [SWA n=14]
+  Epoch  34/80 | MSE train 0.2165 | MSE val 0.2411 | NSE 0.789 | KGE 0.721 | LR 2.00e-04 | τ=0.4715 π=[0.344 0.656] [SWA n=15]
+  Epoch  35/80 | MSE train 0.2158 | MSE val 0.2414 | NSE 0.789 | KGE 0.723 | LR 2.00e-04 | τ=0.4712 π=[0.344 0.656] [SWA n=16]
+  Epoch  36/80 | MSE train 0.2155 | MSE val 0.2416 | NSE 0.790 | KGE 0.719 | LR 2.00e-04 | τ=0.4708 π=[0.344 0.656] [SWA n=17]
+  Epoch  37/80 | MSE train 0.2139 | MSE val 0.2417 | NSE 0.788 | KGE 0.718 | LR 2.00e-04 | τ=0.4705 π=[0.343 0.657] [SWA n=18]
+  Epoch  38/80 | MSE train 0.2119 | MSE val 0.2419 | NSE 0.788 | KGE 0.718 | LR 2.00e-04 | τ=0.4702 π=[0.343 0.657] [SWA n=19]
+  Epoch  39/80 | MSE train 0.2115 | MSE val 0.2421 | NSE 0.786 | KGE 0.720 | LR 2.00e-04 | τ=0.4698 π=[0.342 0.658] [SWA n=20]
+  Epoch  40/80 | MSE train 0.2101 | MSE val 0.2424 | NSE 0.784 | KGE 0.722 | LR 2.00e-04 | τ=0.4694 π=[0.341 0.659] [SWA n=21]
+  Epoch  41/80 | MSE train 0.2098 | MSE val 0.2424 | NSE 0.784 | KGE 0.720 | LR 2.00e-04 | τ=0.4690 π=[0.341 0.659] [SWA n=22]
+  Epoch  42/80 | MSE train 0.2082 | MSE val 0.2428 | NSE 0.784 | KGE 0.720 | LR 2.00e-04 | τ=0.4686 π=[0.339 0.661] [SWA n=23]
+  SWA converged at epoch 42
+  SWA model saved (averaged over 23 snapshots)
+
+  Fold 1 Validation Results
+  Tier    N        NSE med   KGE med   FHV med   FLV med
+  ------------------------------------------------------
+  1       18         0.800     0.739     -16.5      47.2
+  2       19         0.707     0.648     -19.7      46.3
+  3       6          0.879     0.862      -9.3       8.7
+  All     43         0.784     0.720     -16.2      44.1
+
+============================================================
+FOLD 2/5  (train 167  / val 43 basins)
+============================================================
+  Building training dataset  (167 basins) …
+    1,932,628 training samples  (batch size 512 → 3,774 batches/epoch)
+  Building validation dataset  (43 held-out basins) …
+    509,923 validation samples
+  Model: moe — 169,868 parameters  (device: mps)
+  Training …
+  init Epoch   0/80 | MSE train    --- | MSE val 1.1739 | NSE -0.160 | KGE -1.268 | LR 0.00e+00 | τ=0.5000 π=[0.523 0.477]

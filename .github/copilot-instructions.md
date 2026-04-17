@@ -132,7 +132,7 @@ Use `load_checkpoint(path, model, device)` from `src.lstm.train` to load a check
 - PyTorch conventions: `batch_first=True` for LSTMs, `@torch.no_grad()` for inference.
 - Data flows as: `load_all_data()` → `create_folds()` → `compute_norm_stats()` → `HydroDataset` → `DataLoader` → `train_model(norm_stats=norm)` → `evaluate_fold()`.
 - Checkpoints bundle model weights + norm stats. Use `load_checkpoint()` from `src.lstm.train` to load them.
-- The `HydroDataset.__getitem__` returns a 6-tuple: `(x_dynamic, x_static, y_norm, y_components, basin_id, flow_std)`.
+- The `HydroDataset.__getitem__` returns a 7-tuple: `(x_dynamic, x_static, y_norm, y_components, basin_id, flow_std, flow_window)`.
 - Evaluation denormalises predictions by multiplying by `flow_std` before computing NSE/KGE/FHV/FLV.
 
 ## When Modifying

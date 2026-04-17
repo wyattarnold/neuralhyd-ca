@@ -19,8 +19,9 @@ compute_norm_stats(train_ids, basin_data, config)
     Compute global z-score statistics from training basins only
     (climate + static) and per-basin flow std for denormalisation.
 HydroDataset
-    ``torch.utils.data.Dataset`` returning 6-tuples:
-    ``(x_dynamic, x_static, y_norm, y_components, basin_id, flow_std)``.
+    ``torch.utils.data.Dataset`` returning 7-tuples:
+    ``(x_dynamic, x_static, y_norm, y_components, basin_id, flow_std,
+    flow_window)``.
 """
 
 from __future__ import annotations
@@ -83,10 +84,18 @@ def load_all_data(config: Config):
         print(f"Warning: no climate file for {len(missing_climate)} basins – skipping them")
     basin_ids = [b for b in basin_ids if b in climate_data]
 
-    # 3. Static attributes (merge two tables on PourPtID)
+    # 3. Static attributes (merge tables on PourPtID)
     basin_atlas = pd.read_csv(config.static_basin_atlas, index_col="PourPtID")
     climate_stats = pd.read_csv(config.static_climate, index_col="PourPtID")
     static_df = basin_atlas.join(climate_stats, how="inner")
+
+    # Optional: join DEM and network attribute tables
+    if config.static_dem is not None and config.static_dem.exists():
+        dem_df = pd.read_csv(config.static_dem, index_col="PourPtID")
+        static_df = static_df.join(dem_df, how="left")
+    if config.static_network is not None and config.static_network.exists():
+        net_df = pd.read_csv(config.static_network, index_col="PourPtID")
+        static_df = static_df.join(net_df, how="left")
 
     # Save raw area before log-transform (needed for cfs → mm/day conversion)
     raw_area_km2: pd.Series | None = None
@@ -346,7 +355,7 @@ def _lyne_hollick_baseflow(flow: np.ndarray, alpha: float = 0.925,
 
 
 class HydroDataset(Dataset):
-    """Serves (x_dynamic, x_static, y_norm, y_components, basin_id, flow_std) tuples.
+    """Serves (x_dynamic, x_static, y_norm, y_components, basin_id, flow_std, flow_window) tuples.
 
     x_dynamic      : (seq_len, n_dynamic) – normalised climate
     x_static       : (n_static,)          – normalised static attributes
@@ -354,6 +363,7 @@ class HydroDataset(Dataset):
     y_components   : (2,)                  – [quickflow, baseflow] normalised
     basin_id       : int
     flow_std       : scalar                – for denormalisation at eval time
+    flow_window    : (seq_len,)            – normalised flow over the lookback window
     """
 
     def __init__(
@@ -488,6 +498,7 @@ class HydroDataset(Dataset):
         x_s = bd["static"]                                         # (n_static,)
         y = bd["flow_norm"][tidx]                                  # scalar tensor
         y_comp = bd["components_norm"][tidx]                       # (2,) — [fast, slow]
+        flow_win = bd["flow_norm"][tidx - self.seq_len + 1 : tidx + 1]  # (seq_len,)
 
         # Compute window-derived static features on the fly
         if self.use_window_snow_fraction and "snow_fraction" in self._wd_positions:
@@ -505,4 +516,4 @@ class HydroDataset(Dataset):
             mean_val = float(self._wd_mean["snow_fraction"])
             x_s[pos] = (sf - mean_val) / (std_val + 1e-8)
 
-        return (x_d, x_s, y, y_comp, bid, bd["fstd_tensor"])
+        return (x_d, x_s, y, y_comp, bid, bd["fstd_tensor"], flow_win)
