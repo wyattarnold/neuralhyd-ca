@@ -1,0 +1,91 @@
+# =============================================================================
+# lstmhyd-ca — Single LSTM with CMAL probabilistic output
+# Run with: python train_kfold.py config_single_lstm_cmal_kfold.toml
+#
+# Identical to config_single_lstm_kfold.toml except:
+#   - output_type = "cmal" (Countable Mixture of Asymmetric Laplacians)
+#   - cmal_n_components = 3 (K=3 mixture components)
+#   - cmal_loss = "crps" (energy-score CRPS — proper scoring rule)
+#   - Entropy reg on π + scale reg on b_l/b_r for generalization
+#   - log_loss_lambda = 0.0 (CRPS replaces blended MSE)
+# =============================================================================
+
+[paths]
+data_dir             = "../data"
+climate_dir          = "../data/training/climate"
+flow_dir             = "../data/training/flow"
+static_basin_atlas   = "../data/training/static/Physical_Attributes_Watersheds.csv"
+static_climate       = "../data/training/static/Climate_Statistics_Watersheds.csv"
+
+[sequence]
+seq_len              = 365
+fast_window          = 18
+info_gap             = false
+
+[model]
+model_type           = "single"
+fast_hidden_size     = 64
+slow_hidden_size     = 128
+single_hidden_size   = 128
+static_embedding_dim = 10
+static_hidden_size   = 32
+dropout              = 0.20
+static_dropout       = 0.10
+output_type          = "cmal"
+cmal_n_components    = 3
+cmal_loss            = "crps"         # "nll" or "crps" (proper scoring rule)
+cmal_crps_n_samples  = 50             # samples per component for CRPS spread term
+cmal_beta_crps       = 0.0            # β-CRPS spread penalty (0 = off; try 0.2 if PICP too low)
+cmal_entropy_weight  = 0.1            # penalise mixture-weight collapse (entropy reg on π)
+cmal_scale_reg_weight = 0.0           # 0 = off (CRPS already penalises overconfidence)
+
+[aux_loss]
+aux_loss_weight      = 0.0    # no pathway aux loss for single model
+baseflow_alpha       = 0.925
+aux_peak_asymmetry   = 2.5
+
+[blended_loss]
+log_loss_lambda      = 0.0    # pure CMAL NLL — no blended MSE
+log_loss_epsilon     = 0.001
+
+[training]
+batch_size           = 512
+learning_rate        = 4e-4
+weight_decay         = 1e-4
+input_noise_std      = 0.1
+warmup_epochs        = 3
+num_epochs           = 80
+patience             = 5
+min_delta            = 0.002
+num_workers          = 0
+grad_clip            = 1.0
+use_swa              = true
+swa_lr               = 2e-4
+swa_patience         = 10
+
+[validation]
+n_folds              = 5
+holdout_fraction     = 0.2
+seed                 = 42
+
+[features]
+dynamic_features = ["precip_mm", "tmax_c", "tmin_c"]
+static_features  = [
+    "total_Shape_Area_km2",
+    "ele_mt_uav",
+    "slp_dg_uav",
+    "for_pc_use",
+    "cly_pc_uav",
+    "snd_pc_uav",
+    "ria_ha_usu",
+    "riv_tc_usu",
+    "sgr_dk_sav",
+    "precip_mean",
+    "pet_mean",
+    "aridity_index",
+    "snow_fraction",
+    "low_precip_dur",
+    "clz_cl_smj",
+    "lit_cl_smj",
+]
+log_transform_static = ["total_Shape_Area_km2", "ria_ha_usu"]

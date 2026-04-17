@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -49,6 +50,26 @@ from src.lstm.train import train_model
 _SCRIPTS_DIR = Path(__file__).resolve().parent
 
 
+class _Tee:
+    """Write to both a file and the original stream."""
+
+    def __init__(self, stream, path: Path):
+        self._stream = stream
+        self._fh = open(path, "w")
+
+    def write(self, data: str) -> int:
+        self._stream.write(data)
+        self._fh.write(data)
+        return len(data)
+
+    def flush(self) -> None:
+        self._stream.flush()
+        self._fh.flush()
+
+    def close(self) -> None:
+        self._fh.close()
+
+
 def main() -> None:
     import argparse
     parser = argparse.ArgumentParser(description="Train and evaluate LSTM hydrology model.")
@@ -60,6 +81,25 @@ def main() -> None:
 
     config = load_config(args.config)
     config.output_dir.mkdir(parents=True, exist_ok=True)
+
+    # ---- tee stdout to log.txt ----
+    tee = _Tee(sys.stdout, config.output_dir / "log.txt")
+    _original_stdout = sys.stdout
+    sys.stdout = tee
+
+    try:
+        _main_body(config, args, device=None)
+    finally:
+        sys.stdout = _original_stdout
+        tee.close()
+
+
+def _main_body(config, args, *, device=None) -> None:  # noqa: D401
+    print(f"Run started: {datetime.now().isoformat(timespec='seconds')}")
+    print(f"Config: {args.config}")
+    print(f"Output: {config.output_dir}")
+    print(f"Model type: {config.model_type}")
+    print()
 
     # ---- device ----
     if torch.backends.mps.is_available():
@@ -139,6 +179,11 @@ def main() -> None:
             norm_stats=norm,
         )
 
+        # save loss curve for this fold
+        fold_dir = config.output_dir / f"fold_{fold_idx}"
+        history_df = pd.DataFrame(history)
+        history_df.to_csv(fold_dir / "loss_curve.csv", index=False)
+
         # evaluate held-out basins
         df = evaluate_fold(model, val_ds, tier_map, config, fold_idx, device)
         all_results.append(df)
@@ -166,6 +211,7 @@ def main() -> None:
 
     combined.to_csv(config.output_dir / "all_fold_results.csv", index=False)
     print(f"\nResults saved to {config.output_dir}/")
+    print(f"Run finished: {datetime.now().isoformat(timespec='seconds')}")
 
 
 if __name__ == "__main__":

@@ -64,6 +64,7 @@ htmlcov/
 .coverage
 .coverage.*
 .cache
+data/prepare/spatial_cache/
 nosetests.xml
 coverage.xml
 *.cover
