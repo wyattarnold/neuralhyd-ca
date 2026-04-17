@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from src.paths import VICGRIDS_FILE, CLIMATE_DIR
+from src.paths import VICGRIDS_FILE, CLIMATE_DIR, get_target_paths
 
 
 def read_meteo_file(lat: float, lon: float, meteo_dir: str) -> pd.DataFrame | None:
@@ -101,7 +101,7 @@ def calculate_area_weighted_average(
     return result_df
 
 
-def main(meteo_dir: str | None = None) -> pd.DataFrame | None:
+def main(meteo_dir: str | None = None, target: str = "watersheds") -> pd.DataFrame | None:
     """Run the climate development pipeline.
 
     Parameters
@@ -109,6 +109,8 @@ def main(meteo_dir: str | None = None) -> pd.DataFrame | None:
     meteo_dir : str or None
         Path to the directory containing gridded meteo files.
         Required — pass as CLI argument or directly.
+    target : str
+        Polygon target (``"watersheds"``, ``"huc8"``, ``"huc10"``).
     """
     if meteo_dir is None:
         if len(sys.argv) < 2:
@@ -117,19 +119,23 @@ def main(meteo_dir: str | None = None) -> pd.DataFrame | None:
             sys.exit(1)
         meteo_dir = sys.argv[1]
 
+    tp = get_target_paths(target)
+    vicgrids_file = tp["vicgrids_file"]
+    climate_dir = tp["climate_dir"]
+
     print("=" * 80)
-    print("Area-Weighted Climate Data Generator")
+    print(f"Area-Weighted Climate Data Generator  [target={target}]")
     print("=" * 80)
 
-    print(f"\nReading VICGrids file: {VICGRIDS_FILE}")
-    vicgrids_df = pd.read_csv(VICGRIDS_FILE)
+    print(f"\nReading VICGrids file: {vicgrids_file}")
+    vicgrids_df = pd.read_csv(vicgrids_file)
     print(f"Loaded {len(vicgrids_df)} records")
     print(f"Unique PourPtIDs: {vicgrids_df['PourPtID'].nunique()}")
 
     pourptids = vicgrids_df['PourPtID'].unique()
     print(f"\nProcessing {len(pourptids)} PourPtIDs...")
 
-    CLIMATE_DIR.mkdir(parents=True, exist_ok=True)
+    climate_dir.mkdir(parents=True, exist_ok=True)
 
     summary = []
     for pourptid in tqdm(pourptids, desc="PourPtIDs"):
@@ -137,7 +143,7 @@ def main(meteo_dir: str | None = None) -> pd.DataFrame | None:
         result_df = calculate_area_weighted_average(pourptid, grid_data, meteo_dir)
 
         if result_df is not None:
-            output_file = CLIMATE_DIR / f"climate_{pourptid}.csv"
+            output_file = climate_dir / f"climate_{pourptid}.csv"
             result_df.to_csv(output_file, index=False)
 
             summary.append({
@@ -151,14 +157,14 @@ def main(meteo_dir: str | None = None) -> pd.DataFrame | None:
             })
 
     summary_df = pd.DataFrame(summary)
-    summary_file = CLIMATE_DIR / "processing_summary.csv"
+    summary_file = climate_dir / "processing_summary.csv"
     summary_df.to_csv(summary_file, index=False)
 
     print("\n" + "=" * 80)
     print("Processing Complete!")
     print("=" * 80)
     print(f"\nSuccessfully processed {len(summary_df)} PourPtIDs")
-    print(f"Output directory: {CLIMATE_DIR}")
+    print(f"Output directory: {climate_dir}")
     print(f"Summary file: {summary_file}")
 
     if not summary_df.empty:

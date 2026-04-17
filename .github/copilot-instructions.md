@@ -8,15 +8,13 @@ This is a **daily streamflow prediction** project using LSTM networks trained on
 
 Use the `neuralhyd` environment for all scripts. The project is tested on Python 3.14 with the following key dependencies:
 
-- **Python**: 3.14 via miniforge3 (`/Users/wyatt/miniforge3/envs/neuralhyd/bin/python`)
-- **Key deps**: PyTorch ≥ 2.0, pandas, numpy, scikit-learn, matplotlib, tqdm
 - **OS**: macOS (Apple Silicon). Set `KMP_DUPLICATE_LIB_OK=TRUE` to avoid duplicate OpenMP crashes.
 - **Device preference**: MPS → CUDA → CPU (auto-detected in `scripts/train_kfold.py`)
 
 ## Running
 
 ```bash
-KMP_DUPLICATE_LIB_OK=TRUE /Users/wyatt/miniforge3/envs/neuralhyd/bin/python scripts/train_kfold.py
+KMP_DUPLICATE_LIB_OK=TRUE python scripts/train_kfold.py
 ```
 
 All hyperparameters live in `scripts/config.toml`. Pass an alternate TOML file as the first argument to `scripts/train_kfold.py` to run a named experiment — the output directory is derived automatically from the filename (e.g. `config_single.toml` → `data/training/output/single/`). The `Config` dataclass in `src/lstm/config.py` is the typed container; use `load_config(path)` from that module to instantiate it.
