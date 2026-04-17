@@ -10,6 +10,11 @@ Steps:
   7. Comprehensive QA/QC report
   8. Flow vs precipitation QA + tier sorting → data/training/flow/
 
+Geo intersect (prerequisite for step 4 — one-time GIS operation):
+  --geo-intersect                              Run the GIS intersect
+  --geo   static|meteo                         Attribute layer (BasinATLAS or VICGrids)
+  --target watersheds|huc8|huc10               Target polygon layer (also used by steps 2, 4, 5)
+
 Analysis (run after steps 1-8 are complete):
   --analysis map_watersheds       CA watershed map colored by regression tier
   --analysis tier_characteristics CDF/monthly-average figures by tier
@@ -18,9 +23,10 @@ Analysis (run after steps 1-8 are complete):
   --analysis spatial_attributes   Spatial attribute redundancy/importance analysis
 
 Usage:
-  python prepare_data.py                          # run all steps in order
-  python prepare_data.py --step 1                 # single step
+  python prepare_data.py                                          # run all steps
+  python prepare_data.py --step 1                                 # single step
   python prepare_data.py --step 2 --meteo-dir /path/to/meteo
+  python prepare_data.py --geo-intersect --geo static --target watersheds
   python prepare_data.py --analysis map_watersheds
   python prepare_data.py --analysis tier_characteristics
   python prepare_data.py --analysis flow_extremes
@@ -29,7 +35,8 @@ Usage:
   python prepare_data.py --analysis spatial_attributes
   python prepare_data.py --analysis map_watersheds --analysis tier_characteristics
 
-Typical order for a fresh run: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
+Typical order for a fresh run:
+  --geo-intersect → 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 """
 from __future__ import annotations
 
@@ -68,9 +75,23 @@ def main() -> None:
         "--basin", type=int, default=None,
         help="For acquire_spatial: process only this basin ID.",
     )
+    parser.add_argument(
+        "--geo-intersect", action="store_true", default=False,
+        help="Run the GIS intersect table generator (prerequisite for step 4).",
+    )
+    parser.add_argument(
+        "--geo", type=str, default="static",
+        choices=["static", "meteo"],
+        help="Attribute layer to intersect (static = BasinATLAS_v10_lev12, meteo = VICGrids_CAORNV_LatLong).",
+    )
+    parser.add_argument(
+        "--target", type=str, default="watersheds",
+        choices=["watersheds", "huc8", "huc10"],
+        help="Target polygon layer (used by steps 2/4/5 and --geo-intersect).",
+    )
     args = parser.parse_args()
 
-    steps = args.step or ([] if args.analysis else [1, 2, 3, 4, 5, 6, 7, 8])
+    steps = args.step or ([] if (args.analysis or args.geo_intersect) else [1, 2, 3, 4, 5, 6, 7, 8])
 
     if 1 in steps:
         print("\n" + "=" * 70)
@@ -87,7 +108,7 @@ def main() -> None:
             print("ERROR: --meteo-dir is required for step 2")
             sys.exit(1)
         from src.data.develop_climate import main as run_climate
-        run_climate(meteo_dir=args.meteo_dir)
+        run_climate(meteo_dir=args.meteo_dir, target=args.target)
 
     if 3 in steps:
         print("\n" + "=" * 70)
@@ -101,14 +122,14 @@ def main() -> None:
         print("STEP 4: Develop BasinATLAS static attributes")
         print("=" * 70)
         from src.data.develop_static_attr import main as run_static_attr
-        run_static_attr()
+        run_static_attr(target=args.target)
 
     if 5 in steps:
         print("\n" + "=" * 70)
         print("STEP 5: Develop climate statistics")
         print("=" * 70)
         from src.data.develop_static_clim import main as run_static_clim
-        run_static_clim()
+        run_static_clim(target=args.target)
 
     if 6 in steps:
         print("\n" + "=" * 70)
@@ -172,6 +193,13 @@ def main() -> None:
         print("=" * 70)
         from src.data.analyse_spatial_attrs import main as run_spatial
         run_spatial()
+
+    if args.geo_intersect:
+        print("\n" + "=" * 70)
+        print(f"GEO INTERSECT: --geo {args.geo} --target {args.target}")
+        print("=" * 70)
+        from src.data.geo_intersect import main as run_geo_intersect
+        run_geo_intersect(geo=args.geo, target=args.target)
 
 
 if __name__ == "__main__":

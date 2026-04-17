@@ -28,6 +28,17 @@ EVAL_DIR     = DATA_DIR / "eval"
 STATION_TABLE        = RAW_DIR / "USGS_Table_1.csv"
 RAW_USGS_DIR         = RAW_DIR / "usgs"
 
+# Individual GeoPackage exports from the GDB (run data/prepare/geo_ops/export_gdb_layers.py)
+GIS_DIR              = RAW_DIR / "gis"
+WATERSHEDS_GPKG      = GIS_DIR / "USGS_Training_Watersheds.gpkg"
+POUR_POINTS_GPKG     = GIS_DIR / "USGS_Training_Watersheds_Pour_Points.gpkg"
+VIC_GRIDS_GPKG       = GIS_DIR / "VICGrids_CAORNV_LatLong.gpkg"
+WBDHU4_GPKG          = GIS_DIR / "WBDHU4.gpkg"
+WBDHU6_GPKG          = GIS_DIR / "WBDHU6.gpkg"
+WBDHU8_GPKG          = GIS_DIR / "WBDHU8.gpkg"
+WBDHU10_GPKG         = GIS_DIR / "WBDHU10.gpkg"
+WBDHU12_GPKG         = GIS_DIR / "WBDHU12.gpkg"
+
 # Watershed boundaries (CSV + GeoJSON)
 WATERSHEDS_DIR       = TRAINING_DIR / "watersheds"
 WATERSHED_GEOMETRY   = WATERSHEDS_DIR / "watersheds.csv"
@@ -45,10 +56,46 @@ TRAINING_OUTPUT_DIR  = TRAINING_DIR / "output"
 GEO_OPS_DIR          = QA_DIR / "geo_ops"
 VICGRIDS_FILE        = GEO_OPS_DIR / "VICGrids_Intersect_Watersheds.csv"
 BASIN_ATLAS_INPUT    = GEO_OPS_DIR / "BasinATLAS_v10_lev12_Intersect_Watersheds.csv"
+BASIN_ATLAS_CLIPPED  = GIS_DIR / "BasinATLAS_v10_lev12_clipped.gpkg"
 
 # Static attribute outputs (weighted averages)
 BASIN_ATLAS_OUTPUT   = STATIC_DIR / "Physical_Attributes_Watersheds.csv"
 CLIMATE_STATS_OUTPUT = STATIC_DIR / "Climate_Statistics_Watersheds.csv"
+
+# ---------------------------------------------------------------------------
+# Target-aware path resolution (watersheds / huc8 / huc10)
+# ---------------------------------------------------------------------------
+
+_TARGET_SUFFIX: dict[str, str] = {
+    "watersheds": "Watersheds",
+    "huc8":       "HUC8",
+    "huc10":      "HUC10",
+}
+
+
+def get_target_paths(target: str = "watersheds") -> dict[str, Path]:
+    """Return input/output paths for a given polygon target.
+
+    For *watersheds* the base directory is ``data/training/``.
+    For *huc8* / *huc10*, climate goes to ``data/eval/climate/<target>/``
+    and static attrs go to ``data/eval/static/<target>/``.
+    """
+    suffix = _TARGET_SUFFIX[target]
+    if target == "watersheds":
+        climate_dir = CLIMATE_DIR
+        static_dir  = STATIC_DIR
+    else:
+        climate_dir = EVAL_DIR / "climate" / target
+        static_dir  = EVAL_DIR / "static" / target
+    return {
+        "climate_dir":          climate_dir,
+        "static_dir":           static_dir,
+        "vicgrids_file":        GEO_OPS_DIR / f"VICGrids_Intersect_{suffix}.csv",
+        "basin_atlas_input":    GEO_OPS_DIR / f"BasinATLAS_v10_lev12_Intersect_{suffix}.csv",
+        "basin_atlas_output":   static_dir / f"Physical_Attributes_{suffix}.csv",
+        "climate_stats_output": static_dir / f"Climate_Statistics_{suffix}.csv",
+    }
+
 
 # ---------------------------------------------------------------------------
 # Evaluation & external comparison data
