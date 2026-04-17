@@ -1,0 +1,820 @@
+Basins with tier labels: 210
+Candidate scalar features: 53
+Width function bins: 32
+
+==========================================================================================
+PART 1: PAIRWISE |SPEARMAN rho| > 0.85
+==========================================================================================
+  num_basins                   vs FID_BasinATLAS_count          ρ = +1.0000
+  ele_p90                      vs ele_p95                       ρ = +0.9983
+  ele_p05                      vs ele_p10                       ρ = +0.9969
+  ele_p75                      vs ele_p90                       ρ = +0.9937
+  ele_p10                      vs ele_p25                       ρ = +0.9925
+  ele_p50                      vs ele_p75                       ρ = +0.9916
+  twi_p50                      vs twi_mean                      ρ = +0.9910
+  ele_p25                      vs ele_p50                       ρ = +0.9907
+  twi_p05                      vs twi_p10                       ρ = +0.9887
+  ria_ha_usu                   vs riv_tc_usu                    ρ = +0.9883
+  ele_p75                      vs ele_p95                       ρ = +0.9880
+  total_Shape_Area_km2         vs total_stream_len_km           ρ = +0.9873
+  ele_p95                      vs ele_max                       ρ = +0.9840
+  n_reaches                    vs total_stream_len_km           ρ = +0.9834
+  ele_p05                      vs ele_p25                       ρ = +0.9827
+  twi_p75                      vs twi_mean                      ρ = +0.9822
+  twi_p25                      vs twi_p50                       ρ = +0.9812
+  twi_p50                      vs twi_p75                       ρ = +0.9782
+  ele_p90                      vs ele_max                       ρ = +0.9772
+  twi_p10                      vs twi_p25                       ρ = +0.9771
+  ele_p50                      vs ele_p90                       ρ = +0.9767
+  twi_p25                      vs twi_mean                      ρ = +0.9728
+  ele_p10                      vs ele_p50                       ρ = +0.9724
+  precip_mean                  vs aridity_index                 ρ = -0.9722
+  ele_p25                      vs ele_p75                       ρ = +0.9705
+  twi_p90                      vs twi_mean                      ρ = +0.9699
+  ele_p50                      vs ele_p95                       ρ = +0.9687
+  twi_p75                      vs twi_p90                       ρ = +0.9655
+  total_Shape_Area_km2         vs n_reaches                     ρ = +0.9626
+  ele_p75                      vs ele_max                       ρ = +0.9606
+  ele_p05                      vs ele_p50                       ρ = +0.9574
+  ele_range                    vs ele_std                       ρ = +0.9563
+  ele_p05                      vs ele_min                       ρ = +0.9545
+  twi_p90                      vs twi_p95                       ρ = +0.9526
+  low_precip_freq              vs low_precip_dur                ρ = +0.9525
+  slt_pc_uav                   vs snd_pc_uav                    ρ = -0.9501
+  ele_p25                      vs ele_p90                       ρ = +0.9488
+  ele_p10                      vs ele_p75                       ρ = +0.9464
+  twi_p50                      vs twi_p90                       ρ = +0.9427
+  ele_mt_uav                   vs ele_p50                       ρ = +0.9408
+  total_Shape_Area_km2         vs num_basins                    ρ = +0.9401
+  total_Shape_Area_km2         vs FID_BasinATLAS_count          ρ = +0.9401
+  ele_p25                      vs ele_p95                       ρ = +0.9390
+  twi_p05                      vs twi_p25                       ρ = +0.9384
+  snow_fraction                vs ele_p75                       ρ = +0.9383
+  snow_fraction                vs ele_p50                       ρ = +0.9379
+  ele_mt_uav                   vs ele_p75                       ρ = +0.9374
+  ele_p50                      vs ele_max                       ρ = +0.9367
+  ele_p10                      vs ele_min                       ρ = +0.9363
+  snow_fraction                vs ele_p90                       ρ = +0.9350
+  twi_p25                      vs twi_p75                       ρ = +0.9343
+  ele_mt_uav                   vs ele_p25                       ρ = +0.9329
+  snow_fraction                vs ele_p95                       ρ = +0.9327
+  cly_pc_uav                   vs snd_pc_uav                    ρ = -0.9303
+  ele_p05                      vs ele_p75                       ρ = +0.9290
+  snow_fraction                vs ele_p25                       ρ = +0.9268
+  ele_mt_uav                   vs ele_p90                       ρ = +0.9261
+  twi_p10                      vs twi_p50                       ρ = +0.9257
+  num_basins                   vs total_stream_len_km           ρ = +0.9256
+  FID_BasinATLAS_count         vs total_stream_len_km           ρ = +0.9256
+  twi_p10                      vs twi_mean                      ρ = +0.9243
+  ele_mt_uav                   vs snow_fraction                 ρ = +0.9239
+  ele_mt_uav                   vs ele_p10                       ρ = +0.9221
+  ele_p10                      vs ele_p90                       ρ = +0.9208
+  ele_mt_uav                   vs ele_p95                       ρ = +0.9207
+  snow_fraction                vs ele_p10                       ρ = +0.9161
+  snow_fraction                vs ele_max                       ρ = +0.9145
+  n_reaches                    vs max_strahler                  ρ = +0.9143
+  ele_mt_uav                   vs ele_p05                       ρ = +0.9099
+  ele_p10                      vs ele_p95                       ρ = +0.9097
+  total_stream_len_km          vs max_strahler                  ρ = +0.9087
+  snow_fraction                vs ele_p05                       ρ = +0.9054
+  ele_p25                      vs ele_min                       ρ = +0.9044
+  twi_p95                      vs twi_mean                      ρ = +0.9016
+  ele_p05                      vs ele_p90                       ρ = +0.9013
+  ele_p25                      vs ele_max                       ρ = +0.9011
+  twi_p25                      vs twi_p90                       ρ = +0.9011
+  num_basins                   vs n_reaches                     ρ = +0.9003
+  FID_BasinATLAS_count         vs n_reaches                     ρ = +0.9003
+  ele_mt_uav                   vs ele_max                       ρ = +0.8992
+  ele_p05                      vs ele_p95                       ρ = +0.8892
+  precip_mean                  vs low_precip_freq               ρ = -0.8856
+  total_Shape_Area_km2         vs max_strahler                  ρ = +0.8788
+  aridity_index                vs low_precip_freq               ρ = +0.8710
+  twi_p05                      vs twi_mean                      ρ = +0.8706
+  ele_p10                      vs ele_max                       ρ = +0.8696
+  twi_p05                      vs twi_p50                       ρ = +0.8681
+  twi_p10                      vs twi_p75                       ρ = +0.8664
+  twi_p75                      vs twi_p95                       ρ = +0.8663
+  ele_p50                      vs ele_min                       ρ = +0.8659
+  aridity_index                vs low_precip_dur                ρ = +0.8643
+  twi_p50                      vs twi_p95                       ρ = +0.8549
+
+==========================================================================================
+PART 2: HIERARCHICAL CLUSTERING (distance = 1 − |Spearman|, cut at 0.15)
+==========================================================================================
+
+Clusters of highly correlated features:
+
+  Cluster 1 (8 features):
+    - twi_mean
+    - twi_p10
+    - twi_p25
+    - twi_p50
+    - twi_p75
+    - twi_p05
+    - twi_p95
+    - twi_p90
+
+  Cluster 5 (6 features):
+    - total_Shape_Area_km2
+    - total_stream_len_km
+    - max_strahler
+    - FID_BasinATLAS_count
+    - num_basins
+    - n_reaches
+
+  Cluster 8 (2 features):
+    - ria_ha_usu
+    - riv_tc_usu
+
+  Cluster 13 (4 features):
+    - aridity_index
+    - low_precip_freq
+    - low_precip_dur
+    - precip_mean
+
+  Cluster 17 (3 features):
+    - cly_pc_uav
+    - slt_pc_uav
+    - snd_pc_uav
+
+  Cluster 18 (11 features):
+    - ele_mt_uav
+    - ele_p10
+    - ele_max
+    - ele_min
+    - ele_p95
+    - ele_p90
+    - ele_p75
+    - ele_p50
+    - ele_p25
+    - ele_p05
+    - snow_fraction
+
+  Cluster 19 (2 features):
+    - ele_range
+    - ele_std
+
+  Singletons:
+    - twi_std
+    - slp_dg_uav
+    - wet_cl_smj
+    - main_chan_length_km
+    - main_chan_sinuosity
+    - high_precip_freq
+    - pnv_cl_smj
+    - for_pc_use
+    - glc_cl_smj
+    - clz_cl_smj
+    - pet_mean
+    - drain_density_km
+    - sgr_dk_sav
+    - hyp_integral
+    - high_precip_dur
+    - lit_cl_smj
+    - bifurc_ratio
+
+==========================================================================================
+PART 3: MUTUAL INFORMATION WITH TIER
+==========================================================================================
+
+  (higher = more discriminative for T1/T2/T3)
+  ele_p50                       MI = 0.4338
+  snow_fraction                 MI = 0.4318
+  ele_p75                       MI = 0.4054
+  ele_p25                       MI = 0.3909
+  ele_p05                       MI = 0.3763
+  ele_p90                       MI = 0.3743
+  ele_p10                       MI = 0.3726
+  ele_mt_uav                    MI = 0.3320
+  ele_max                       MI = 0.3287
+  ele_p95                       MI = 0.3221
+  clz_cl_smj                    MI = 0.3084
+  ele_min                       MI = 0.2949
+  pet_mean                      MI = 0.2914
+  cly_pc_uav                    MI = 0.2574
+  slt_pc_uav                    MI = 0.2540
+  snd_pc_uav                    MI = 0.2274
+  lit_cl_smj                    MI = 0.2117
+  low_precip_dur                MI = 0.2019
+  high_precip_freq              MI = 0.1983
+  low_precip_freq               MI = 0.1952
+  twi_p95                       MI = 0.1677
+  aridity_index                 MI = 0.1586
+  drain_density_km              MI = 0.1474
+  pnv_cl_smj                    MI = 0.1394
+  ele_range                     MI = 0.1321
+  precip_mean                   MI = 0.1160
+  twi_p50                       MI = 0.1122
+  high_precip_dur               MI = 0.0978
+  twi_p75                       MI = 0.0972
+  wet_cl_smj                    MI = 0.0919
+  sgr_dk_sav                    MI = 0.0752
+  twi_std                       MI = 0.0685
+  twi_p10                       MI = 0.0679
+  twi_p90                       MI = 0.0674
+  twi_mean                      MI = 0.0651
+  twi_p25                       MI = 0.0576
+  bifurc_ratio                  MI = 0.0572
+  ele_std                       MI = 0.0517
+  twi_p05                       MI = 0.0469
+  slp_dg_uav                    MI = 0.0411
+  glc_cl_smj                    MI = 0.0404
+  for_pc_use                    MI = 0.0351
+  main_chan_sinuosity           MI = 0.0336
+  ria_ha_usu                    MI = 0.0253
+  hyp_integral                  MI = 0.0131
+  num_basins                    MI = 0.0000
+  riv_tc_usu                    MI = 0.0000
+  n_reaches                     MI = 0.0000
+  total_stream_len_km           MI = 0.0000
+  max_strahler                  MI = 0.0000
+  FID_BasinATLAS_count          MI = 0.0000
+  main_chan_length_km           MI = 0.0000
+  total_Shape_Area_km2          MI = 0.0000
+
+==========================================================================================
+PART 4: RANDOM FOREST TIER CLASSIFICATION — feature importance
+==========================================================================================
+
+  5-fold CV accuracy (all 53 features): 0.714
+
+  Feature importance (Gini):
+  ele_p50                       imp = 0.0653  cumul = 0.065
+  snow_fraction                 imp = 0.0637  cumul = 0.129
+  pet_mean                      imp = 0.0616  cumul = 0.191
+  ele_p75                       imp = 0.0551  cumul = 0.246
+  ele_p25                       imp = 0.0531  cumul = 0.299
+  ele_p10                       imp = 0.0502  cumul = 0.349
+  ele_mt_uav                    imp = 0.0454  cumul = 0.394
+  ele_p90                       imp = 0.0368  cumul = 0.431
+  ele_p05                       imp = 0.0358  cumul = 0.467
+  clz_cl_smj                    imp = 0.0357  cumul = 0.503
+  ele_p95                       imp = 0.0332  cumul = 0.536
+  slt_pc_uav                    imp = 0.0331  cumul = 0.569
+  aridity_index                 imp = 0.0324  cumul = 0.601
+  ele_max                       imp = 0.0279  cumul = 0.629
+  precip_mean                   imp = 0.0277  cumul = 0.657
+  ele_min                       imp = 0.0274  cumul = 0.684
+  cly_pc_uav                    imp = 0.0204  cumul = 0.705
+  low_precip_dur                imp = 0.0190  cumul = 0.724
+  low_precip_freq               imp = 0.0175  cumul = 0.741
+  snd_pc_uav                    imp = 0.0161  cumul = 0.757
+  bifurc_ratio                  imp = 0.0131  cumul = 0.770
+  riv_tc_usu                    imp = 0.0124  cumul = 0.783
+  ele_std                       imp = 0.0122  cumul = 0.795
+  ria_ha_usu                    imp = 0.0119  cumul = 0.807
+  for_pc_use                    imp = 0.0107  cumul = 0.818
+  high_precip_freq              imp = 0.0106  cumul = 0.828
+  twi_p10                       imp = 0.0101  cumul = 0.838
+  twi_p05                       imp = 0.0099  cumul = 0.848
+  total_Shape_Area_km2          imp = 0.0095  cumul = 0.858
+  drain_density_km              imp = 0.0082  cumul = 0.866
+  total_stream_len_km           imp = 0.0080  cumul = 0.874
+  ele_range                     imp = 0.0075  cumul = 0.882
+  twi_p95                       imp = 0.0075  cumul = 0.889
+  lit_cl_smj                    imp = 0.0074  cumul = 0.896
+  twi_p50                       imp = 0.0073  cumul = 0.904
+  twi_p90                       imp = 0.0072  cumul = 0.911
+  main_chan_length_km           imp = 0.0072  cumul = 0.918
+  main_chan_sinuosity           imp = 0.0072  cumul = 0.925
+  hyp_integral                  imp = 0.0071  cumul = 0.932
+  twi_p25                       imp = 0.0070  cumul = 0.939
+  twi_p75                       imp = 0.0068  cumul = 0.946
+  twi_mean                      imp = 0.0064  cumul = 0.953
+  slp_dg_uav                    imp = 0.0063  cumul = 0.959
+  n_reaches                     imp = 0.0062  cumul = 0.965
+  sgr_dk_sav                    imp = 0.0061  cumul = 0.971
+  twi_std                       imp = 0.0057  cumul = 0.977
+  high_precip_dur               imp = 0.0048  cumul = 0.982
+  num_basins                    imp = 0.0047  cumul = 0.986
+  FID_BasinATLAS_count          imp = 0.0040  cumul = 0.990
+  pnv_cl_smj                    imp = 0.0035  cumul = 0.994
+  max_strahler                  imp = 0.0027  cumul = 0.996
+  wet_cl_smj                    imp = 0.0025  cumul = 0.999
+  glc_cl_smj                    imp = 0.0010  cumul = 1.000
+
+==========================================================================================
+PART 5: CLUSTER-BASED SELECTION (keep highest-MI member per cluster)
+==========================================================================================
+  Cluster 1: KEEP twi_p95, drop ['twi_mean', 'twi_p10', 'twi_p25', 'twi_p50', 'twi_p75', 'twi_p05', 'twi_p90']
+  Cluster 5: KEEP total_Shape_Area_km2, drop ['total_stream_len_km', 'max_strahler', 'FID_BasinATLAS_count', 'num_basins', 'n_reaches']
+  Cluster 8: KEEP ria_ha_usu, drop ['riv_tc_usu']
+  Cluster 13: KEEP low_precip_dur, drop ['aridity_index', 'low_precip_freq', 'precip_mean']
+  Cluster 17: KEEP cly_pc_uav, drop ['slt_pc_uav', 'snd_pc_uav']
+  Cluster 18: KEEP ele_p50, drop ['ele_mt_uav', 'ele_p10', 'ele_max', 'ele_min', 'ele_p95', 'ele_p90', 'ele_p75', 'ele_p25', 'ele_p05', 'snow_fraction']
+  Cluster 19: KEEP ele_range, drop ['ele_std']
+
+  Kept (24): ['twi_p95', 'twi_std', 'slp_dg_uav', 'wet_cl_smj', 'total_Shape_Area_km2', 'main_chan_length_km', 'main_chan_sinuosity', 'ria_ha_usu', 'high_precip_freq', 'pnv_cl_smj', 'for_pc_use', 'glc_cl_smj', 'low_precip_dur', 'clz_cl_smj', 'pet_mean', 'drain_density_km', 'cly_pc_uav', 'ele_p50', 'ele_range', 'sgr_dk_sav', 'hyp_integral', 'high_precip_dur', 'lit_cl_smj', 'bifurc_ratio']
+  Dropped (29): ['twi_mean', 'twi_p10', 'twi_p25', 'twi_p50', 'twi_p75', 'twi_p05', 'twi_p90', 'total_stream_len_km', 'max_strahler', 'FID_BasinATLAS_count', 'num_basins', 'n_reaches', 'riv_tc_usu', 'aridity_index', 'low_precip_freq', 'precip_mean', 'slt_pc_uav', 'snd_pc_uav', 'ele_mt_uav', 'ele_p10', 'ele_max', 'ele_min', 'ele_p95', 'ele_p90', 'ele_p75', 'ele_p25', 'ele_p05', 'snow_fraction', 'ele_std']
+
+  VIF on kept set:
+    twi_p95                       VIF=    11.2  R²=0.911 *** HIGH
+    twi_std                       VIF=    10.0  R²=0.900 *** HIGH
+    low_precip_dur                VIF=     9.5  R²=0.894 * moderate
+    ele_p50                       VIF=     7.2  R²=0.861 * moderate
+    high_precip_freq              VIF=     5.5  R²=0.818 * moderate
+    pet_mean                      VIF=     5.2  R²=0.807 * moderate
+    sgr_dk_sav                    VIF=     4.9  R²=0.794
+    clz_cl_smj                    VIF=     4.8  R²=0.793
+    ele_range                     VIF=     4.8  R²=0.790
+    for_pc_use                    VIF=     4.4  R²=0.774
+    main_chan_length_km           VIF=     4.0  R²=0.750
+    slp_dg_uav                    VIF=     3.9  R²=0.745
+    total_Shape_Area_km2          VIF=     3.6  R²=0.724
+    cly_pc_uav                    VIF=     3.1  R²=0.677
+    pnv_cl_smj                    VIF=     2.5  R²=0.601
+    glc_cl_smj                    VIF=     2.3  R²=0.558
+    drain_density_km              VIF=     1.9  R²=0.471
+    hyp_integral                  VIF=     1.8  R²=0.459
+    wet_cl_smj                    VIF=     1.7  R²=0.428
+    high_precip_dur               VIF=     1.6  R²=0.380
+    ria_ha_usu                    VIF=     1.5  R²=0.352
+    lit_cl_smj                    VIF=     1.5  R²=0.348
+    main_chan_sinuosity           VIF=     1.5  R²=0.323
+    bifurc_ratio                  VIF=     1.3  R²=0.216
+
+  5-fold CV (kept 24): 0.624  (was 0.714 with all 53)
+
+==========================================================================================
+PART 6: WIDTH FUNCTION — tier-stratified analysis
+==========================================================================================
+  T1 (rain) ( 89 basins): peak_bin=18  centroid=16.6  entropy=3.388
+  T2 (mixed) ( 92 basins): peak_bin=24  centroid=16.8  entropy=3.389
+  T3 (snow) ( 29 basins): peak_bin=20  centroid=16.8  entropy=3.377
+
+  PCA on width function (6 PCs, 80.4% variance):
+    PC1: 33.7%
+    PC2: 19.6%
+    PC3: 10.8%
+    PC4: 7.7%
+    PC5: 4.4%
+    PC6: 4.2%
+
+  Width function PC MI with tier:
+    PC1: MI = 0.0044
+    PC2: MI = 0.0000
+    PC3: MI = 0.0064
+    PC4: MI = 0.0000
+    PC5: MI = 0.0141
+    PC6: MI = 0.0124
+
+  Kruskal-Wallis (tier differences in WF PCs):
+    PC1: H=    2.29  p=3.18e-01  ns
+    PC2: H=    5.52  p=6.34e-02  ns
+    PC3: H=    1.17  p=5.57e-01  ns
+    PC4: H=    1.10  p=5.76e-01  ns
+    PC5: H=    0.28  p=8.68e-01  ns
+    PC6: H=    4.65  p=9.79e-02  ns
+
+==========================================================================================
+PART 7: FEATURE CORRELATION WITH HYDROLOGICAL TARGETS (Spearman, all basins)
+==========================================================================================
+
+  Flow stats computed for 210 basins
+
+  --- q_cv ---
+    low_precip_dur                ρ = +0.8644  ***
+    clz_cl_smj                    ρ = +0.7861  ***
+    low_precip_freq               ρ = +0.7783  ***
+    aridity_index                 ρ = +0.7742  ***
+    precip_mean                   ρ = -0.7023  ***
+    pet_mean                      ρ = +0.6980  ***
+    snow_fraction                 ρ = -0.6870  ***
+    drain_density_km              ρ = +0.6268  ***
+    ele_mt_uav                    ρ = -0.6150  ***
+    ele_max                       ρ = -0.5857  ***
+
+  --- q_skew ---
+    low_precip_dur                ρ = +0.8044  ***
+    low_precip_freq               ρ = +0.7347  ***
+    clz_cl_smj                    ρ = +0.7170  ***
+    aridity_index                 ρ = +0.7021  ***
+    precip_mean                   ρ = -0.6256  ***
+    pet_mean                      ρ = +0.5950  ***
+    drain_density_km              ρ = +0.5453  ***
+    high_precip_freq              ρ = -0.4520  ***
+    snow_fraction                 ρ = -0.4365  ***
+    ele_mt_uav                    ρ = -0.3789  ***
+
+  --- baseflow_idx ---
+    snow_fraction                 ρ = +0.5079  ***
+    pet_mean                      ρ = -0.4913  ***
+    aridity_index                 ρ = -0.4802  ***
+    ele_max                       ρ = +0.4738  ***
+    clz_cl_smj                    ρ = -0.4712  ***
+    ele_p90                       ρ = +0.4667  ***
+    ele_p95                       ρ = +0.4660  ***
+    ele_p75                       ρ = +0.4637  ***
+    low_precip_dur                ρ = -0.4593  ***
+    ele_p50                       ρ = +0.4538  ***
+
+  --- flashiness ---
+    snow_fraction                 ρ = -0.8418  ***
+    ele_p75                       ρ = -0.8017  ***
+    ele_p50                       ρ = -0.8014  ***
+    ele_p90                       ρ = -0.8004  ***
+    ele_p95                       ρ = -0.7967  ***
+    ele_max                       ρ = -0.7962  ***
+    ele_mt_uav                    ρ = -0.7843  ***
+    ele_p25                       ρ = -0.7811  ***
+    ele_p10                       ρ = -0.7621  ***
+    ele_p05                       ρ = -0.7462  ***
+
+  --- zero_flow_frac ---
+    aridity_index                 ρ = +0.7199  ***
+    precip_mean                   ρ = -0.7045  ***
+    low_precip_freq               ρ = +0.6491  ***
+    low_precip_dur                ρ = +0.6446  ***
+    clz_cl_smj                    ρ = +0.6010  ***
+    pet_mean                      ρ = +0.5384  ***
+    for_pc_use                    ρ = -0.5222  ***
+    snow_fraction                 ρ = -0.4644  ***
+    slp_dg_uav                    ρ = -0.4249  ***
+    pnv_cl_smj                    ρ = +0.4196  ***
+
+==========================================================================================
+PART 7a: WITHIN-TIER FLOW-TARGET CORRELATIONS (T2 focus)
+==========================================================================================
+  Features that distinguish basins *within* a tier matter most for the model.
+  Cross-tier signal (e.g. snow_fraction separating T1 from T3) inflates Part 7.
+  Here we isolate within-tier discriminative power.
+
+
+  ========================================
+  T1 (rain) — 89 basins
+  ========================================
+
+    --- q_cv (within T1 (rain), std=1.977) ---
+      low_precip_freq               ρ = +0.9161  ***
+      low_precip_dur                ρ = +0.9113  ***
+      aridity_index                 ρ = +0.8526  ***
+      precip_mean                   ρ = -0.8420  ***
+      clz_cl_smj                    ρ = +0.7698  ***
+      drain_density_km              ρ = +0.6648  ***
+      for_pc_use                    ρ = -0.6458  ***
+      pnv_cl_smj                    ρ = +0.6346  ***
+
+    --- q_skew (within T1 (rain), std=6.904) ---
+      low_precip_dur                ρ = +0.8295  ***
+      low_precip_freq               ρ = +0.8229  ***
+      aridity_index                 ρ = +0.7486  ***
+      precip_mean                   ρ = -0.7350  ***
+      clz_cl_smj                    ρ = +0.7011  ***
+      drain_density_km              ρ = +0.5649  ***
+      for_pc_use                    ρ = -0.5476  ***
+      high_precip_freq              ρ = -0.5217  ***
+
+    --- baseflow_idx (within T1 (rain), std=0.035) ---
+      aridity_index                 ρ = -0.4457  ***
+      for_pc_use                    ρ = +0.4293  ***
+      precip_mean                   ρ = +0.4176  ***
+      pnv_cl_smj                    ρ = -0.3986  ***
+      pet_mean                      ρ = -0.3737  ***
+      low_precip_freq               ρ = -0.3291  **
+      ele_range                     ρ = +0.3251  **
+      low_precip_dur                ρ = -0.3199  **
+
+    --- flashiness (within T1 (rain), std=0.172) ---
+      aridity_index                 ρ = +0.7458  ***
+      precip_mean                   ρ = -0.7336  ***
+      low_precip_freq               ρ = +0.7228  ***
+      low_precip_dur                ρ = +0.7132  ***
+      for_pc_use                    ρ = -0.6334  ***
+      clz_cl_smj                    ρ = +0.6171  ***
+      pnv_cl_smj                    ρ = +0.6119  ***
+      slp_dg_uav                    ρ = -0.5922  ***
+
+    --- zero_flow_frac (within T1 (rain), std=0.142) ---
+      aridity_index                 ρ = +0.7017  ***
+      precip_mean                   ρ = -0.6817  ***
+      low_precip_freq               ρ = +0.6211  ***
+      low_precip_dur                ρ = +0.6073  ***
+      clz_cl_smj                    ρ = +0.5463  ***
+      for_pc_use                    ρ = -0.5431  ***
+      pnv_cl_smj                    ρ = +0.5379  ***
+      slp_dg_uav                    ρ = -0.5055  ***
+
+  ========================================
+  T2 (mixed) — 92 basins
+  ========================================
+
+    --- q_cv (within T2 (mixed), std=2.562) ---
+      low_precip_dur                ρ = +0.8540  ***
+      low_precip_freq               ρ = +0.7929  ***
+      aridity_index                 ρ = +0.7754  ***
+      precip_mean                   ρ = -0.7333  ***
+      snow_fraction                 ρ = -0.7236  ***
+      pet_mean                      ρ = +0.6806  ***
+      ele_mt_uav                    ρ = -0.6620  ***
+      clz_cl_smj                    ρ = +0.6549  ***
+
+    --- q_skew (within T2 (mixed), std=10.701) ---
+      low_precip_dur                ρ = +0.7190  ***
+      low_precip_freq               ρ = +0.6869  ***
+      clz_cl_smj                    ρ = +0.5980  ***
+      aridity_index                 ρ = +0.5623  ***
+      high_precip_freq              ρ = -0.5514  ***
+      pet_mean                      ρ = +0.5278  ***
+      drain_density_km              ρ = +0.5242  ***
+      precip_mean                   ρ = -0.5211  ***
+
+    --- baseflow_idx (within T2 (mixed), std=0.089) ---
+      aridity_index                 ρ = -0.5821  ***
+      snow_fraction                 ρ = +0.5752  ***
+      precip_mean                   ρ = +0.5593  ***
+      ele_mt_uav                    ρ = +0.5579  ***
+      ele_p75                       ρ = +0.5142  ***
+      ele_p90                       ρ = +0.5032  ***
+      ele_max                       ρ = +0.5019  ***
+      ele_p95                       ρ = +0.5006  ***
+
+    --- flashiness (within T2 (mixed), std=0.220) ---
+      snow_fraction                 ρ = -0.8552  ***
+      ele_p75                       ρ = -0.7849  ***
+      ele_p90                       ρ = -0.7831  ***
+      ele_mt_uav                    ρ = -0.7806  ***
+      ele_p95                       ρ = -0.7788  ***
+      ele_p50                       ρ = -0.7721  ***
+      ele_max                       ρ = -0.7715  ***
+      ele_p25                       ρ = -0.7237  ***
+
+    --- zero_flow_frac (within T2 (mixed), std=0.218) ---
+      aridity_index                 ρ = +0.7590  ***
+      precip_mean                   ρ = -0.7509  ***
+      snow_fraction                 ρ = -0.6267  ***
+      low_precip_freq               ρ = +0.6095  ***
+      ele_mt_uav                    ρ = -0.6077  ***
+      clz_cl_smj                    ρ = +0.5996  ***
+      low_precip_dur                ρ = +0.5878  ***
+      pet_mean                      ρ = +0.5835  ***
+
+  ========================================
+  T3 (snow) — 29 basins
+  ========================================
+
+    --- q_cv (within T3 (snow), std=0.230) ---
+      twi_p05                       ρ = +0.5708  **
+      pnv_cl_smj                    ρ = -0.5514  **
+      twi_p10                       ρ = +0.5138  **
+      ele_std                       ρ = -0.5005  **
+      ele_range                     ρ = -0.4911  **
+      twi_p25                       ρ = +0.4749  **
+      high_precip_freq              ρ = +0.4696  *
+      ele_p95                       ρ = -0.4660  *
+
+    --- q_skew (within T3 (snow), std=2.634) ---
+      ele_p50                       ρ = -0.7241  ***
+      pnv_cl_smj                    ρ = -0.7229  ***
+      pet_mean                      ρ = +0.6857  ***
+      ele_p25                       ρ = -0.6754  ***
+      snow_fraction                 ρ = -0.6571  ***
+      ele_p75                       ρ = -0.6374  ***
+      ele_mt_uav                    ρ = -0.6261  ***
+      ele_p90                       ρ = -0.6153  ***
+
+    --- baseflow_idx (within T3 (snow), std=0.070) ---
+      low_precip_dur                ρ = -0.4685  *
+      high_precip_freq              ρ = -0.4493  *
+      lit_cl_smj                    ρ = -0.4157  *
+      precip_mean                   ρ = -0.4156  *
+      bifurc_ratio                  ρ = -0.3853  *
+      aridity_index                 ρ = +0.3542  ns
+      slt_pc_uav                    ρ = +0.3403  ns
+      twi_p10                       ρ = -0.2872  ns
+
+    --- flashiness (within T3 (snow), std=0.044) ---
+      precip_mean                   ρ = +0.5976  ***
+      ele_p95                       ρ = -0.5872  ***
+      ele_p90                       ρ = -0.5695  **
+      ele_p50                       ρ = -0.5685  **
+      pnv_cl_smj                    ρ = -0.5461  **
+      ele_p75                       ρ = -0.5399  **
+      ele_mt_uav                    ρ = -0.5335  **
+      high_precip_freq              ρ = +0.5295  **
+
+    --- zero_flow_frac (within T3 (snow), std=0.012) ---
+      high_precip_freq              ρ = +0.4307  *
+      twi_p10                       ρ = +0.2821  ns
+      twi_p05                       ρ = +0.2668  ns
+      lit_cl_smj                    ρ = +0.2481  ns
+      twi_p25                       ρ = +0.2424  ns
+      twi_mean                      ρ = +0.2181  ns
+      precip_mean                   ρ = +0.2174  ns
+      main_chan_sinuosity           ρ = -0.2153  ns
+
+==========================================================================================
+PART 7b: WITHIN-TIER FEATURE VARIANCE
+==========================================================================================
+  Features with low CoV within a tier cannot distinguish basins in that tier.
+  Features with high within-tier CoV relative to total CoV carry intra-tier info.
+
+
+  T2 (mixed) — 92 basins:
+    Top 15 features by within-tier CoV / total CoV (higher = more intra-tier spread):
+      for_pc_use                    within_CoV=0.361  ratio=1.27
+      high_precip_freq              within_CoV=0.117  ratio=1.10
+      riv_tc_usu                    within_CoV=2.163  ratio=1.10
+      slp_dg_uav                    within_CoV=0.331  ratio=1.09
+      ria_ha_usu                    within_CoV=1.546  ratio=1.08
+      twi_std                       within_CoV=0.065  ratio=1.05
+      twi_p95                       within_CoV=0.063  ratio=1.05
+      twi_p90                       within_CoV=0.065  ratio=1.04
+      drain_density_km              within_CoV=0.223  ratio=1.02
+      high_precip_dur               within_CoV=0.043  ratio=1.01
+      twi_p10                       within_CoV=0.061  ratio=1.00
+      twi_p05                       within_CoV=0.059  ratio=1.00
+      precip_mean                   within_CoV=0.477  ratio=0.99
+      twi_mean                      within_CoV=0.062  ratio=0.99
+      glc_cl_smj                    within_CoV=0.687  ratio=0.99
+    Bottom 5:
+      slt_pc_uav                    within_CoV=0.078  ratio=0.79
+      ele_p10                       within_CoV=0.657  ratio=0.79
+      n_reaches                     within_CoV=1.784  ratio=0.78
+      total_stream_len_km           within_CoV=1.643  ratio=0.77
+      snd_pc_uav                    within_CoV=0.074  ratio=0.73
+
+  T1 (rain) — 89 basins:
+    Top 15 features by within-tier CoV / total CoV (higher = more intra-tier spread):
+      wet_cl_smj                    within_CoV=2.883  ratio=1.56
+      n_reaches                     within_CoV=2.806  ratio=1.23
+      total_stream_len_km           within_CoV=2.555  ratio=1.20
+      total_Shape_Area_km2          within_CoV=2.524  ratio=1.19
+      num_basins                    within_CoV=1.698  ratio=1.19
+      FID_BasinATLAS_count          within_CoV=1.698  ratio=1.19
+      main_chan_length_km           within_CoV=1.328  ratio=1.14
+      low_precip_freq               within_CoV=0.090  ratio=1.14
+      lit_cl_smj                    within_CoV=0.643  ratio=1.11
+      main_chan_sinuosity           within_CoV=0.192  ratio=1.10
+      bifurc_ratio                  within_CoV=0.564  ratio=1.10
+      hyp_integral                  within_CoV=0.216  ratio=1.04
+      snd_pc_uav                    within_CoV=0.104  ratio=1.03
+      precip_mean                   within_CoV=0.488  ratio=1.02
+      low_precip_dur                within_CoV=0.288  ratio=1.02
+    Bottom 5:
+      ele_p50                       within_CoV=0.528  ratio=0.78
+      ele_p90                       within_CoV=0.434  ratio=0.78
+      ele_p75                       within_CoV=0.469  ratio=0.77
+      pet_mean                      within_CoV=0.067  ratio=0.54
+      clz_cl_smj                    within_CoV=0.055  ratio=0.31
+
+  T3 (snow) — 29 basins:
+    Top 15 features by within-tier CoV / total CoV (higher = more intra-tier spread):
+      high_precip_dur               within_CoV=0.051  ratio=1.20
+      max_strahler                  within_CoV=0.324  ratio=1.11
+      ele_range                     within_CoV=0.547  ratio=1.06
+      twi_p05                       within_CoV=0.062  ratio=1.05
+      ele_std                       within_CoV=0.537  ratio=1.03
+      pnv_cl_smj                    within_CoV=0.448  ratio=0.98
+      drain_density_km              within_CoV=0.211  ratio=0.97
+      twi_p10                       within_CoV=0.059  ratio=0.96
+      glc_cl_smj                    within_CoV=0.653  ratio=0.94
+      cly_pc_uav                    within_CoV=0.156  ratio=0.91
+      twi_std                       within_CoV=0.055  ratio=0.90
+      sgr_dk_sav                    within_CoV=0.521  ratio=0.88
+      twi_p25                       within_CoV=0.055  ratio=0.86
+      twi_p95                       within_CoV=0.051  ratio=0.85
+      hyp_integral                  within_CoV=0.173  ratio=0.83
+    Bottom 5:
+      ele_p75                       within_CoV=0.141  ratio=0.23
+      ele_mt_uav                    within_CoV=0.148  ratio=0.22
+      ele_p25                       within_CoV=0.162  ratio=0.22
+      ele_p50                       within_CoV=0.140  ratio=0.21
+      snow_fraction                 within_CoV=0.316  ratio=0.17
+
+==========================================================================================
+PART 7c: WITHIN-TIER RF REGRESSION — can features predict flow variability?
+==========================================================================================
+  RF R² for predicting flow statistics from static features, *within each tier*.
+  Positive R² means features explain why basins within a tier differ.
+
+
+  T2 (mixed) — 92 basins:
+    Existing 16 (16 features):
+      q_cv                  R²=+0.143 ± 0.495
+      q_skew                R²=+0.003 ± 0.375
+      baseflow_idx          R²=-0.415 ± 1.066
+      flashiness            R²=+0.370 ± 0.458
+      zero_flow_frac        R²=-1448.452 ± 2897.229
+    Recommended 23 (23 features):
+      q_cv                  R²=+0.240 ± 0.469
+      q_skew                R²=+0.041 ± 0.352
+      baseflow_idx          R²=-0.348 ± 0.976
+      flashiness            R²=+0.315 ± 0.628
+      zero_flow_frac        R²=-2332.875 ± 4665.985
+
+  T1 (rain) — 89 basins:
+    Existing 16 (16 features):
+      q_cv                  R²=-0.899 ± 0.928
+      q_skew                R²=-2.396 ± 1.912
+      baseflow_idx          R²=-1.789 ± 2.303
+      flashiness            R²=+0.212 ± 0.205
+      zero_flow_frac        R²=-0.304 ± 0.982
+    Recommended 23 (23 features):
+      q_cv                  R²=-1.172 ± 1.295
+      q_skew                R²=-2.985 ± 2.378
+      baseflow_idx          R²=-0.662 ± 0.882
+      flashiness            R²=+0.095 ± 0.320
+      zero_flow_frac        R²=-0.594 ± 1.494
+
+  T3 (snow) — 29 basins:
+    Existing 16 (16 features):
+      q_cv                  R²=-0.226 ± 0.491
+      q_skew                R²=-23.426 ± 44.621
+      baseflow_idx          R²=-1.548 ± 1.789
+      flashiness            R²=-4.349 ± 5.748
+      zero_flow_frac        R²=-9.934 ± 19.567
+    Recommended 23 (23 features):
+      q_cv                  R²=-0.378 ± 0.586
+      q_skew                R²=-33.367 ± 64.357
+      baseflow_idx          R²=-1.576 ± 1.544
+      flashiness            R²=-5.946 ± 7.991
+      zero_flow_frac        R²=-3.455 ± 6.446
+
+==========================================================================================
+PART 8: INCREMENTAL INFORMATION — residual variance vs existing 16 features
+==========================================================================================
+
+  Existing baseline: 16 features
+  New candidates: 37 features
+
+  (higher residual = more unique information)
+
+  bifurc_ratio                  R²=0.110  residual=0.890  <-- UNIQUE
+  main_chan_sinuosity           R²=0.191  residual=0.809  <-- UNIQUE
+  hyp_integral                  R²=0.307  residual=0.693  <-- UNIQUE
+  high_precip_dur               R²=0.331  residual=0.669  <-- UNIQUE
+  wet_cl_smj                    R²=0.344  residual=0.656  <-- UNIQUE
+  drain_density_km              R²=0.431  residual=0.569  <-- UNIQUE
+  twi_std                       R²=0.501  residual=0.499
+  glc_cl_smj                    R²=0.554  residual=0.446
+  max_strahler                  R²=0.558  residual=0.442
+  twi_p95                       R²=0.621  residual=0.379
+  pnv_cl_smj                    R²=0.634  residual=0.366
+  main_chan_length_km           R²=0.638  residual=0.362
+  twi_p05                       R²=0.638  residual=0.362
+  twi_p90                       R²=0.646  residual=0.354
+  twi_p10                       R²=0.666  residual=0.334
+  twi_p75                       R²=0.672  residual=0.328
+  ele_std                       R²=0.688  residual=0.312
+  twi_mean                      R²=0.696  residual=0.304
+  twi_p25                       R²=0.698  residual=0.302
+  twi_p50                       R²=0.711  residual=0.289
+  ele_range                     R²=0.758  residual=0.242
+  high_precip_freq              R²=0.822  residual=0.178
+  ele_min                       R²=0.877  residual=0.123
+  ele_max                       R²=0.898  residual=0.102
+  ele_p05                       R²=0.920  residual=0.080  <-- redundant
+  ele_p95                       R²=0.932  residual=0.068  <-- redundant
+  ele_p10                       R²=0.933  residual=0.067  <-- redundant
+  ele_p90                       R²=0.940  residual=0.060  <-- redundant
+  num_basins                    R²=0.948  residual=0.052  <-- redundant
+  FID_BasinATLAS_count          R²=0.948  residual=0.052  <-- redundant
+  ele_p25                       R²=0.951  residual=0.049  <-- redundant
+  ele_p75                       R²=0.952  residual=0.048  <-- redundant
+  ele_p50                       R²=0.957  residual=0.043  <-- redundant
+  low_precip_freq               R²=0.967  residual=0.033  <-- redundant
+  n_reaches                     R²=0.979  residual=0.021  <-- redundant
+  slt_pc_uav                    R²=0.980  residual=0.020  <-- redundant
+  total_stream_len_km           R²=0.991  residual=0.009  <-- redundant
+
+==========================================================================================
+PART 9: FEATURE SUBSET COMPARISON — within-T2 flow prediction + tier accuracy
+==========================================================================================
+  Tier accuracy is a sanity check; within-T2 R² is the real test.
+  The model needs features to distinguish basins within each tier.
+
+  A. Tier classification accuracy (5-fold CV):
+    Existing 16 only                          (16 feat)  acc = 0.695
+    + ele_range, hyp_integral                 (18 feat)  acc = 0.690
+    + TWI (twi_p50, twi_std)                  (18 feat)  acc = 0.671
+    + network (dd, bf, sin)                   (19 feat)  acc = 0.700
+    + high_precip_dur                         (17 feat)  acc = 0.695
+    Recommended 23                            (23 feat)  acc = 0.714
+
+  B. Within-T2 RF regression (92 basins, 5-fold CV R²):
+     Target: q_cv (flow coefficient of variation — captures basin response diversity)
+
+    Existing 16 only                          (16 feat)  R²=+0.143 ± 0.495
+    + ele_range, hyp_integral                 (18 feat)  R²=+0.165 ± 0.496
+    + TWI (twi_p50, twi_std)                  (18 feat)  R²=+0.172 ± 0.512
+    + network (dd, bf, sin)                   (19 feat)  R²=+0.188 ± 0.513
+    + high_precip_dur                         (17 feat)  R²=+0.221 ± 0.444
+    Recommended 23                            (23 feat)  R²=+0.240 ± 0.469
+
+     Target: flashiness
+
+    Existing 16 only                          (16 feat)  R²=+0.370 ± 0.458
+    + ele_range, hyp_integral                 (18 feat)  R²=+0.350 ± 0.489
+    + TWI (twi_p50, twi_std)                  (18 feat)  R²=+0.378 ± 0.504
+    + network (dd, bf, sin)                   (19 feat)  R²=+0.342 ± 0.518
+    + high_precip_dur                         (17 feat)  R²=+0.339 ± 0.516
+    Recommended 23                            (23 feat)  R²=+0.315 ± 0.628
+
+     Target: baseflow_idx
+
+    Existing 16 only                          (16 feat)  R²=-0.415 ± 1.066
+    + ele_range, hyp_integral                 (18 feat)  R²=-0.474 ± 1.116
+    + TWI (twi_p50, twi_std)                  (18 feat)  R²=-0.320 ± 0.956
+    + network (dd, bf, sin)                   (19 feat)  R²=-0.399 ± 0.795
+    + high_precip_dur                         (17 feat)  R²=-0.490 ± 1.191
+    Recommended 23                            (23 feat)  R²=-0.348 ± 0.976
