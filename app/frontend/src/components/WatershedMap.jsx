@@ -37,7 +37,7 @@ function nseColor(nse) {
   return { fill, stroke };
 }
 
-const LAYER_COLORS = { huc8: "#0891b2", huc10: "#059669" };
+const LAYER_COLORS = { huc8: "#0891b2" };
 
 function defaultStyle(layerKey, feature, colorMode) {
   if (layerKey === "training_watersheds" && feature) {
@@ -187,7 +187,7 @@ function OverviewMinimap({ mainMap, caOutline }) {
   );
 }
 
-export default function WatershedMap({ layerKey, selectedId, onSelect, colorMode }) {
+export default function WatershedMap({ layerKey, selectedId, onSelect, colorMode, flyToId }) {
   const geoRef = useRef(null);
   const mapRef = useRef(null);
   const [mapReady, setMapReady] = useState(false);
@@ -209,19 +209,11 @@ export default function WatershedMap({ layerKey, selectedId, onSelect, colorMode
     staleTime: Infinity,
   });
 
-  // HUC-10 underlay when training_watersheds is active
-  const { data: huc10Geojson } = useQuery({
-    queryKey: ["geojson", "huc10"],
-    queryFn: () => fetchLayerGeoJSON("huc10"),
-    staleTime: 10 * 60 * 1000,
-    enabled: layerKey === "training_watersheds",
-  });
-
   // Determine the id field for this layer
   const idField = useMemo(() => {
     if (!geojson?.features?.length) return null;
     const props = geojson.features[0].properties;
-    for (const key of ["huc8", "huc10", "Pour Point ID"]) {
+    for (const key of ["huc8", "Pour Point ID"]) {
       if (key in props) return key;
     }
     return Object.keys(props)[0];
@@ -301,6 +293,19 @@ export default function WatershedMap({ layerKey, selectedId, onSelect, colorMode
   // Close picker when layer changes
   useEffect(() => setPicker(null), [layerKey]);
 
+  // Fly to basin when selected from the table
+  useEffect(() => {
+    if (!flyToId || !mapRef.current || !geojson || !idField) return;
+    const feature = featureLookup.get(String(flyToId));
+    if (!feature) return;
+    try {
+      const bounds = L.geoJSON(feature).getBounds();
+      if (bounds.isValid()) {
+        mapRef.current.fitBounds(bounds, { padding: [40, 40], maxZoom: 11 });
+      }
+    } catch (_) {}
+  }, [flyToId, geojson, idField, featureLookup]);
+
   // Manage the Leaflet popup for the picker
   useEffect(() => {
     if (!picker || !mapRef.current) {
@@ -349,7 +354,6 @@ export default function WatershedMap({ layerKey, selectedId, onSelect, colorMode
   const geoKey = `${layerKey}-${selectedId || "none"}-${colorMode}`;
 
   const caStyle = { color: "#374151", weight: 2, opacity: 0.6, fillOpacity: 0 };
-  const huc10Style = { color: "#9ca3af", weight: 0.7, opacity: 0.35, fillOpacity: 0, dashArray: "4 3" };
 
   return (
     <div className="h-full w-full relative">
@@ -373,11 +377,6 @@ export default function WatershedMap({ layerKey, selectedId, onSelect, colorMode
         {/* CA outline */}
         {caOutline && <GeoJSON key="ca-outline" data={caOutline} style={caStyle} interactive={false} />}
 
-        {/* HUC-10 underlay */}
-        {layerKey === "training_watersheds" && huc10Geojson && (
-          <GeoJSON key="huc10-underlay" data={huc10Geojson} style={huc10Style} interactive={false} />
-        )}
-
         {/* Active layer */}
         {geojson && (
           <GeoJSON
@@ -389,7 +388,7 @@ export default function WatershedMap({ layerKey, selectedId, onSelect, colorMode
           />
         )}
         {isLoading && (
-          <div className="absolute top-3 right-3 z-[1000] bg-paper/90 px-3 py-1 rounded shadow text-sm">
+          <div className="absolute top-3 right-3 z-[1000] bg-orange-500 text-white px-3 py-1 rounded shadow text-sm font-medium">
             Loading…
           </div>
         )}

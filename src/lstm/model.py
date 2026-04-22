@@ -44,6 +44,35 @@ class StaticEncoder(nn.Module):
         return self.net(x)
 
 
+class ScaleHead(nn.Module):
+    """Per-basin multiplicative scale head.
+
+    Produces ``log(s_b)`` from the static embedding; the caller multiplies
+    pathway outputs by ``exp(log s_b)``.  The final layer is zero-initialised
+    so the scale starts at 1.0 for every basin, making training begin
+    identically to the ``precip_mean`` baseline.  The scale then drifts
+    end-to-end under the main loss, absorbing per-basin amplitude so the
+    LSTMs can produce outputs in a compact range.
+    """
+
+    def __init__(self, in_dim: int, hidden: int = 32, max_log_scale: float = 4.0):
+        super().__init__()
+        self.max_log_scale = max_log_scale
+        self.net = nn.Sequential(
+            nn.Linear(in_dim, hidden),
+            nn.GELU(),
+            nn.Linear(hidden, 1),
+        )
+        # Zero-init final layer → log s = 0 → s = 1 at init
+        nn.init.zeros_(self.net[-1].weight)
+        nn.init.zeros_(self.net[-1].bias)
+
+    def forward(self, e_static: torch.Tensor) -> torch.Tensor:
+        log_s = self.net(e_static).squeeze(-1)
+        # Clamp to prevent runaway scale during early training
+        return log_s.clamp(-self.max_log_scale, self.max_log_scale)
+
+
 class GroupedStaticEncoder(nn.Module):
     """Encode semantic groups of static features, then fuse.
 
@@ -165,7 +194,9 @@ class DualPathwayLSTM(nn.Module):
     """Two-branch LSTM for rainfall–runoff simulation (fast + slow).
 
     In deterministic mode, uses multiplicative composition:
-    ``q_total = q_slow × (1 + fast_ratio)``.
+    ``q_total = q_slow * (1 + fast_ratio)``.  The slow pathway sets the
+    baseflow level; the fast pathway is a dimensionless storm amplifier,
+    so storm contribution scales with antecedent wetness.
 
     In CMAL mode, a ``CMALHead`` on concatenated ``[h_slow, h_fast]``
     parameterises the predictive distribution.  The pathway heads are
@@ -177,7 +208,6 @@ class DualPathwayLSTM(nn.Module):
     def __init__(self, config: Config):
         super().__init__()
         n_dynamic = len(config.dynamic_features)
-        n_static = len(config.effective_static_features)
         self.fast_window = config.fast_window
         self.info_gap = config.info_gap
         self._use_cmal = config.output_type == "cmal"
@@ -192,7 +222,6 @@ class DualPathwayLSTM(nn.Module):
         self.fast_lstm = nn.LSTM(
             input_size=input_size,
             hidden_size=config.fast_hidden_size,
-            num_layers=1,
             batch_first=True,
         )
 
@@ -200,7 +229,6 @@ class DualPathwayLSTM(nn.Module):
         self.slow_lstm = nn.LSTM(
             input_size=input_size,
             hidden_size=config.slow_hidden_size,
-            num_layers=1,
             batch_first=True,
         )
 
@@ -231,6 +259,12 @@ class DualPathwayLSTM(nn.Module):
                 hidden_size=config.cmal_hidden_size,
             )
 
+        # Learned per-basin scale head (always on).  Zero-init so scale = 1
+        # at init; absorbs per-basin amplitude end-to-end during training.
+        # In CMAL mode, the scale multiplies mu, b_l, b_r so the full
+        # mixture distribution scales correctly.
+        self.scale_head = ScaleHead(embed_dim)
+
     def forward(
         self,
         x_dynamic: torch.Tensor,
@@ -256,6 +290,9 @@ class DualPathwayLSTM(nn.Module):
         e_full = e.unsqueeze(1).expand(-1, T, -1)             # (B, T, E)
         x_full = torch.cat([x_dynamic, e_full], dim=-1)       # (B, T, D+E)
 
+        # Per-basin learned scale (B,); scale = 1 at init
+        s = torch.exp(self.scale_head(e))                     # (B,)
+
         # ----- fast pathway (last fast_window days) -----
         _, (h_fast, _) = self.fast_lstm(x_full[:, -self.fast_window :, :])
         h_fast = self.dropout(h_fast.squeeze(0))              # (B, H_fast)
@@ -271,24 +308,33 @@ class DualPathwayLSTM(nn.Module):
         q_slow = self.slow_head(h_slow)                       # (B, 1) mm/d baseflow
 
         # ----- pathway outputs for auxiliary loss -----
+        # Multiplicative composition: q_total = q_slow * (1 + fast_ratio)
+        # q_fast_contrib is the storm amplification above baseflow.
         q_fast_contrib = q_slow * fast_ratio                  # (B, 1) mm/d storm runoff
 
         if self._use_cmal:
-            # CMAL distribution from combined hidden states
+            # CMAL distribution from combined hidden states, scaled per basin
             h_combined = torch.cat([h_slow, h_fast], dim=-1)  # (B, H_slow + H_fast)
             pi, mu, b_l, b_r = self.cmal_head(h_combined)
+            s_unsq = s.unsqueeze(-1)                          # (B, 1) → broadcast over K
+            mu = mu * s_unsq
+            b_l = b_l * s_unsq
+            b_r = b_r * s_unsq
             self._last_cmal_params = (pi, mu, b_l, b_r)
-            # E[Y] = Σ πₖ (μₖ + b_R,k − b_L,k)
+            # E[Y] = Σ πₖ (μₖ + b_R,k − b_L,k)  — already scaled
             q_total = (pi * (mu + b_r - b_l)).sum(dim=-1).clamp(min=0.0)
-            return q_total, q_fast_contrib.squeeze(-1), q_slow.squeeze(-1)
+            q_fast_out = (q_fast_contrib.squeeze(-1) * s)
+            q_slow_out = (q_slow.squeeze(-1) * s)
+            return q_total, q_fast_out, q_slow_out
 
         # ----- deterministic multiplicative composition -----
-        q_total = q_slow + q_fast_contrib                     # (B, 1) = q_slow × (1 + r)
-        return (
-            q_total.squeeze(-1),
-            q_fast_contrib.squeeze(-1),
-            q_slow.squeeze(-1),
-        )
+        q_total = q_slow * (1.0 + fast_ratio)                 # (B, 1)
+
+        q_total = q_total.squeeze(-1) * s
+        q_fast_out = q_fast_contrib.squeeze(-1) * s
+        q_slow_out = q_slow.squeeze(-1) * s
+
+        return q_total, q_fast_out, q_slow_out
 
 
 class SingleLSTM(nn.Module):
@@ -306,7 +352,6 @@ class SingleLSTM(nn.Module):
         self.lstm = nn.LSTM(
             input_size=input_size,
             hidden_size=config.single_hidden_size,
-            num_layers=1,
             batch_first=True,
         )
 
@@ -326,6 +371,9 @@ class SingleLSTM(nn.Module):
                 nn.Softplus(),
             )
 
+        # Learned per-basin scale head (always on)
+        self.scale_head = ScaleHead(config.static_embedding_dim)
+
     def forward(
         self,
         x_dynamic: torch.Tensor,
@@ -340,13 +388,18 @@ class SingleLSTM(nn.Module):
         _, (h, _) = self.lstm(x_full)
         h = self.dropout(h.squeeze(0))
 
+        s = torch.exp(self.scale_head(e_s))                       # (B,)
+
         if self._use_cmal:
             pi, mu, b_l, b_r = self.head(h)
+            s_unsq = s.unsqueeze(-1)
+            mu = mu * s_unsq
+            b_l = b_l * s_unsq
+            b_r = b_r * s_unsq
             self._last_cmal_params = (pi, mu, b_l, b_r)
-            # Expected value: E[Y] = Σ πₖ (μₖ + b_R,k − b_L,k)
             q_total = (pi * (mu + b_r - b_l)).sum(dim=-1).clamp(min=0.0)
         else:
-            q_total = self.head(h).squeeze(-1)                    # (B,)
+            q_total = self.head(h).squeeze(-1) * s                # (B,)
 
         zeros = torch.zeros_like(q_total)
         return q_total, zeros, zeros
@@ -366,7 +419,6 @@ class MoELSTM(nn.Module):
     def __init__(self, config: Config):
         super().__init__()
         n_dynamic = len(config.dynamic_features)
-        n_static = len(config.effective_static_features)
         self.n_experts = config.moe_n_experts
 
         # Static encoder (shared across experts and gate)
@@ -380,15 +432,14 @@ class MoELSTM(nn.Module):
 
         # --- Expert LSTMs ---
         self.experts = nn.ModuleList([
-            nn.LSTM(input_size=input_size, hidden_size=D_h,
-                    num_layers=1, batch_first=True)
+            nn.LSTM(input_size=input_size, hidden_size=D_h, batch_first=True)
             for _ in range(K)
         ])
 
         # --- Gating network: LSTM + temporal attention ---
         self.gate_lstm = nn.LSTM(
             input_size=input_size, hidden_size=D_g,
-            num_layers=1, batch_first=True,
+            batch_first=True,
         )
         # Attention parameters: u_t = v^T tanh(W g_t)
         self.attn_W = nn.Linear(D_g, D_a, bias=False)
@@ -412,6 +463,9 @@ class MoELSTM(nn.Module):
             nn.Linear(D_h, 1),
             nn.Softplus(),
         )
+
+        # Learned per-basin scale head (always on)
+        self.scale_head = ScaleHead(config.static_embedding_dim)
 
     @property
     def tau(self) -> torch.Tensor:
@@ -459,6 +513,7 @@ class MoELSTM(nn.Module):
         m = self.dropout(m)
 
         q_total = self.head(m).squeeze(-1)                     # (B,)
+        q_total = q_total * torch.exp(self.scale_head(e_s))
         zeros = torch.zeros_like(q_total)
         return q_total, zeros, zeros
 

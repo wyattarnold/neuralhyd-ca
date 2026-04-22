@@ -1,13 +1,6 @@
 # =============================================================================
 # lstmhyd-ca — Dual-pathway LSTM with CMAL probabilistic output
 # Run with: python train_kfold.py config_dual_lstm_cmal_kfold.toml
-#
-# Based on config_dual_lstm_kfold.toml with:
-#   - output_type = "cmal" — CMALHead on [h_slow, h_fast]
-#   - Pathway heads retained for aux loss (keeps representations physical)
-#   - info_gap = true — forces pathway separation without multiplicative structure
-#   - cmal_loss = "crps" with β=0.5 for calibrated intervals
-#   - K=5 mixture components, entropy reg on π
 # =============================================================================
 
 [paths]
@@ -19,17 +12,17 @@ static_climate       = "../data/training/static/Climate_Statistics_Watersheds.cs
 
 [sequence]
 seq_len              = 365
-fast_window          = 18
+fast_window          = 35
 info_gap             = false
 
 [model]
 model_type           = "dual"
-fast_hidden_size     = 64
-slow_hidden_size     = 128
+fast_hidden_size     = 48
+slow_hidden_size     = 96
 single_hidden_size   = 128
 static_embedding_dim = 10
 static_hidden_size   = 32
-dropout              = 0.20
+dropout              = 0.15
 static_dropout       = 0.10
 output_type          = "cmal"
 cmal_n_components    = 3
@@ -43,13 +36,6 @@ cmal_scale_reg_weight = 0.0
 [aux_loss]
 aux_loss_weight      = 0.25
 baseflow_alpha       = 0.925
-aux_peak_asymmetry   = 4.5
-
-[extreme_loss]
-extreme_threshold    = 4.0    # normalised flow above which upweighting begins (≈p99)
-extreme_weight_max   = 5.0    # gentle nudge on CRPS + aux for extreme events
-extreme_ramp         = 8.0    # normalised ramp range (threshold to threshold+ramp ≈ p99.9)
-extreme_peak_boost   = 8.0    # fast-pathway aux boost (eff. penalty = 4.5×8 = 36× on extremes)
 
 [blended_loss]
 log_loss_lambda      = 0.0     # pure CRPS — no blended MSE
@@ -57,7 +43,7 @@ log_loss_epsilon     = 0.001
 
 [training]
 batch_size           = 512
-learning_rate        = 4e-4
+learning_rate        = 5e-4
 weight_decay         = 1e-4
 input_noise_std      = 0.1
 warmup_epochs        = 3
@@ -72,27 +58,32 @@ swa_patience         = 10
 
 [validation]
 n_folds              = 5
-holdout_fraction     = 0.2
 seed                 = 42
 
 [features]
 dynamic_features = ["precip_mm", "tmax_c", "tmin_c"]
 static_features  = [
+    # topo (3) — Physical CSV
     "total_Shape_Area_km2",
     "ele_mt_uav",
     "slp_dg_uav",
-    "for_pc_use",
-    "cly_pc_uav",
-    "snd_pc_uav",
+    # network (3) — Physical CSV
     "ria_ha_usu",
     "riv_tc_usu",
     "sgr_dk_sav",
-    "precip_mean",
-    "pet_mean",
-    "aridity_index",
-    "snow_fraction",
-    "low_precip_dur",
+    # soil/surface (5) — Physical CSV
+    "for_pc_use",
+    "cly_pc_uav",
+    "snd_pc_uav",
     "clz_cl_smj",
     "lit_cl_smj",
+    # climate (7) — Climate CSV
+    "aridity_index",
+    "snow_fraction",
+    "pet_mean",
+    "high_precip_freq",
+    "precip_mean",
+    "low_precip_dur",
+    "high_precip_dur",
 ]
 log_transform_static = ["total_Shape_Area_km2", "ria_ha_usu"]

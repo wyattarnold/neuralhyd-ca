@@ -164,3 +164,129 @@ def plot_metric_cdf(
         fig.savefig(out_path, dpi=300, bbox_inches="tight",
                     facecolor="white", edgecolor="none")
     return fig
+
+
+# ---------------------------------------------------------------------------
+# Multipanel barplot — median metrics across models
+# ---------------------------------------------------------------------------
+
+# Bar colours keyed by substring in model labels
+_BAR_COLORS: dict[str, str] = {
+    "VIC":    "#668bdc",
+    "single": "#9b59b6",
+    "dual":   "#e89c0f",
+}
+
+_BAR_FALLBACK = "#3b3b3d"
+
+
+def _bar_color(label: str) -> str:
+    for key, color in _BAR_COLORS.items():
+        if key.lower() in label.lower():
+            return color
+    return _BAR_FALLBACK
+
+
+def plot_metric_barplot(
+    data: Dict[str, Dict[str, float]],
+    metrics: list[str],
+    *,
+    title: Optional[str] = None,
+    out_path: Optional[Path] = None,
+) -> plt.Figure:
+    """Multipanel barplot: one panel per metric, one bar per model.
+
+    Parameters
+    ----------
+    data : {model_label: {metric_name: median_value, ...}, ...}
+    metrics : ordered list of metric names (one panel each)
+    title : optional suptitle
+    out_path : save path
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    _apply_rc()
+
+    n_metrics = len(metrics)
+    labels = list(data.keys())
+    n_models = len(labels)
+
+    fig, axes = plt.subplots(1, n_metrics, figsize=(2.4 * n_metrics, 3.2),
+                             sharey=False)
+    if n_metrics == 1:
+        axes = [axes]
+
+    # Metric display config: (ylabel, zero_line, better_direction)
+    _METRIC_CFG: dict[str, tuple[str, bool]] = {
+        "nse":  ("NSE",       True),
+        "kge":  ("KGE",       True),
+        "fhv":  ("FHV (%)",   True),
+        "fehv": ("FeHV (%)",  True),
+        "flv":  ("FLV (%)",   True),
+    }
+
+    colors = [_bar_color(l) for l in labels]
+    x = np.arange(n_models)
+
+    # Display name mapping for xtick labels
+    _DISPLAY_NAMES: dict[str, str] = {
+        "VIC":              "VIC",
+        "single_lstm_kfold": "Single LSTM",
+        "dual_lstm_kfold":   "Dual LSTM",
+    }
+    tick_labels = [_DISPLAY_NAMES.get(l, l) for l in labels]
+
+    for ax, metric in zip(axes, metrics):
+        values = [data[l].get(metric, float("nan")) for l in labels]
+        bars = ax.bar(x, values, width=0.6, color=colors, edgecolor="white",
+                      linewidth=0.5, zorder=3)
+
+        # Set axis limits before computing label positions
+        finite_vals = [v for v in values if np.isfinite(v)]
+        if metric in ("nse", "kge"):
+            ax.set_ylim(min(min(finite_vals, default=0) * 1.3, -0.05), 1.015)
+        else:
+            lo = min(min(finite_vals, default=0), 0)  # always include zero
+            hi = max(max(finite_vals, default=1), 0)  # always include zero
+            span = max(abs(hi - lo), 1.0)
+            ax.set_ylim(lo - 0.15 * span, hi + 0.20 * span)
+
+        # Value labels on bars
+        ylo, yhi = ax.get_ylim()
+        label_pad = 0.025 * (yhi - ylo)
+        for bar, val in zip(bars, values):
+            if np.isfinite(val):
+                if val >= 0:
+                    y_pos = val + label_pad
+                    va = "bottom"
+                else:
+                    y_pos = val - label_pad
+                    va = "top"
+                ax.text(bar.get_x() + bar.get_width() / 2, y_pos,
+                        f"{val:.2f}" if abs(val) < 10 else f"{val:.1f}",
+                        ha="center", va=va, fontsize=6, fontweight="medium")
+
+        cfg = _METRIC_CFG.get(metric, (metric.upper(), False))
+        ax.set_ylabel(cfg[0], fontsize=8)
+        ax.axhline(0, color="#252525", linewidth=0.5, linestyle="--", zorder=5)
+
+        if cfg[1]:
+            ax.axhline(0, color="#BBBBBB", linewidth=0.5, zorder=1)
+
+        ax.set_xticks(x)
+        ax.set_xticklabels(tick_labels, fontsize=6.5, rotation=25, ha="right")
+        ax.grid(axis="y", linewidth=0.3, linestyle="--", alpha=0.15,
+                color="#000000")
+
+    if title:
+        fig.suptitle(title, fontsize=10, fontweight="medium", y=1.02)
+
+    fig.tight_layout()
+
+    if out_path is not None:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(out_path, dpi=300, bbox_inches="tight",
+                    facecolor="white", edgecolor="none")
+    return fig

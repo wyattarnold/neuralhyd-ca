@@ -1,8 +1,6 @@
 # =============================================================================
 # lstmhyd-ca — MoE-τ experiment configuration
 # Run with: python train_kfold.py config_moe_lstm_kfold.toml
-#
-# output_dir derived automatically → ../data/training/output/moe_lstm_kfold/
 # =============================================================================
 
 [paths]
@@ -14,30 +12,20 @@ static_climate       = "../data/training/static/Climate_Statistics_Watersheds.cs
 
 [sequence]
 seq_len              = 365
-fast_window          = 18
-info_gap             = false
 
 [model]
 model_type           = "moe"    # Mixture-of-Experts with learnable temperature (MoE-τ)
-fast_hidden_size     = 64       # unused by MoE but required by Config
-slow_hidden_size     = 128      # unused by MoE but required by Config
-single_hidden_size   = 128      # unused by MoE but required by Config
 static_embedding_dim = 10
 static_hidden_size   = 32
-dropout              = 0.20
+dropout              = 0.10
 static_dropout       = 0.10
 
 [moe]
-moe_n_experts          = 2       # number of LSTM experts
-moe_expert_hidden_size = 128     # D_h: expert LSTM hidden size
-moe_gate_hidden_size   = 64      # D_g: gating LSTM hidden size
-moe_attention_dim      = 32      # D_a: attention projection dimension
-moe_tau_init           = 0.5     # initial temperature (0 < τ < 1; lower = sharper gating)
-
-[aux_loss]
-aux_loss_weight      = 0.0    # no pathway auxiliary loss for MoE
-baseflow_alpha       = 0.925
-aux_peak_asymmetry   = 2.5
+moe_n_experts          = 3       # number of LSTM experts
+moe_expert_hidden_size = 64     # D_h: expert LSTM hidden size
+moe_gate_hidden_size   = 32      # D_g: gating LSTM hidden size
+moe_attention_dim      = 16      # D_a: attention projection dimension
+moe_tau_init           = 0.25     # initial temperature (0 < τ < 1; lower = sharper gating)
 
 [blended_loss]
 log_loss_lambda      = 0.05
@@ -50,7 +38,7 @@ weight_decay         = 1e-4
 input_noise_std      = 0.1
 warmup_epochs        = 3
 num_epochs           = 80
-patience             = 5
+patience             = 8
 min_delta            = 0.002
 num_workers          = 0
 grad_clip            = 1.0
@@ -60,36 +48,32 @@ swa_patience         = 10
 
 [validation]
 n_folds              = 5
-holdout_fraction     = 0.2
 seed                 = 42
 
 [features]
 dynamic_features = ["precip_mm", "tmax_c", "tmin_c"]
 static_features  = [
+    # topo (3) — Physical CSV
     "total_Shape_Area_km2",
     "ele_mt_uav",
     "slp_dg_uav",
-    "for_pc_use",
-    "cly_pc_uav",
-    "snd_pc_uav",
+    # network (3) — Physical CSV
     "ria_ha_usu",
     "riv_tc_usu",
     "sgr_dk_sav",
-    "precip_mean",
-    "pet_mean",
-    "aridity_index",
-    "snow_fraction",
-    "low_precip_dur",
+    # soil/surface (5) — Physical CSV
+    "for_pc_use",
+    "cly_pc_uav",
+    "snd_pc_uav",
     "clz_cl_smj",
     "lit_cl_smj",
-]
-log_transform_static = ["total_Shape_Area_km2", "ria_ha_usu"]
-exclude_climate_statics = false
-climate_static_features = [
-    "precip_mean",
-    "pet_mean",
+    # climate (7) — Climate CSV
     "aridity_index",
     "snow_fraction",
+    "pet_mean",
+    "high_precip_freq",
+    "precip_mean",
     "low_precip_dur",
+    "high_precip_dur",
 ]
-use_window_snow_fraction = false
+log_transform_static = ["total_Shape_Area_km2", "ria_ha_usu"]

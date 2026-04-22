@@ -3,13 +3,13 @@
 Usage
 -----
 Compute evaluation metrics (CSVs written to data/eval/); matching VIC basins are included automatically:
-    python post_process.py --eval dual_lstm_kfold dual_lstm_ext_kfold single_lstm_kfold
+    python post_process.py --eval dual_lstm_kfold single_lstm_kfold
 
 Plot CDF for all metrics (NSE, KGE, FHV, FLV) + VIC calibrated/regionalized KGE comparison:
-    python post_process.py --cdf --runs  single_lstm_kfold dual_lstm_ext_kfold
+    python post_process.py --cdf --runs  single_lstm_kfold dual_lstm_kfold --barplot
 
 Simulate trained models over historical climate inputs:
-    python post_process.py --simulate single_lstm_kfold
+    python post_process.py --simulate dual_lstm_kfold --target training_watersheds
 
 All commands can be combined:
     python post_process.py --eval dual_lstm_kfold --simulate dual_lstm_kfold --cdf
@@ -37,8 +37,8 @@ from src.eval.metrics import (
     load_lstm_fold_results,
     METRICS,
 )
-from src.eval.plots import plot_metric_cdf
-from src.eval.simulate import simulate_training_watersheds
+from src.eval.plots import plot_metric_barplot, plot_metric_cdf
+from src.eval.simulate import simulate_ensemble, simulate_training_watersheds
 from src.paths import (
     EVAL_DIR,
     SCRIPTS_DIR,
@@ -91,21 +91,34 @@ def run_eval(run_names: list[str]) -> None:
 
 def _print_summary(df: pd.DataFrame, label: str) -> None:
     """Print per-tier median metrics."""
+    has_fehv = "fehv" in df.columns
     print(f"\n  {label} — Per-tier medians")
-    print(f"  {'Tier':<8}{'N':<6}{'NSE':>10}{'KGE':>10}{'FHV':>10}{'FLV':>10}")
-    print(f"  {'-' * 54}")
+    hdr = f"  {'Tier':<8}{'N':<6}{'NSE':>10}{'KGE':>10}{'FHV':>10}"
+    if has_fehv:
+        hdr += f"{'FeHV':>10}"
+    hdr += f"{'FLV':>10}"
+    print(hdr)
+    print(f"  {'-' * (54 + 10 * has_fehv)}")
     for tier in sorted(df["tier"].unique()):
         sub = df[df["tier"] == tier]
-        print(
+        line = (
             f"  {tier:<8}{len(sub):<6}"
             f"{sub['nse'].median():>10.3f}{sub['kge'].median():>10.3f}"
-            f"{sub['fhv'].median():>10.1f}{sub['flv'].median():>10.1f}"
+            f"{sub['fhv'].median():>10.1f}"
         )
-    print(
+        if has_fehv:
+            line += f"{sub['fehv'].median():>10.1f}"
+        line += f"{sub['flv'].median():>10.1f}"
+        print(line)
+    all_line = (
         f"  {'All':<8}{len(df):<6}"
         f"{df['nse'].median():>10.3f}{df['kge'].median():>10.3f}"
-        f"{df['fhv'].median():>10.1f}{df['flv'].median():>10.1f}"
+        f"{df['fhv'].median():>10.1f}"
     )
+    if has_fehv:
+        all_line += f"{df['fehv'].median():>10.1f}"
+    all_line += f"{df['flv'].median():>10.1f}"
+    print(all_line)
     print()
 
 
@@ -125,7 +138,10 @@ def run_cdf(metric: str, run_names: list[str]) -> None:
     vic_csv = EVAL_DIR / f"{VIC_LABEL}.csv"
     if vic_csv.exists():
         vic_df = pd.read_csv(vic_csv)
-        series["VIC Simulated"] = vic_df[metric].values
+        if metric in vic_df.columns:
+            series["VIC Simulated"] = vic_df[metric].values
+        else:
+            print(f"  WARNING: VIC has no '{metric}' column — skipping.")
     else:
         print(f"  WARNING: {vic_csv} not found. Run --eval first.")
 
@@ -136,11 +152,14 @@ def run_cdf(metric: str, run_names: list[str]) -> None:
             print(f"  WARNING: {csv_path} not found. Run --eval first for {name}.")
             continue
         df = pd.read_csv(csv_path)
+        if metric not in df.columns:
+            print(f"  WARNING: {name} has no '{metric}' column — skipping. Re-run --eval to regenerate.")
+            continue
         series[name] = df[metric].values
 
     if not series:
-        print("ERROR: No data to plot.")
-        sys.exit(1)
+        print(f"  Skipping CDF for {metric} — no data available.")
+        return
 
     # Per-metric plot options
     plot_kwargs: dict = {}
@@ -154,10 +173,15 @@ def run_cdf(metric: str, run_names: list[str]) -> None:
         plot_kwargs["hline_at"] = 0.0
         # plot_kwargs["yscale"] = "symlog"
         plot_kwargs["ylim"] = (-150,150)
+    elif metric == "fehv":
+        plot_kwargs["hline_at"] = 0.0
+        plot_kwargs["ylim"] = (-100, 100)
 
     ylabel = metric.upper()
     if metric in ("fhv", "flv"):
         ylabel = f"{metric.upper()} (%)"
+    elif metric == "fehv":
+        ylabel = "FeHV (%)"
 
     out_path = EVAL_DIR / f"cdf_{metric}.png"
     fig = plot_metric_cdf(
@@ -243,6 +267,48 @@ def run_cdf_vic_kge() -> None:
 
 
 # ---------------------------------------------------------------------------
+# --barplot: multipanel median-metric comparison
+# ---------------------------------------------------------------------------
+
+def run_barplot(run_names: list[str]) -> None:
+    """Multipanel barplot of median metrics: VIC + requested LSTM runs."""
+    # Load VIC
+    vic_csv = EVAL_DIR / f"{VIC_LABEL}.csv"
+    model_data: dict[str, dict[str, float]] = {}
+    if vic_csv.exists():
+        vic_df = pd.read_csv(vic_csv)
+        model_data["VIC"] = {m: float(vic_df[m].median()) for m in METRICS if m in vic_df.columns}
+    else:
+        print(f"  WARNING: {vic_csv} not found. Run --eval first.")
+
+    # Load LSTM runs
+    for name in run_names:
+        csv_path = EVAL_DIR / f"{name}.csv"
+        if not csv_path.exists():
+            print(f"  WARNING: {csv_path} not found. Run --eval first for {name}.")
+            continue
+        df = pd.read_csv(csv_path)
+        model_data[name] = {m: float(df[m].median()) for m in METRICS if m in df.columns}
+
+    if not model_data:
+        print("ERROR: No data to plot.")
+        sys.exit(1)
+
+    # Use only metrics present in all loaded datasets
+    common_metrics = [m for m in METRICS if all(m in d for d in model_data.values())]
+
+    out_path = EVAL_DIR / "barplot_median_metrics.png"
+    fig = plot_metric_barplot(
+        model_data,
+        common_metrics,
+        title="Median Metrics \u2014 5-Fold Validation",
+        out_path=out_path,
+    )
+    print(f"Saved barplot \u2192 {out_path}")
+    plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
 # --simulate: run trained models over climate inputs
 # ---------------------------------------------------------------------------
 
@@ -265,8 +331,13 @@ def _find_config(run_name: str) -> Path:
     )
 
 
-def run_simulate(run_names: list[str]) -> None:
-    """Simulate training watersheds for each requested run."""
+def run_simulate(run_names: list[str], target: str = "watersheds") -> None:
+    """Simulate basins for each requested run.
+
+    For training_watersheds, uses only the held-out fold per basin
+    (unbiased — matches basin_results.csv metrics). For other targets,
+    uses the full ensemble of all folds.
+    """
     for name in run_names:
         run_dir = TRAINING_OUTPUT_DIR / name
         if not run_dir.exists():
@@ -274,9 +345,12 @@ def run_simulate(run_names: list[str]) -> None:
             continue
         config_path = _find_config(name)
         print(f"\n{'='*60}")
-        print(f"Simulating {name} (config: {config_path.name})")
+        print(f"Simulating {name} — target={target} (config: {config_path.name})")
         print(f"{'='*60}")
-        simulate_training_watersheds(config_path, SIM_DIR)
+        if target == "training_watersheds":
+            simulate_training_watersheds(config_path, SIM_DIR)
+        else:
+            simulate_ensemble(config_path, SIM_DIR, target=target)
 
 
 # ---------------------------------------------------------------------------
@@ -297,8 +371,14 @@ def main() -> None:
     parser.add_argument(
         "--cdf",
         action="store_true",
-        help="Plot CDF for all metrics (NSE, KGE, FHV, FLV) plus a "
+        help="Plot CDF for all metrics (NSE, KGE, FHV, FEHV, FLV) plus a "
              "VIC calibrated/regionalized KGE comparison. "
+             "Uses run names from --runs or --eval.",
+    )
+    parser.add_argument(
+        "--barplot",
+        action="store_true",
+        help="Multipanel barplot of median metrics across VIC + LSTM runs. "
              "Uses run names from --runs or --eval.",
     )
     parser.add_argument(
@@ -312,13 +392,20 @@ def main() -> None:
         "--simulate",
         nargs="+",
         metavar="RUN",
-        help="Simulate trained models over historical training-watershed climate. "
-             "Output: data/eval/sim/<run>/training_watersheds/historical/",
+        help="Simulate trained models (ensemble of all folds) over climate inputs. "
+             "Output: data/eval/sim/<run>/<target>/historical/",
+    )
+    parser.add_argument(
+        "--target",
+        default="training_watersheds",
+        choices=["training_watersheds", "watersheds", "huc8"],
+        help="Input domain for --simulate: training watersheds or HUC8 basins. "
+             "(default: training_watersheds)",
     )
 
     args = parser.parse_args()
 
-    if (args.eval is None and not args.cdf and args.simulate is None):
+    if (args.eval is None and not args.cdf and not args.barplot and args.simulate is None):
         parser.print_help()
         sys.exit(1)
 
@@ -334,8 +421,15 @@ def main() -> None:
             run_cdf(metric, runs)
         run_cdf_vic_kge()
 
+    if args.barplot:
+        runs = args.runs if args.runs else (args.eval or [])
+        if not runs:
+            print("ERROR: Provide run names via --runs or --eval.")
+            sys.exit(1)
+        run_barplot(runs)
+
     if args.simulate is not None:
-        run_simulate(args.simulate)
+        run_simulate(args.simulate, target=args.target)
 
 
 if __name__ == "__main__":

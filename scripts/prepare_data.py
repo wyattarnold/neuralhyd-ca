@@ -19,8 +19,6 @@ Analysis (run after steps 1-8 are complete):
   --analysis map_watersheds       CA watershed map colored by regression tier
   --analysis tier_characteristics CDF/monthly-average figures by tier
   --analysis flow_extremes        Flow distribution analysis for extreme-loss calibration
-  --analysis acquire_spatial      Download DEM + NHDPlus spatial features (requires HyRiver)
-  --analysis spatial_attributes   Spatial attribute redundancy/importance analysis
 
 Usage:
   python prepare_data.py                                          # run all steps
@@ -30,9 +28,6 @@ Usage:
   python prepare_data.py --analysis map_watersheds
   python prepare_data.py --analysis tier_characteristics
   python prepare_data.py --analysis flow_extremes
-  python prepare_data.py --analysis acquire_spatial
-  python prepare_data.py --analysis acquire_spatial --resume
-  python prepare_data.py --analysis spatial_attributes
   python prepare_data.py --analysis map_watersheds --analysis tier_characteristics
 
 Typical order for a fresh run:
@@ -59,7 +54,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--analysis", type=str, action="append", default=None,
-        choices=["map_watersheds", "tier_characteristics", "flow_extremes", "acquire_spatial", "spatial_attributes"],
+        choices=["map_watersheds", "tier_characteristics", "flow_extremes"],
         metavar="NAME",
         help=(
             "Analysis script(s) to run after the main pipeline. "
@@ -179,20 +174,6 @@ def main() -> None:
         print("=" * 70)
         from src.data.analyse_flow_extremes import main as run_extremes
         run_extremes()
-
-    if "acquire_spatial" in analysis:
-        print("\n" + "=" * 70)
-        print("ANALYSIS: Acquire spatial features (DEM + NHDPlus)")
-        print("=" * 70)
-        from src.data.acquire_spatial import main as run_acquire
-        run_acquire(resume=args.resume, basin=args.basin)
-
-    if "spatial_attributes" in analysis:
-        print("\n" + "=" * 70)
-        print("ANALYSIS: Spatial attribute redundancy & importance")
-        print("=" * 70)
-        from src.data.analyse_spatial_attrs import main as run_spatial
-        run_spatial()
 
     if args.geo_intersect:
         print("\n" + "=" * 70)

@@ -113,7 +113,6 @@ class Layer:
 
 _LAYER_DEFS = [
     ("huc8",             "HUC-8",             "huc8"),
-    ("huc10",            "HUC-10",            "huc10"),
     ("training_watersheds", "Training Watersheds", "Pour Point ID"),
 ]
 

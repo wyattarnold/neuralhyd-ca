@@ -174,21 +174,6 @@ export default function HexDensityPlot({ obs, sim, simLabel, unit = "CFS" }) {
     ctx.fillStyle = "#f9fafb";
     ctx.fillRect(PAD.left, PAD.top, plotW, plotH);
 
-    // 1:1 line
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(PAD.left, PAD.top, plotW, plotH);
-    ctx.clip();
-    ctx.strokeStyle = "#9ca3af";
-    ctx.lineWidth = 1;
-    ctx.setLineDash([4, 3]);
-    ctx.beginPath();
-    ctx.moveTo(PAD.left, PAD.top + plotH);
-    ctx.lineTo(PAD.left + plotW, PAD.top);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.restore();
-
     // Draw hexagons
     ctx.save();
     ctx.beginPath();
@@ -200,6 +185,21 @@ export default function HexDensityPlot({ obs, sim, simLabel, unit = "CFS" }) {
       drawHex(ctx, PAD.left + cx, PAD.top + cy, HEX_RADIUS);
       ctx.fill();
     }
+    ctx.restore();
+
+    // 1:1 line (drawn on top of hexes)
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(PAD.left, PAD.top, plotW, plotH);
+    ctx.clip();
+    ctx.strokeStyle = "rgba(0, 0, 0, 1)";
+    ctx.lineWidth = 2.0;
+    ctx.setLineDash([5, 4]);
+    ctx.beginPath();
+    ctx.moveTo(PAD.left, PAD.top + plotH);
+    ctx.lineTo(PAD.left + plotW, PAD.top);
+    ctx.stroke();
+    ctx.setLineDash([]);
     ctx.restore();
 
     // Axes

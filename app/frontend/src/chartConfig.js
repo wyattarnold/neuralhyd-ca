@@ -104,7 +104,7 @@ export const LEGEND_PROPS = {
   verticalAlign: "top",
   height: 20,
   iconSize: 10,
-  wrapperStyle: { fontSize: 11 },
+  wrapperStyle: { fontSize: 11, userSelect: "none" },
 };
 
 // ---------------------------------------------------------------------------

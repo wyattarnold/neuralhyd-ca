@@ -19,9 +19,14 @@ compute_norm_stats(train_ids, basin_data, config)
     Compute global z-score statistics from training basins only
     (climate + static) and per-basin flow std for denormalisation.
 HydroDataset
-    ``torch.utils.data.Dataset`` returning 7-tuples:
-    ``(x_dynamic, x_static, y_norm, y_components, basin_id, flow_std,
-    flow_window)``.
+    ``torch.utils.data.Dataset`` returning 8-tuples:
+    ``(x_dynamic, x_static, y_norm, y_components, basin_id, precip_mean,
+    loss_weight, extreme_qs)``.  ``precip_mean`` is the per-basin
+    denormalisation scale (mean daily precipitation, mm/day).
+    ``loss_weight`` is the per-basin gradient-balancing weight
+    (1 / var of flow/precip_mean).  ``extreme_qs`` is a (2,) tensor
+    ``[y_q_start, y_q_top]`` giving per-basin start/end thresholds
+    (normalised-flow units) for the extreme-flow aux-loss ramp.
 """
 
 from __future__ import annotations
@@ -40,6 +45,36 @@ from .config import Config
 # ---------------------------------------------------------------------------
 # Data loading
 # ---------------------------------------------------------------------------
+
+
+def load_static_attributes(
+    basin_atlas_path: Path,
+    climate_stats_path: Path,
+    log_transform: List[str],
+) -> Tuple[pd.DataFrame, pd.Series | None]:
+    """Load and prepare static attributes from the two CSV sources.
+
+    Joins BasinATLAS + Climate Statistics on ``PourPtID``, log-transforms
+    the requested features (clipped at 1e-6), and fills remaining NaNs
+    with the column median.  Returns ``(static_df, raw_area_km2)`` where
+    ``raw_area_km2`` is the untransformed ``total_Shape_Area_km2`` series
+    (needed for cfs ↔ mm/day conversion) or ``None`` if the column is
+    absent.
+    """
+    basin_atlas = pd.read_csv(basin_atlas_path, index_col="PourPtID")
+    climate_stats = pd.read_csv(climate_stats_path, index_col="PourPtID")
+    static_df = basin_atlas.join(climate_stats, how="inner")
+
+    raw_area_km2: pd.Series | None = None
+    if "total_Shape_Area_km2" in static_df.columns:
+        raw_area_km2 = static_df["total_Shape_Area_km2"].copy()
+
+    for feat in log_transform:
+        if feat in static_df.columns:
+            static_df[feat] = np.log10(static_df[feat].clip(lower=1e-6))
+
+    static_df = static_df.fillna(static_df.median(numeric_only=True))
+    return static_df, raw_area_km2
 
 
 def load_all_data(config: Config):
@@ -85,30 +120,10 @@ def load_all_data(config: Config):
     basin_ids = [b for b in basin_ids if b in climate_data]
 
     # 3. Static attributes (merge tables on PourPtID)
-    basin_atlas = pd.read_csv(config.static_basin_atlas, index_col="PourPtID")
-    climate_stats = pd.read_csv(config.static_climate, index_col="PourPtID")
-    static_df = basin_atlas.join(climate_stats, how="inner")
-
-    # Optional: join DEM and network attribute tables
-    if config.static_dem is not None and config.static_dem.exists():
-        dem_df = pd.read_csv(config.static_dem, index_col="PourPtID")
-        static_df = static_df.join(dem_df, how="left")
-    if config.static_network is not None and config.static_network.exists():
-        net_df = pd.read_csv(config.static_network, index_col="PourPtID")
-        static_df = static_df.join(net_df, how="left")
-
-    # Save raw area before log-transform (needed for cfs → mm/day conversion)
-    raw_area_km2: pd.Series | None = None
-    if "total_Shape_Area_km2" in static_df.columns:
-        raw_area_km2 = static_df["total_Shape_Area_km2"].copy()
-
-    # Log-transform heavily skewed features
-    for feat in config.log_transform_static:
-        if feat in static_df.columns:
-            static_df[feat] = np.log10(static_df[feat].clip(lower=1e-6))
-
-    # Fill any remaining NaN with column median
-    static_df = static_df.fillna(static_df.median(numeric_only=True))
+    static_df, raw_area_km2 = load_static_attributes(
+        config.static_basin_atlas, config.static_climate,
+        config.log_transform_static,
+    )
 
     # Keep only basins present in all three sources
     basin_ids = [b for b in basin_ids if b in static_df.index]
@@ -146,7 +161,6 @@ def create_folds(
     tier_map: Dict[int, int],
     flow_data: Dict[int, pd.DataFrame],
     n_folds: int = 5,
-    holdout_fraction: float = 0.2,  # kept for signature compat; ignored
     seed: int = 42,
 ) -> List[Tuple[List[int], List[int]]]:
     """Return *n_folds* non-overlapping (train_ids, val_ids) pairs.
@@ -216,9 +230,13 @@ def compute_norm_stats(
 
     * Climate : global (mean, std) across all training timesteps.
     * Static  : global (mean, std) across training basins.
-    * Flow    : per-basin std (training basins from their data;
-                held-out basins from their own data – standard PUB
-                convention, no temporal information leak).
+    * Scale   : per-basin mean daily precipitation (mm/day), computed from
+                the basin's own climate record.  The flow target is
+                normalised as ``y_norm = flow / precip_mean`` so the model
+                learns a dimensionless runoff ratio.  This makes the
+                denormalisation scale universally computable at inference
+                time for ANY basin with a climate record — no reliance on
+                observed flow data for unseen basins.
     """
     # --- climate ---
     chunks = [climate_data[b].values for b in train_ids]
@@ -278,20 +296,68 @@ def compute_norm_stats(
     stat_mean = np.array(stat_mean_parts, dtype=np.float32)
     stat_std = np.array(stat_std_parts, dtype=np.float32)
 
-    # --- per-basin flow std ---
-    flow_std_map: Dict[int, np.float32] = {}
+    # --- per-basin scale ---
+    # The scale is the mean daily precipitation (mm/day), computed from each
+    # basin's own climate record.  This is the static denorm factor; the
+    # model's learned ScaleHead multiplies model outputs by an additional
+    # per-basin factor on top, absorbing per-basin amplitude end-to-end.
+    scale_map: Dict[int, np.float32] = {}
+    precip_idx = config.dynamic_features.index("precip_mm")
+    for bid in all_ids:
+        if bid in climate_data:
+            precip_vals = climate_data[bid].values[:, precip_idx]
+            scale_map[bid] = np.float32(max(float(np.mean(precip_vals)), 0.01))
+        else:
+            scale_map[bid] = np.float32(1.0)
+
+    # --- per-basin loss weight ---
+    # Weight = 1 / max(var_b, min_var) ** exponent, where var_b is the
+    # variance of the normalised target (flow / precip_mean) for basin b.
+    # Balances per-basin gradient contributions; see Config fields
+    # `basin_loss_weight_exponent` and `basin_loss_min_var` for rationale.
+    loss_var_map: Dict[int, np.float32] = {}
+    min_var = 0.1
+    for bid in all_ids:
+        if bid in flow_data and bid in climate_data:
+            flow_vals = flow_data[bid]["flow"].dropna().values
+            pmean = float(scale_map[bid])
+            if len(flow_vals) > 1 and pmean > 0:
+                var = float(np.var(flow_vals / pmean))
+                loss_var_map[bid] = np.float32(max(var, min_var))
+            else:
+                loss_var_map[bid] = np.float32(1.0)
+        else:
+            loss_var_map[bid] = np.float32(1.0)
+
+    # --- per-basin extreme-flow quantile thresholds ---
+    # Computed on the *normalised* target (flow / scale_b) using only the
+    # basin's observed days.  These are passed per-sample to the loss so
+    # that "extreme" means the same thing at every basin (1-in-N-day event).
+    # For basins without enough observed days, fall back to a conservative
+    # default (start=3, top=8) on the normalised scale.
+    q_start = float(config.extreme_start_quantile)
+    q_top = float(config.extreme_top_quantile)
+    y_q_start_map: Dict[int, np.float32] = {}
+    y_q_top_map: Dict[int, np.float32] = {}
     for bid in all_ids:
         if bid in flow_data:
-            vals = flow_data[bid]["flow"].dropna().values
-            std = vals.std() if len(vals) > 1 else 1.0
-            flow_std_map[bid] = np.float32(max(std, 0.01))
-        else:
-            flow_std_map[bid] = np.float32(1.0)
+            flow_vals = flow_data[bid]["flow"].dropna().values
+            s = float(scale_map[bid])
+            if len(flow_vals) >= 100 and s > 0:
+                y_norm = flow_vals / s
+                y_q_start_map[bid] = np.float32(np.quantile(y_norm, q_start))
+                y_q_top_map[bid] = np.float32(np.quantile(y_norm, q_top))
+                continue
+        y_q_start_map[bid] = np.float32(3.0)
+        y_q_top_map[bid] = np.float32(8.0)
 
     return {
         "climate": (clim_mean, clim_std),
         "static": (stat_mean, stat_std),
-        "flow": flow_std_map,
+        "scale": scale_map,
+        "loss_var": loss_var_map,
+        "y_q_start": y_q_start_map,
+        "y_q_top": y_q_top_map,
     }
 
 
@@ -350,20 +416,40 @@ def _lyne_hollick_baseflow(flow: np.ndarray, alpha: float = 0.925,
 
 
 # ---------------------------------------------------------------------------
+# Lookback batching helper (shared by evaluate + simulate)
+# ---------------------------------------------------------------------------
+
+
+def make_lookback_batch(
+    dynamic: torch.Tensor, indices: np.ndarray, seq_len: int,
+) -> torch.Tensor:
+    """Stack lookback windows ending at each index into a single tensor.
+
+    Returns a (len(indices), seq_len, n_features) tensor.
+    """
+    return torch.stack(
+        [dynamic[i - seq_len + 1 : i + 1] for i in indices]
+    )
+
+
+# ---------------------------------------------------------------------------
 # PyTorch Dataset
 # ---------------------------------------------------------------------------
 
 
 class HydroDataset(Dataset):
-    """Serves (x_dynamic, x_static, y_norm, y_components, basin_id, flow_std, flow_window) tuples.
+    """Serves 8-tuples ``(x_dynamic, x_static, y_norm, y_components, basin_id, precip_mean, loss_weight, extreme_qs)``.
 
-    x_dynamic      : (seq_len, n_dynamic) – normalised climate
-    x_static       : (n_static,)          – normalised static attributes
-    y_norm         : scalar                – flow / basin_std
-    y_components   : (2,)                  – [quickflow, baseflow] normalised
-    basin_id       : int
-    flow_std       : scalar                – for denormalisation at eval time
-    flow_window    : (seq_len,)            – normalised flow over the lookback window
+    x_dynamic     : (seq_len, n_dynamic) — normalised climate
+    x_static      : (n_static,)          — normalised static attributes
+    y_norm        : scalar               — flow / precip_mean (dimensionless)
+    y_components  : (2,)                 — [quickflow, baseflow] / precip_mean
+    basin_id      : int
+    precip_mean   : scalar               — per-basin denormalisation scale (mm/day)
+    loss_weight   : scalar               — per-basin gradient-balancing weight
+    extreme_qs    : (2,)                 — [y_q_start, y_q_top] per-basin
+                                           quantile thresholds (normalised flow
+                                           units) for the aux-loss extreme ramp
     """
 
     def __init__(
@@ -422,8 +508,13 @@ class HydroDataset(Dataset):
                 aligned = flow_data[bid]["flow"].reindex(dates)
                 flow_arr = aligned.values.astype(np.float32)
 
-            # per-basin flow std
-            fstd = norm_stats["flow"].get(bid, np.float32(1.0))
+            # per-basin denormalisation scale: mean daily precipitation (mm/day)
+            pmean = norm_stats["scale"].get(bid, np.float32(1.0))
+            # per-basin loss weight: 1 / max(var, min_var) ** exponent (see Config)
+            lvar = float(norm_stats.get("loss_var", {}).get(bid, np.float32(1.0)))
+            p = float(config.basin_loss_weight_exponent)
+            min_var = float(config.basin_loss_min_var)
+            lw = np.float32(1.0 / max(lvar, min_var) ** p) if p > 0 else np.float32(1.0)
 
             # normalised static vector (only CSV-sourced features)
             if df_feats:
@@ -444,9 +535,14 @@ class HydroDataset(Dataset):
             bd_dict: dict = {
                 "dynamic": torch.from_numpy(dynamic),
                 "flow": flow_arr,                          # keep numpy for NaN checks
-                "flow_std": fstd,
+                "precip_mean": pmean,                      # denorm scale (mm/day)
                 "static": torch.from_numpy(sv_norm),
-                "fstd_tensor": torch.tensor(fstd, dtype=torch.float32),
+                "precip_mean_tensor": torch.tensor(pmean, dtype=torch.float32),
+                "loss_w_tensor": torch.tensor(lw, dtype=torch.float32),
+                "extreme_qs_tensor": torch.tensor([
+                    float(norm_stats.get("y_q_start", {}).get(bid, np.float32(3.0))),
+                    float(norm_stats.get("y_q_top", {}).get(bid, np.float32(8.0))),
+                ], dtype=torch.float32),
                 "dates": dates,                            # climate DatetimeIndex
             }
 
@@ -467,9 +563,9 @@ class HydroDataset(Dataset):
         # Pre-compute normalised flow targets as a tensor per basin
         for bid, bd in self.basin_data.items():
             flow_np = bd["flow"]
-            fstd = bd["flow_std"]
+            pmean = bd["precip_mean"]
             bd["flow_norm"] = torch.from_numpy(
-                np.where(np.isnan(flow_np), 0.0, flow_np / (fstd + 1e-8)).astype(np.float32)
+                np.where(np.isnan(flow_np), 0.0, flow_np / (pmean + 1e-8)).astype(np.float32)
             )
 
             if config.aux_loss_weight > 0:
@@ -477,7 +573,7 @@ class HydroDataset(Dataset):
                 baseflow = _lyne_hollick_baseflow(flow_np, alpha=config.baseflow_alpha)
                 quickflow = flow_np - baseflow
 
-                scale = fstd + 1e-8
+                scale = pmean + 1e-8
                 bd["components_norm"] = torch.from_numpy(np.stack([
                     np.where(np.isnan(quickflow), 0.0, quickflow / scale),
                     np.where(np.isnan(baseflow), 0.0, baseflow / scale),
@@ -498,7 +594,6 @@ class HydroDataset(Dataset):
         x_s = bd["static"]                                         # (n_static,)
         y = bd["flow_norm"][tidx]                                  # scalar tensor
         y_comp = bd["components_norm"][tidx]                       # (2,) — [fast, slow]
-        flow_win = bd["flow_norm"][tidx - self.seq_len + 1 : tidx + 1]  # (seq_len,)
 
         # Compute window-derived static features on the fly
         if self.use_window_snow_fraction and "snow_fraction" in self._wd_positions:
@@ -516,4 +611,6 @@ class HydroDataset(Dataset):
             mean_val = float(self._wd_mean["snow_fraction"])
             x_s[pos] = (sf - mean_val) / (std_val + 1e-8)
 
-        return (x_d, x_s, y, y_comp, bid, bd["fstd_tensor"], flow_win)
+        return (x_d, x_s, y, y_comp, bid,
+                bd["precip_mean_tensor"], bd["loss_w_tensor"],
+                bd["extreme_qs_tensor"])
