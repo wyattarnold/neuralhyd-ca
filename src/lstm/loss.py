@@ -32,82 +32,80 @@ import torch
 # ---------------------------------------------------------------------------
 
 
-def mse_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-    """Mean squared error on per-basin-std-normalised flow."""
-    return torch.mean((pred - target) ** 2)
+def _weighted_mean(per_sample: torch.Tensor, sample_weights: torch.Tensor | None) -> torch.Tensor:
+    """Mean of *per_sample*, optionally weighted.
+
+    Uses a normalised weighted mean (sum(w·x) / sum(w)) so the resulting
+    loss magnitude is independent of the overall weight scale.
+    """
+    if sample_weights is None:
+        return per_sample.mean()
+    w = sample_weights
+    return (per_sample * w).sum() / (w.sum() + 1e-8)
 
 
-def extreme_weighted_mse(
+def extreme_ramp_weight(
+    y: torch.Tensor,
+    threshold: torch.Tensor,
+    ramp: torch.Tensor,
+    max_weight: float,
+) -> torch.Tensor:
+    """Per-sample weight that ramps from 1 → *max_weight* for extreme flows.
+
+    Weight is 1.0 for y ≤ *threshold*, linearly ramps to *max_weight* as y
+    increases by *ramp* units above the threshold, and stays at *max_weight*
+    beyond that.  Computed on the detached target so no gradient flows
+    through the weight.
+
+    *threshold* and *ramp* are per-sample tensors derived from each basin's
+    p99 / p99.9 quantile of the normalised target.  *ramp* is floored at 1e-4
+    to avoid division by zero for constant-flow basins.
+    """
+    ramp = ramp.clamp_min(1e-4)
+    frac = ((y.detach() - threshold) / ramp).clamp(0, 1)
+    return 1.0 + (max_weight - 1.0) * frac
+
+
+def mse_loss(
     pred: torch.Tensor,
     target: torch.Tensor,
-    threshold: float = 3.0,
-    max_weight: float = 30.0,
-    ramp: float = 6.0,
+    sample_weights: torch.Tensor | None = None,
 ) -> torch.Tensor:
-    """MSE with sample weights that ramp up for extreme normalised flows.
-
-    Weight is 1.0 for flows below *threshold*, then linearly ramps to
-    *max_weight* over the next *ramp* normalised-flow units.  Weights are
-    detached (no gradient through the weight computation).
-    """
-    sq = (pred - target) ** 2
-    frac = ((target.detach() - threshold) / ramp).clamp(0, 1)
-    w = 1.0 + (max_weight - 1.0) * frac
-    return (sq * w).mean()
-
-
-def blended_loss(
-    pred: torch.Tensor,
-    target: torch.Tensor,
-    lam: float,
-    eps: float,
-) -> torch.Tensor:
-    """Blended MSE + log-space MSE for low-flow sensitivity.
-
-    L = (1-λ)·MSE(Q, Q̂) + λ·MSE(log(Q+ε), log(Q̂+ε))
-    """
-    sq = (pred - target) ** 2
-    if lam > 0:
-        log_sq = (torch.log(pred + eps) - torch.log(target + eps)) ** 2
-        per_sample = (1 - lam) * sq + lam * log_sq
-    else:
-        per_sample = sq
-    return per_sample.mean()
+    """Mean squared error on normalised flow, optionally per-sample-weighted."""
+    return _weighted_mean((pred - target) ** 2, sample_weights)
 
 
 def pathway_auxiliary_loss(
     q_fast: torch.Tensor, q_slow: torch.Tensor,
     y_fast: torch.Tensor, y_slow: torch.Tensor,
-    peak_asymmetry: float = 1.0,
     y_total_norm: torch.Tensor | None = None,
-    extreme_threshold: float = 3.0,
+    extreme_threshold: torch.Tensor | None = None,
     extreme_peak_boost: float = 12.0,
-    extreme_ramp: float = 6.0,
+    extreme_ramp: torch.Tensor | None = None,
+    sample_weights: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Mean of per-pathway MSE losses for component supervision.
 
-    When *peak_asymmetry* > 1, under-prediction of the fast (event)
-    pathway is penalised more heavily than over-prediction.  This
-    encourages the model to capture peak flows rather than miss them.
-
-    When *y_total_norm* is provided, the fast pathway error is further
-    boosted during extreme events: the effective under-prediction penalty
-    ramps from *peak_asymmetry* to *peak_asymmetry* × *extreme_peak_boost*
-    as normalised total flow rises from *extreme_threshold* to
-    *extreme_threshold* + *extreme_ramp*.
+    When *y_total_norm*, *extreme_threshold*, and *extreme_ramp* are all
+    provided, the fast pathway error is boosted during extreme events: the
+    weight ramps from 1 to *extreme_peak_boost* as normalised total flow
+    rises from *extreme_threshold* to *extreme_threshold* + *extreme_ramp*.
+    This encourages the model to capture peak flows rather than smooth
+    them out.  *extreme_threshold* and *extreme_ramp* are per-sample tensors
+    derived from each basin's p99 / p99.9 quantiles.
     """
     fast_err = (q_fast - y_fast) ** 2
-    if peak_asymmetry != 1.0:
-        under = q_fast < y_fast  # model missed the peak
-        fast_err = torch.where(under, fast_err * peak_asymmetry, fast_err)
 
-    # Event-adaptive boost: further amplify fast-pathway errors during extremes
-    if y_total_norm is not None:
-        frac = ((y_total_norm.detach() - extreme_threshold) / extreme_ramp).clamp(0, 1)
-        event_weight = 1.0 + (extreme_peak_boost - 1.0) * frac
+    # Event-adaptive boost: amplify fast-pathway errors during extremes
+    if y_total_norm is not None and extreme_threshold is not None and extreme_ramp is not None:
+        event_weight = extreme_ramp_weight(
+            y_total_norm, extreme_threshold, extreme_ramp, extreme_peak_boost,
+        )
         fast_err = fast_err * event_weight
 
-    return (torch.mean(fast_err) + torch.mean((q_slow - y_slow) ** 2)) / 2
+    slow_err = (q_slow - y_slow) ** 2
+    return (_weighted_mean(fast_err, sample_weights) +
+            _weighted_mean(slow_err, sample_weights)) / 2
 
 
 # ---------------------------------------------------------------------------
@@ -151,9 +149,7 @@ def cmal_nll(
     )                                                     # (B,)
 
     nll = -log_mixture                                    # (B,)
-    if sample_weights is not None:
-        nll = nll * sample_weights
-    return nll.mean()
+    return _weighted_mean(nll, sample_weights)
 
 
 def cmal_crps(
@@ -237,7 +233,7 @@ def cmal_crps(
         crps_per_sample = crps_per_sample / sigma.pow(beta)
 
     if sample_weights is not None:
-        crps_per_sample = crps_per_sample * sample_weights
+        return (crps_per_sample * sample_weights).sum() / (sample_weights.sum() + 1e-8)
     return crps_per_sample.mean()
 
 
@@ -338,6 +334,22 @@ def compute_kge(obs: np.ndarray, pred: np.ndarray) -> float:
 
 def compute_fhv(obs: np.ndarray, pred: np.ndarray, h: float = 0.02) -> float:
     """Peak flow bias (%BiasFHV) on the upper *h* fraction of the FDC."""
+    obs, pred = np.asarray(obs, dtype=np.float64), np.asarray(pred, dtype=np.float64)
+    idx = np.argsort(obs)[::-1]
+    n = max(1, int(np.ceil(h * len(obs))))
+    obs_h, pred_h = obs[idx[:n]], pred[idx[:n]]
+    denom = obs_h.sum()
+    if denom < 1e-12:
+        return float("nan")
+    return float((pred_h.sum() - denom) / denom * 100)
+
+
+def compute_fehv(obs: np.ndarray, pred: np.ndarray, h: float = 0.001) -> float:
+    """Extreme high-flow bias (%BiasFEHV) on the upper *h* fraction of the FDC.
+
+    Like FHV but targets the 99.9th-percentile peak flows (top 0.1%).
+    Perfect score is 0; positive = over-prediction, negative = under-prediction.
+    """
     obs, pred = np.asarray(obs, dtype=np.float64), np.asarray(pred, dtype=np.float64)
     idx = np.argsort(obs)[::-1]
     n = max(1, int(np.ceil(h * len(obs))))

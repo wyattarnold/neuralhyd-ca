@@ -8,10 +8,14 @@ Outputs go to app/data/:
   timeseries/vic_surface_{lk}.parquet   — VIC-Sim surface runoff component (CFS)
   timeseries/obs.parquet                — observed streamflow (CFS, Int32)
   timeseries/obs_baseflow.parquet       — Lyne–Hollick baseflow (CFS)
-  timeseries/lstm_pred.parquet          — LSTM dual predicted total Q (CFS, Int32)
-  timeseries/lstm_fast.parquet          — LSTM dual fast pathway (CFS, Int32)
-  timeseries/lstm_slow.parquet          — LSTM dual slow pathway (CFS, Int32)
-  timeseries/lstm_single_pred.parquet   — LSTM single predicted total Q (CFS)
+  timeseries/lstm_pred_{layer}.parquet       — LSTM dual ensemble mean total Q (CFS)
+  timeseries/lstm_pred_min_{layer}.parquet   — LSTM dual ensemble min total Q (CFS)
+  timeseries/lstm_pred_max_{layer}.parquet   — LSTM dual ensemble max total Q (CFS)
+  timeseries/lstm_fast_{layer}.parquet       — LSTM dual fast pathway mean (CFS)
+  timeseries/lstm_slow_{layer}.parquet       — LSTM dual slow pathway mean (CFS)
+  timeseries/lstm_single_pred_{layer}.parquet     — LSTM single ensemble mean total Q (CFS)
+  timeseries/lstm_single_pred_min_{layer}.parquet — LSTM single ensemble min total Q (CFS)
+  timeseries/lstm_single_pred_max_{layer}.parquet — LSTM single ensemble max total Q (CFS)
 
 Run once (or whenever source data changes):
     python -m app.build_data
@@ -32,8 +36,10 @@ from tqdm import tqdm
 # ---------------------------------------------------------------------------
 
 REPO = Path(__file__).resolve().parents[1]
-GDB = REPO / "data" / "raw" / "neuralhyd-ca.gdb"
-WS_PATH = REPO / "data" / "training" / "watersheds" / "watersheds.geojson"
+GIS_DIR = REPO / "data" / "raw" / "gis"
+HUC8_GPKG = GIS_DIR / "WBDHU8.gpkg"
+HUC10_GPKG = GIS_DIR / "WBDHU10.gpkg"
+WATERSHEDS_GPKG = GIS_DIR / "USGS_Training_Watersheds.gpkg"
 AGG = REPO / "data" / "external" / "cec" / "VIC-Sim" / "aggregated"
 
 FLOW_DIR = REPO / "data" / "training" / "flow"
@@ -55,23 +61,21 @@ TS_DIR.mkdir(parents=True, exist_ok=True)
 # Layer definitions
 # ---------------------------------------------------------------------------
 
-LAYERS: list[tuple[str, str, Path, float, Path | None, str | None]] = [
-    # (key,  id_col,  src_path,  simplify_tol, vic_csv,  gdb_layer)
-    ("huc8",  "huc8",  GDB, 0.0005, AGG / "huc8_runoff.csv",  "WBDHU8"),
-    ("huc10", "huc10", GDB, 0.0005, AGG / "huc10_runoff.csv", "WBDHU10"),
-    ("training_watersheds", "Pour Point ID", WS_PATH, 0.0001, AGG / "training_watersheds_runoff.csv", None),
+LAYERS: list[tuple[str, str, Path, float, Path | None]] = [
+    # (key,  id_col,  src_path,  simplify_tol, vic_csv)
+    ("huc8",  "huc8",  HUC8_GPKG, 0.0005, AGG / "huc8_runoff.csv"),
+    ("training_watersheds", "PourPtID", WATERSHEDS_GPKG, 0.0001, AGG / "training_watersheds_runoff.csv"),
 ]
 
 # ---------------------------------------------------------------------------
 # GeoJSON builder
 # ---------------------------------------------------------------------------
 
-def build_geojson(key: str, id_col: str, src_path: Path, tol: float, gdb_layer: str | None = None) -> None:
+def build_geojson(key: str, id_col: str, src_path: Path, tol: float) -> None:
     out_path = GEO_DIR / f"{key}.geojson"
     print(f"  GeoJSON {key} … ", end="", flush=True)
 
-    kwargs = {"layer": gdb_layer} if gdb_layer is not None else {}
-    gdf = gpd.read_file(src_path, **kwargs).to_crs("EPSG:4326")
+    gdf = gpd.read_file(src_path).to_crs("EPSG:4326")
     gdf["geometry"] = gdf.geometry.simplify(tol, preserve_topology=True)
 
     # Keep only id + name (if present) + geometry
@@ -153,8 +157,9 @@ def build_training_watersheds_geojson(tol: float) -> None:
                 obs_range[bid] = (str(valid["date"].iloc[0]), str(valid["date"].iloc[-1]))
 
     # --- Load and simplify geometry ---
-    gdf = gpd.read_file(WS_PATH).to_crs("EPSG:4326")
+    gdf = gpd.read_file(WATERSHEDS_GPKG).to_crs("EPSG:4326")
     gdf["geometry"] = gdf.geometry.simplify(tol, preserve_topology=True)
+    gdf = gdf.rename(columns={"PourPtID": "Pour Point ID"})
     gdf["Pour Point ID"] = gdf["Pour Point ID"].astype(str)
     keep = ["Pour Point ID", "geometry"]
     gdf = gdf[[c for c in keep if c in gdf.columns]].copy()
@@ -277,12 +282,14 @@ def _build_sim_parquets(
 def build_lstm_parquets() -> None:
     """Build LSTM dual sim Parquets for all available layer types."""
     sim_base = SIM_DIR / "dual_lstm_kfold"
-    for layer_key in ("training_watersheds", "huc8", "huc10"):
+    for layer_key in ("training_watersheds", "huc8"):
         sim_dir = sim_base / layer_key / "historical"
         _build_sim_parquets(sim_dir, layer_key, "LSTM Dual", {
-            "q_total": "lstm_pred",
-            "q_fast": "lstm_fast",
-            "q_slow": "lstm_slow",
+            "q_mean":      "lstm_pred",
+            "q_fast_mean": "lstm_fast",
+            "q_slow_mean": "lstm_slow",
+            "q_min":       "lstm_pred_min",
+            "q_max":       "lstm_pred_max",
         })
 
 
@@ -293,10 +300,12 @@ def build_lstm_parquets() -> None:
 def build_lstm_single_parquets() -> None:
     """Build LSTM single sim Parquets for all available layer types."""
     sim_base = SIM_DIR / "single_lstm_kfold"
-    for layer_key in ("training_watersheds", "huc8", "huc10"):
+    for layer_key in ("training_watersheds", "huc8"):
         sim_dir = sim_base / layer_key / "historical"
         _build_sim_parquets(sim_dir, layer_key, "LSTM Single", {
-            "q_total": "lstm_single_pred",
+            "q_mean": "lstm_single_pred",
+            "q_min":  "lstm_single_pred_min",
+            "q_max":  "lstm_single_pred_max",
         })
 
 
@@ -382,7 +391,7 @@ def build_ca_outline() -> None:
     out_path = GEO_DIR / "ca_outline.geojson"
     print("  CA outline … ", end="", flush=True)
 
-    gdf = gpd.read_file(GDB, layer="WBDHU8").to_crs("EPSG:4326")
+    gdf = gpd.read_file(HUC8_GPKG).to_crs("EPSG:4326")
     dissolved = gdf.dissolve()
     dissolved["geometry"] = dissolved.geometry.simplify(0.005, preserve_topology=True)
     dissolved = dissolved[["geometry"]]
@@ -450,11 +459,11 @@ def build_static_attrs() -> None:
 
 def main() -> None:
     print("Building GeoJSON files …")
-    for key, id_col, shp_path, tol, vic_csv, gdb_layer in LAYERS:
+    for key, id_col, shp_path, tol, vic_csv in LAYERS:
         if key == "training_watersheds":
             build_training_watersheds_geojson(tol)
         else:
-            build_geojson(key, id_col, shp_path, tol, gdb_layer)
+            build_geojson(key, id_col, shp_path, tol)
 
     print("\nBuilding CA outline …")
     build_ca_outline()
@@ -463,7 +472,7 @@ def main() -> None:
     build_static_attrs()
 
     print("\nBuilding VIC-Sim Parquet files …")
-    for key, id_col, shp_path, tol, vic_csv, gdb_layer in LAYERS:
+    for key, id_col, shp_path, tol, vic_csv in LAYERS:
         if vic_csv is not None and vic_csv.exists():
             build_vic_parquet(key, vic_csv)
         else:

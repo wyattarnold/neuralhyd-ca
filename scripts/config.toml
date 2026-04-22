@@ -1,11 +1,21 @@
 # =============================================================================
-# lstmhyd-ca — experiment configuration
+# lstmhyd-ca — experiment configuration (comprehensive template)
 # Run with: python train_kfold.py [config.toml]
 #
 # output_dir is derived automatically from this filename:
 #   config.toml          → ../data/training/output/
 #   config_<name>.toml   → ../data/training/output/<name>/
 # Override by setting output_dir explicitly below.
+#
+# Two architectural components are always active:
+#
+#   1. Jointly-learned per-basin ScaleHead (zero-init so scale = 1.0 at
+#      init).  Absorbs per-basin amplitude end-to-end under the main loss.
+#      Training targets remain y / precip_mean for stable init.
+#
+#   2. Per-basin extreme-loss quantile thresholds.  Each basin's p99/p999
+#      of the normalised target are computed at fold-init time and passed
+#      per-sample so the aux-loss extreme ramp is basin-relative.
 # =============================================================================
 
 [paths]
@@ -22,19 +32,20 @@ fast_window          = 18    # short lookback for fast (event) pathway
 info_gap             = false # blind slow pathway to last fast_window days (forces separation)
 
 [model]
-model_type           = "dual"   # "dual" or "single"
+model_type           = "dual"   # "dual", "single", or "moe"
 fast_hidden_size     = 64
 slow_hidden_size     = 128
 single_hidden_size   = 128
 static_embedding_dim = 10
 static_hidden_size   = 32
-dropout              = 0.20     # fixed from sweep: softplus top-5 all 0.10, ρ=-0.44
+dropout              = 0.20
 static_dropout       = 0.10
+basin_loss_weight_exponent = 0.25   # 1/var(flow/precip_mean)^exp gradient balancing
+output_type          = "deterministic"  # "deterministic" or "cmal"
 
 [aux_loss]
 aux_loss_weight      = 0.40   # fixed from sweep: ρ=-0.02 (no signal); exp best trials 0.25-0.40
 baseflow_alpha       = 0.925  # Lyne-Hollick filter parameter
-aux_peak_asymmetry   = 2.5    # penalise fast-pathway under-prediction by this factor (1.0 = symmetric)
 
 [blended_loss]
 log_loss_lambda      = 0.05                         # blended loss: (1-λ)·MSE + λ·log-MSE  (0 = pure MSE)
@@ -57,7 +68,6 @@ swa_patience         = 10     # SWA makes small gradual gains — give it room
 
 [validation]
 n_folds              = 5
-holdout_fraction     = 0.2
 seed                 = 42
 
 [features]
@@ -90,3 +100,42 @@ climate_static_features = [
     "low_precip_dur",
 ]
 use_window_snow_fraction = false
+
+[moe]
+# MoE-τ architecture (only used when model_type = "moe")
+moe_n_experts            = 4
+moe_expert_hidden_size   = 128
+moe_gate_hidden_size     = 64
+moe_attention_dim        = 32
+moe_tau_init             = 0.5     # initial softmax temperature
+
+[extreme_loss]
+# Per-basin quantile thresholds.  At fold init, each basin's
+# p(extreme_start_quantile) and p(extreme_top_quantile) of the normalised
+# target are computed and propagated per-sample through the DataLoader.
+# The aux-loss extreme ramp targets the top (1 − extreme_start_quantile)
+# fraction of *each* basin's flow distribution rather than a fixed
+# dimensionless cut-off that means different things across T1/T2/T3 basins.
+extreme_start_quantile = 0.98    # ramp start quantile (per basin)
+extreme_top_quantile   = 0.995   # ramp end quantile (full boost per basin)
+extreme_peak_boost     = 30.0    # max multiplier on fast-pathway aux error
+
+[cmal]
+# CMAL probabilistic head (only used when output_type = "cmal")
+cmal_n_components        = 3       # K mixture components
+cmal_hidden_size         = 32      # CMALHead intermediate layer width
+cmal_loss                = "nll"   # "nll" or "crps"
+cmal_crps_n_samples      = 50      # samples per component for CRPS spread term
+cmal_entropy_weight      = 0.0     # weight on mixture-weight entropy regularisation (0 = off)
+cmal_scale_reg_weight    = 0.0     # weight on scale-collapse penalty (0 = off)
+cmal_beta_crps           = 0.0     # β-CRPS spread penalty (0 = off; 0.5 typical)
+
+# [static_feature_groups]
+# Grouped static encoder — uncomment to use GroupedStaticEncoder instead of
+# the flat MLP.  Every feature in static_features must appear in exactly one
+# group.  static_group_hidden = 0 means auto-sized per group.
+# static_group_hidden = 0
+# topography   = ["total_Shape_Area_km2", "ele_mt_uav", "slp_dg_uav"]
+# network      = ["ria_ha_usu", "riv_tc_usu", "sgr_dk_sav"]
+# soil_surface = ["for_pc_use", "cly_pc_uav", "snd_pc_uav", "clz_cl_smj", "lit_cl_smj"]
+# climate      = ["precip_mean", "pet_mean", "aridity_index", "snow_fraction", "low_precip_dur"]

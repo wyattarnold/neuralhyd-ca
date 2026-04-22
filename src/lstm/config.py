@@ -16,7 +16,7 @@ load_config(path)
 from __future__ import annotations
 
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List
 
@@ -25,7 +25,6 @@ from src.paths import DEFAULT_CONFIG, TRAINING_OUTPUT_DIR
 _PATH_FIELDS = frozenset(
     ["data_dir", "climate_dir", "flow_dir", "static_basin_atlas", "static_climate", "output_dir"]
 )
-_OPTIONAL_PATH_FIELDS = frozenset(["static_dem", "static_network"])
 
 
 @dataclass
@@ -40,23 +39,13 @@ class Config:
 
     # ----- Sequence / windows -----
     seq_len: int
-    fast_window: int
-    info_gap: bool
 
     # ----- Model architecture -----
     model_type: str
-    fast_hidden_size: int
-    slow_hidden_size: int
-    single_hidden_size: int
     static_embedding_dim: int
     static_hidden_size: int
     dropout: float
     static_dropout: float
-
-    # ----- Pathway auxiliary loss (dual model only) -----
-    aux_loss_weight: float
-    baseflow_alpha: float
-    aux_peak_asymmetry: float
 
     # ----- Blended loss -----
     log_loss_lambda: float
@@ -79,7 +68,6 @@ class Config:
 
     # ----- Validation -----
     n_folds: int
-    holdout_fraction: float
     seed: int
 
     # ----- Feature lists -----
@@ -87,35 +75,64 @@ class Config:
     static_features: List[str]
     log_transform_static: List[str]
 
+    # ----- Dual-pathway defaults (not needed for single/moe configs) -----
+    single_hidden_size: int = 128
+    fast_window: int = 28
+    info_gap: bool = False
+    fast_hidden_size: int = 64
+    slow_hidden_size: int = 128
+    aux_loss_weight: float = 0.4
+    baseflow_alpha: float = 0.925
+
+    # ----- Flow normalisation -----
+    # The model uses a jointly-learned per-basin scale head (ScaleHead on the
+    # static embedding, zero-init so scale = 1.0 at init).  The dataset-side
+    # target normalisation remains y / precip_mean for stable initialisation
+    # and universal applicability to any basin with climate data; the scale
+    # head then absorbs per-basin amplitude end-to-end under the main loss.
+
     # ----- Optional climate-static handling -----
     exclude_climate_statics: bool = False
-    climate_static_features: List[str] | None = None
+    climate_static_features: List[str] = field(default_factory=lambda: [
+        "precip_mean", "pet_mean", "aridity_index",
+        "snow_fraction", "low_precip_dur",
+    ])
     use_window_snow_fraction: bool = False
 
     # ----- MoE-τ architecture (model_type="moe") -----
-    moe_n_experts: int = 4
+    moe_n_experts: int = 2
     moe_expert_hidden_size: int = 128
     moe_gate_hidden_size: int = 64
     moe_attention_dim: int = 32
     moe_tau_init: float = 0.5
 
     # ----- Extreme-flow loss weighting -----
-    extreme_threshold: float = 3.0      # normalised flow above which upweighting begins
-    extreme_weight_max: float = 1.0     # max weight multiplier (1.0 = disabled)
-    extreme_ramp: float = 6.0           # normalised range over which weight ramps 1→max
-    extreme_peak_boost: float = 12.0    # multiplier on fast-pathway aux peak_asymmetry during extremes
+    # Per-basin quantile-based: weight ramps from 1 at quantile
+    # extreme_start_quantile up to extreme_peak_boost at extreme_top_quantile.
+    # Defaults (p99 → p99.9) treat 1-in-100-day events as the start of
+    # "extreme" and 1-in-1000-day events as the full-weight peak, for every
+    # basin regardless of flow regime.  Thresholds are computed per basin
+    # on the normalised target (flow / precip_mean) at fold-init time.
+    extreme_start_quantile: float = 0.99  # lower cutoff (ramp start)
+    extreme_top_quantile: float = 0.999   # upper cutoff (ramp end / full boost)
+    extreme_peak_boost: float = 8.0       # max multiplier at the top quantile
 
-    # ----- Additional static attribute CSVs (indexed by PourPtID) -----
-    static_dem: Path | None = None
-    static_network: Path | None = None
+    # ----- Per-basin loss weighting (gradient balancing) -----
+    # Weight per basin = 1 / max(var_b, basin_loss_min_var)^basin_loss_weight_exponent
+    # where var_b = var(flow / precip_mean) for basin b.
+    #   exponent = 0.0  → no weighting (uniform; high-var basins dominate)
+    #   exponent = 0.5  → sqrt-compressed (~10× spread)
+    #   exponent = 1.0  → full inverse-variance (~100× spread, balanced per-basin)
+    basin_loss_weight_exponent: float = 0.5
+    basin_loss_min_var: float = 0.1
 
     # ----- Probabilistic output -----
     output_type: str = "deterministic"   # "deterministic" or "cmal"
     cmal_n_components: int = 3           # K mixture components for CMAL
     cmal_hidden_size: int = 32           # CMALHead intermediate layer width
-    cmal_loss: str = "nll"               # "nll" or "crps"
+    cmal_loss: str = "crps"               # "nll" or "crps"
     cmal_crps_n_samples: int = 50        # samples per component for CRPS spread term
-    cmal_entropy_weight: float = 0.0     # weight on mixture-weight entropy reg (0 = off)
+    cmal_entropy_weight: float = 0.1     # weight on mixture-weight entropy reg (0 = off)
     cmal_scale_reg_weight: float = 0.0   # weight on scale-collapse penalty (0 = off)
     cmal_beta_crps: float = 0.0          # β-CRPS spread penalty (0 = off; 0.5 typical)
 
@@ -130,10 +147,6 @@ class Config:
     def __post_init__(self) -> None:
         for f in _PATH_FIELDS:
             val = getattr(self, f)
-            if isinstance(val, str):
-                setattr(self, f, Path(val))
-        for f in _OPTIONAL_PATH_FIELDS:
-            val = getattr(self, f, None)
             if isinstance(val, str):
                 setattr(self, f, Path(val))
 
@@ -225,16 +238,5 @@ def load_config(path: str | Path = DEFAULT_CONFIG) -> Config:
         val = getattr(cfg, f)
         if not val.is_absolute():
             setattr(cfg, f, (config_dir / val).resolve())
-    for f in _OPTIONAL_PATH_FIELDS:
-        val = getattr(cfg, f, None)
-        if val is not None and not val.is_absolute():
-            setattr(cfg, f, (config_dir / val).resolve())
-
-    # Apply defaults for optional fields not present in the TOML.
-    if not hasattr(cfg, "climate_static_features") or cfg.climate_static_features is None:
-        cfg.climate_static_features = [
-            "precip_mean", "pet_mean", "aridity_index",
-            "snow_fraction", "low_precip_dur",
-        ]
 
     return cfg
