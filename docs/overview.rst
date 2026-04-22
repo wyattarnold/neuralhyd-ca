@@ -6,7 +6,7 @@ Overview
    This project is under active development. Model outputs, evaluation metrics,
    and application features may change without notice.
 
-neuralhyd-ca predicts daily streamflow for 216 California USGS watersheds
+neuralhyd-ca predicts daily streamflow for 210 California USGS watersheds
 using LSTM networks conditioned on static watershed attributes. The model
 takes a lookback window of observed daily climate forcing (precipitation,
 tmax, tmin) combined with physical watershed properties and predicts
@@ -23,25 +23,27 @@ Watershed Tiers
 Basins are grouped into three hydroclimatic tiers based on elevation,
 temperature, and snow influence:
 
-- **Tier 1** (88 basins) — warm, low-elevation, rainfall-dominated.
+- **Tier 1** (89 basins) — warm, low-elevation, rainfall-dominated.
   Runoff responds quickly to precipitation with minimal snow storage.
-- **Tier 2** (97 basins) — transitional, mixed rain-snow. The hardest
+- **Tier 2** (92 basins) — transitional, mixed rain-snow. The hardest
   tier to generalise — high internal heterogeneity and mixed response
   timescales.
-- **Tier 3** (31 basins) — cold, high-elevation, snow-dominated.
+- **Tier 3** (29 basins) — cold, high-elevation, snow-dominated.
   Requires long memory (365-day lookback) to capture multi-month lags
   between precipitation and runoff from snowmelt.
 
 Performance Metrics
 -------------------
 
-Model quality is evaluated with four complementary metrics:
+Model quality is evaluated with five complementary metrics:
 
-- **NSE** (Nash-Sutcliffe Efficiency) — overall fit, sensitive to peaks.
+- **NSE** (Nash–Sutcliffe Efficiency) — overall fit, sensitive to peaks.
   Perfect score = 1; score > 0 beats the mean-flow baseline.
-- **KGE** (Kling-Gupta Efficiency) — decomposes error into correlation,
+- **KGE** (Kling–Gupta Efficiency) — decomposes error into correlation,
   bias, and variability. Less peak-dominated than NSE. Perfect = 1.
 - **FHV** (percent bias in high flows) — bias in the top 2% of flows.
   Positive = over-prediction; negative = under-prediction of peaks.
+- **FEHV** (percent bias in extreme high flows) — bias in the top 0.2%
+  of flows; emphasises the rarest peaks.
 - **FLV** (percent bias in low flows) — bias in the bottom 30% of flows.
   Captures baseflow and recession performance.
