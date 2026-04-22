@@ -35,7 +35,7 @@ from src.lstm.dataset import (
 )
 from src.lstm.evaluate import evaluate_fold
 from src.lstm.model import build_model
-from src.lstm.train import train_model
+from src.lstm.train import pick_device, train_model
 
 _SCRIPTS_DIR = Path(__file__).resolve().parent
 
@@ -54,12 +54,7 @@ def main() -> None:
     config.output_dir.mkdir(parents=True, exist_ok=True)
 
     # ---- device ----
-    if torch.backends.mps.is_available():
-        device = torch.device("mps")
-    elif torch.cuda.is_available():
-        device = torch.device("cuda")
-    else:
-        device = torch.device("cpu")
+    device = pick_device()
     print(f"Device: {device}")
 
     # ---- load data ----

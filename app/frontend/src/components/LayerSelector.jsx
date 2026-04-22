@@ -1,6 +1,5 @@
 const LABELS = {
   huc8: "HUC-8",
-  huc10: "HUC-10",
   training_watersheds: "Training Watersheds",
 };
 

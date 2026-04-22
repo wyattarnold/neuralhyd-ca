@@ -7,8 +7,8 @@ train_epoch(model, loader, optimiser, config)
 validate_epoch(model, loader, config)
     Inference-only pass; returns mean validation loss.
 train_model(model, train_loader, val_loader, config, norm_stats)
-    Full training run with ``ReduceLROnPlateau`` scheduling and
-    patience-based early stopping.  Saves ``best_model.pt`` when
+    Full training run with warmup → cosine annealing → optional SWA,
+    using patience-based transitions.  Saves ``best_model.pt`` when
     validation loss improves; bundles ``norm_stats`` into the checkpoint.
     Writes a ``log.txt`` per fold with full epoch-by-epoch metrics.
 load_checkpoint(path, model, device)
@@ -27,20 +27,53 @@ from torch.utils.data import DataLoader
 
 from .config import Config
 from .loss import (
-    mse_loss, blended_loss, pathway_auxiliary_loss, extreme_weighted_mse,
+    mse_loss, pathway_auxiliary_loss,
     cmal_nll, cmal_crps, cmal_entropy_reg, cmal_scale_reg,
     compute_nse, compute_kge,
 )
 
 
-def _get_cmal_params(model: torch.nn.Module):
-    """Retrieve CMAL distribution params from the last forward pass."""
+def pick_device() -> torch.device:
+    """Select the best available torch device: MPS → CUDA → CPU."""
+    if torch.backends.mps.is_available():
+        return torch.device("mps")
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    return torch.device("cpu")
+
+
+def _unwrap_model(model: torch.nn.Module) -> torch.nn.Module:
+    """Strip ``torch.compile`` / ``AveragedModel`` wrappers."""
     m = model
     if hasattr(m, "module"):
         m = m.module
     if hasattr(m, "_orig_mod"):
         m = m._orig_mod
-    return getattr(m, "_last_cmal_params", None)
+    return m
+
+
+def _get_cmal_params(model: torch.nn.Module):
+    """Retrieve CMAL distribution params from the last forward pass."""
+    params = getattr(_unwrap_model(model), "_last_cmal_params", None)
+    if params is None:
+        raise RuntimeError(
+            "CMAL params not found on model. Ensure output_type='cmal' "
+            "in config and that forward() has been called."
+        )
+    return params
+
+
+def _blended_primary(
+    pred: torch.Tensor, target: torch.Tensor, sample_weights: torch.Tensor,
+    mse_term: torch.Tensor, config: Config,
+) -> torch.Tensor:
+    """Combine MSE with log-space MSE using per-sample weights."""
+    if config.log_loss_lambda <= 0:
+        return mse_term
+    log_sq = (torch.log(pred + config.log_loss_epsilon)
+              - torch.log(target + config.log_loss_epsilon)) ** 2
+    log_term = (log_sq * sample_weights).sum() / (sample_weights.sum() + 1e-8)
+    return (1 - config.log_loss_lambda) * mse_term + config.log_loss_lambda * log_term
 
 
 def train_epoch(
@@ -57,57 +90,38 @@ def train_epoch(
     n = 0
     use_aux = config.aux_loss_weight > 0 and config.model_type == "dual"
     noise_std = config.input_noise_std
-    use_blended = config.log_loss_lambda > 0
-    use_extreme = config.extreme_weight_max > 1.0
+    use_extreme_aux = config.extreme_peak_boost > 1.0 and use_aux
     use_cmal = config.output_type == "cmal"
     cmal_use_crps = use_cmal and config.cmal_loss == "crps"
     cmal_entropy_w = config.cmal_entropy_weight if use_cmal else 0.0
     cmal_scale_w = config.cmal_scale_reg_weight if use_cmal else 0.0
-    for x_d, x_s, y, y_comp, _bid, _std, flow_win in loader:
+    for x_d, x_s, y, y_comp, _bid, _pmean, basin_w, extreme_qs in loader:
         x_d, x_s, y = x_d.to(device), x_s.to(device), y.to(device)
+        basin_w = basin_w.to(device)
+        extreme_qs = extreme_qs.to(device)
         if noise_std > 0:
             x_d = x_d + torch.randn_like(x_d) * noise_std
         optimizer.zero_grad(set_to_none=True)
         q_total, q_fast, q_slow = model(x_d, x_s)
 
+        # Primary loss uses basin weights only (no extreme ramp).
+        # Extreme-flow sensitivity is handled by:
+        #   - log-MSE blend term in _blended_primary (relative errors on small flows)
+        #   - aux pathway extreme_peak_boost (dual only)
         if use_cmal:
             cmal_params = _get_cmal_params(model)
-            # Compute per-sample extreme-flow weights (detached)
-            if use_extreme:
-                frac = ((y.detach() - config.extreme_threshold) / config.extreme_ramp).clamp(0, 1)
-                sw = 1.0 + (config.extreme_weight_max - 1.0) * frac
-            else:
-                sw = None
             if cmal_use_crps:
                 primary = cmal_crps(
                     y, *cmal_params,
                     n_samples=config.cmal_crps_n_samples,
                     beta=config.cmal_beta_crps,
-                    sample_weights=sw,
+                    sample_weights=basin_w,
                 )
             else:
-                primary = cmal_nll(y, *cmal_params, sample_weights=sw)
-        elif use_extreme:
-            mse_term = extreme_weighted_mse(
-                q_total, y,
-                threshold=config.extreme_threshold,
-                max_weight=config.extreme_weight_max,
-                ramp=config.extreme_ramp,
-            )
-            if use_blended:
-                log_term = ((torch.log(q_total + config.log_loss_epsilon)
-                             - torch.log(y + config.log_loss_epsilon)) ** 2).mean()
-                primary = (1 - config.log_loss_lambda) * mse_term + config.log_loss_lambda * log_term
-            else:
-                primary = mse_term
+                primary = cmal_nll(y, *cmal_params, sample_weights=basin_w)
         else:
-            mse_term = mse_loss(q_total, y)
-            if use_blended:
-                log_term = ((torch.log(q_total + config.log_loss_epsilon)
-                             - torch.log(y + config.log_loss_epsilon)) ** 2).mean()
-                primary = (1 - config.log_loss_lambda) * mse_term + config.log_loss_lambda * log_term
-            else:
-                primary = mse_term
+            mse_term = mse_loss(q_total, y, sample_weights=basin_w)
+            primary = _blended_primary(q_total, y, basin_w, mse_term, config)
 
         loss = primary
         if use_cmal and (cmal_entropy_w > 0 or cmal_scale_w > 0):
@@ -120,14 +134,19 @@ def train_epoch(
             y_comp = y_comp.to(device)
             y_fast_lh = y_comp[:, 0]
             y_slow_lh = y_comp[:, 1]
+            # Per-basin quantile thresholds: [y_q_start, y_q_top]
+            # ramp width = y_q_top − y_q_start (floored inside extreme_ramp_weight)
+            q_start_b = extreme_qs[:, 0]
+            q_top_b = extreme_qs[:, 1]
+            ramp_b = (q_top_b - q_start_b)
             loss = loss + config.aux_loss_weight * pathway_auxiliary_loss(
                 q_fast, q_slow,
                 y_fast_lh, y_slow_lh,
-                peak_asymmetry=config.aux_peak_asymmetry,
-                y_total_norm=y if use_extreme else None,
-                extreme_threshold=config.extreme_threshold,
+                y_total_norm=y if use_extreme_aux else None,
+                extreme_threshold=q_start_b,
                 extreme_peak_boost=config.extreme_peak_boost,
-                extreme_ramp=config.extreme_ramp,
+                extreme_ramp=ramp_b,
+                sample_weights=basin_w,
             )
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=config.grad_clip)
@@ -157,8 +176,9 @@ def validate_epoch(
     # Accumulate per-basin predictions and observations
     basin_pred: dict[int, list] = {}
     basin_obs: dict[int, list] = {}
-    for x_d, x_s, y, _ycomp, bids, fstd, _fw in loader:
+    for x_d, x_s, y, _ycomp, bids, pmean, basin_w, _extreme_qs in loader:
         x_d, x_s, y = x_d.to(device), x_s.to(device), y.to(device)
+        basin_w = basin_w.to(device)
         q_total, _, _ = model(x_d, x_s)
         if use_cmal:
             cmal_params = _get_cmal_params(model)
@@ -167,14 +187,15 @@ def validate_epoch(
                     y, *cmal_params,
                     n_samples=config.cmal_crps_n_samples,
                     beta=config.cmal_beta_crps,
+                    sample_weights=basin_w,
                 )
             else:
-                total_loss += cmal_nll(y, *cmal_params)
+                total_loss += cmal_nll(y, *cmal_params, sample_weights=basin_w)
         else:
-            total_loss += mse_loss(q_total, y)
+            total_loss += mse_loss(q_total, y, sample_weights=basin_w)
         n += 1
-        # denormalise for NSE/KGE
-        scale = fstd.to(device)
+        # denormalise for NSE/KGE (scale = per-basin precip_mean)
+        scale = pmean.to(device)
         pred_de = (q_total * scale).cpu().numpy()
         obs_de = (y * scale).cpu().numpy()
         bid_np = bids.numpy() if isinstance(bids, torch.Tensor) else bids
@@ -221,12 +242,7 @@ def _get_gate_stats(model: torch.nn.Module) -> dict | None:
 
     Returns None for models without a gating network.
     """
-    # Unwrap torch.compile / AveragedModel wrappers
-    m = model
-    if hasattr(m, "module"):
-        m = m.module
-    if hasattr(m, "_orig_mod"):
-        m = m._orig_mod
+    m = _unwrap_model(model)
 
     n_out = getattr(m, "n_gate_outputs", 0)
     if n_out == 0:
@@ -461,7 +477,7 @@ def train_model(
             if epoch_callback is not None:
                 epoch_callback(epoch, val_loss)
 
-            # Track improvement (require min_delta relative improvement)
+            # Track improvement using val loss (lower is better).
             threshold = best_val * (1.0 - config.min_delta)
             if val_loss < threshold:
                 best_val = val_loss

@@ -435,15 +435,6 @@ export default function SidePanel({ layerKey, polygonId, name, props, onClose, o
           {/* Time range quick buttons (qdaily only) */}
           {tab === "qdaily" && hasData && (
             <div className="ml-auto flex gap-1 text-xs">
-              {JUMP_YEARS.map((y) => (
-                <button
-                  key={y}
-                  onClick={() => jumpTo(y)}
-                  className="px-1.5 py-0.5 rounded bg-gray-200 hover:bg-blue-200 transition-colors"
-                >
-                  {y}y
-                </button>
-              ))}
               <button
                 onClick={() => setRange([0, displayLen - 1])}
                 className="px-1.5 py-0.5 rounded bg-gray-200 hover:bg-blue-200 transition-colors"
@@ -484,15 +475,6 @@ export default function SidePanel({ layerKey, polygonId, name, props, onClose, o
           {/* Flow Sep tab controls */}
           {tab === "flowsep" && hasData && (
             <div className="ml-auto flex gap-1 text-xs">
-              {JUMP_YEARS.map((y) => (
-                <button
-                  key={y}
-                  onClick={() => jumpTo(y)}
-                  className="px-1.5 py-0.5 rounded bg-gray-200 hover:bg-blue-200 transition-colors"
-                >
-                  {y}y
-                </button>
-              ))}
               <button
                 onClick={() => setRange([0, displayLen - 1])}
                 className="px-1.5 py-0.5 rounded bg-gray-200 hover:bg-blue-200 transition-colors"
@@ -531,7 +513,7 @@ export default function SidePanel({ layerKey, polygonId, name, props, onClose, o
           {/* Qdaily tab */}
           {tab === "qdaily" && !isLoading && hasData && (
             <div className="flex flex-col h-full">
-              <div className="flex-1 min-h-0 px-1">
+              <div className="flex-1 min-h-0 px-1 select-none">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={chartData} margin={{ top: 4, right: 8, bottom: 4, left: 4 }}>
                     <CartesianGrid {...GRID_PROPS} />
@@ -603,7 +585,7 @@ export default function SidePanel({ layerKey, polygonId, name, props, onClose, o
           {/* Flow Separation tab */}
           {tab === "flowsep" && !isLoading && showFlowSep && (
             <div className="flex flex-col h-full">
-              <div className="flex-1 min-h-0 px-1">
+              <div className="flex-1 min-h-0 px-1 select-none">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={flowSepData} margin={{ top: 4, right: 8, bottom: 4, left: 4 }}>
                     <CartesianGrid {...GRID_PROPS} />

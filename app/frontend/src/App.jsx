@@ -5,7 +5,7 @@ import LayerSelector from "./components/LayerSelector";
 import TopBar from "./components/TopBar";
 import InfoDrawer from "./components/InfoDrawer";
 
-const LAYER_ORDER = ["huc8", "huc10", "training_watersheds"];
+const LAYER_ORDER = ["huc8", "training_watersheds"];
 const COLOR_MODES = [
   { id: "lstm_nse", label: "LSTM Dual NSE" },
   { id: "lstm_single_nse", label: "LSTM Single NSE" },
@@ -19,6 +19,7 @@ export default function App() {
   const [panelWidth, setPanelWidth] = useState(700);
   const [colorMode, setColorMode] = useState("lstm_nse");
   const [docsOpen, setDocsOpen] = useState(false);
+  const [flyToId, setFlyToId] = useState(null);
 
   const panelOpen = selected !== null;
 
@@ -58,7 +59,11 @@ export default function App() {
               name={selected.name}
               props={selected.props}
               onClose={() => setSelected(null)}
-              onSelectBasin={(id, name, props) => setSelected({ layerKey: "training_watersheds", id, name, props })}
+              onSelectBasin={(id, name, props) => {
+                setSelected({ layerKey: "training_watersheds", id, name, props });
+                setActiveLayer("training_watersheds");
+                setFlyToId(id);
+              }}
             />
           </div>
           {/* Resize handle */}
@@ -96,6 +101,7 @@ export default function App() {
           selectedId={selected?.id}
           onSelect={(layerKey, id, name, props) => setSelected({ layerKey, id, name, props })}
           colorMode={colorMode}
+          flyToId={flyToId}
         />
       </div>
       </div>

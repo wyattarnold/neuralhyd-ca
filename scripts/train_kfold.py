@@ -45,7 +45,7 @@ from src.lstm.dataset import (
 )
 from src.lstm.evaluate import evaluate_fold
 from src.lstm.model import build_model
-from src.lstm.train import train_model
+from src.lstm.train import pick_device, train_model
 
 _SCRIPTS_DIR = Path(__file__).resolve().parent
 
@@ -102,12 +102,7 @@ def _main_body(config, args, *, device=None) -> None:  # noqa: D401
     print()
 
     # ---- device ----
-    if torch.backends.mps.is_available():
-        device = torch.device("mps")
-    elif torch.cuda.is_available():
-        device = torch.device("cuda")
-    else:
-        device = torch.device("cpu")
+    device = pick_device()
     print(f"Device: {device}")
 
     # ---- load data ----
@@ -122,7 +117,7 @@ def _main_body(config, args, *, device=None) -> None:  # noqa: D401
     # ---- folds ----
     folds = create_folds(
         basin_ids, tier_map, flow_data,
-        config.n_folds, config.holdout_fraction, config.seed,
+        config.n_folds, config.seed,
     )
 
     all_results: list[pd.DataFrame] = []

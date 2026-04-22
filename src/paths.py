@@ -67,9 +67,10 @@ CLIMATE_STATS_OUTPUT = STATIC_DIR / "Climate_Statistics_Watersheds.csv"
 # ---------------------------------------------------------------------------
 
 _TARGET_SUFFIX: dict[str, str] = {
-    "watersheds": "Watersheds",
-    "huc8":       "HUC8",
-    "huc10":      "HUC10",
+    "watersheds":          "Watersheds",
+    "training_watersheds": "Watersheds",
+    "huc8":                "HUC8",
+    "huc10":               "HUC10",
 }
 
 
@@ -81,7 +82,7 @@ def get_target_paths(target: str = "watersheds") -> dict[str, Path]:
     and static attrs go to ``data/eval/static/<target>/``.
     """
     suffix = _TARGET_SUFFIX[target]
-    if target == "watersheds":
+    if target in ("watersheds", "training_watersheds"):
         climate_dir = CLIMATE_DIR
         static_dir  = STATIC_DIR
     else:
