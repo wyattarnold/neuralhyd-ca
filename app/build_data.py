@@ -229,6 +229,7 @@ def _build_sim_parquets(
     layer_key: str,
     model_label: str,
     columns: dict[str, str],
+    fallback_columns: dict[str, str] | None = None,
 ) -> None:
     """Read per-basin sim CSVs and write wide Parquets.
 
@@ -238,7 +239,11 @@ def _build_sim_parquets(
     layer_key : e.g. "training_watersheds", "huc8"
     model_label : display name for print messages
     columns   : mapping from sim CSV column → output parquet name prefix,
-                e.g. {"q_total": "lstm_pred", "q_fast": "lstm_fast", ...}
+                e.g. {"q_mean": "lstm_pred", "q_fast_mean": "lstm_fast", ...}
+    fallback_columns : optional per-output fallback source column used when
+                ``src_col`` is missing from a basin CSV.  Lets training_watersheds
+                held-out sims (``q_total/q_fast/q_slow``) fill both the mean
+                and min/max outputs with the same single-fold prediction.
     """
     if not sim_dir.is_dir():
         for prefix in columns.values():
@@ -264,10 +269,17 @@ def _build_sim_parquets(
         out_path = TS_DIR / f"{prefix}_{layer_key}.parquet"
         print(f"  {prefix}_{layer_key} … ", end="", flush=True)
 
-        series = {
-            bid: df[src_col] for bid, df in basin_data.items()
-            if src_col in df.columns
-        }
+        fb_col = fallback_columns.get(prefix) if fallback_columns else None
+
+        def _pick(df: pd.DataFrame) -> pd.Series | None:
+            if src_col in df.columns:
+                return df[src_col]
+            if fb_col is not None and fb_col in df.columns:
+                return df[fb_col]
+            return None
+
+        series = {bid: s for bid, df in basin_data.items()
+                  if (s := _pick(df)) is not None}
         if not series:
             print("skipped (no data)")
             continue
@@ -282,6 +294,16 @@ def _build_sim_parquets(
 def build_lstm_parquets() -> None:
     """Build LSTM dual sim Parquets for all available layer types."""
     sim_base = SIM_DIR / "dual_lstm_kfold"
+    # Ensemble columns are preferred; fall back to held-out single-fold
+    # columns (training_watersheds uses q_total/q_fast/q_slow for the
+    # unbiased out-of-fold prediction — min/max then collapse to the mean).
+    fallback = {
+        "lstm_pred":     "q_total",
+        "lstm_fast":     "q_fast",
+        "lstm_slow":     "q_slow",
+        "lstm_pred_min": "q_total",
+        "lstm_pred_max": "q_total",
+    }
     for layer_key in ("training_watersheds", "huc8"):
         sim_dir = sim_base / layer_key / "historical"
         _build_sim_parquets(sim_dir, layer_key, "LSTM Dual", {
@@ -290,7 +312,7 @@ def build_lstm_parquets() -> None:
             "q_slow_mean": "lstm_slow",
             "q_min":       "lstm_pred_min",
             "q_max":       "lstm_pred_max",
-        })
+        }, fallback_columns=fallback)
 
 
 # ---------------------------------------------------------------------------
@@ -300,13 +322,18 @@ def build_lstm_parquets() -> None:
 def build_lstm_single_parquets() -> None:
     """Build LSTM single sim Parquets for all available layer types."""
     sim_base = SIM_DIR / "single_lstm_kfold"
+    fallback = {
+        "lstm_single_pred":     "q_total",
+        "lstm_single_pred_min": "q_total",
+        "lstm_single_pred_max": "q_total",
+    }
     for layer_key in ("training_watersheds", "huc8"):
         sim_dir = sim_base / layer_key / "historical"
         _build_sim_parquets(sim_dir, layer_key, "LSTM Single", {
             "q_mean": "lstm_single_pred",
             "q_min":  "lstm_single_pred_min",
             "q_max":  "lstm_single_pred_max",
-        })
+        }, fallback_columns=fallback)
 
 
 # ---------------------------------------------------------------------------
