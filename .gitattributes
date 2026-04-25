@@ -6,8 +6,9 @@
 *.gpkg filter=lfs diff=lfs merge=lfs -text
 
 # Zarr v3 cubes — every file inside a *.zarr directory (metadata + binary chunks).
-# Chunk files have no extension, so a path-based rule is required.
-*.zarr/** filter=lfs diff=lfs merge=lfs -text
+# Chunk files have no extension, so the rule must match .zarr stores anywhere
+# in the repo and recurse beneath them.
+**/*.zarr/** filter=lfs diff=lfs merge=lfs -text
 data/training/climate/watersheds.zarr/** filter=lfs diff=lfs merge=lfs -text
 data/training/climate/huc12.zarr/** filter=lfs diff=lfs merge=lfs -text
 data/training/flow.zarr/** filter=lfs diff=lfs merge=lfs -text
