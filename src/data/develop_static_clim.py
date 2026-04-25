@@ -1,7 +1,8 @@
 """Compute climate statistics for each PourPtID from area-weighted climate files.
 
 Calculates PET (Hargreaves), aridity index, snow fraction, and precipitation
-event statistics.  Output goes to data/training/static/Climate_Statistics_Watersheds.csv.
+event statistics.  Output goes to data/training/static/<target>/Climate_Statistics_<TARGET>.csv
+(or data/eval/static/<target>/... when scope="eval").
 """
 from __future__ import annotations
 
@@ -9,7 +10,11 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 
-from src.paths import CLIMATE_DIR, CLIMATE_STATS_OUTPUT, get_target_paths
+from src.data.io import load_climate_dataframes
+from src.paths import (
+    get_eval_target_paths,
+    get_target_paths,
+)
 
 
 def calculate_pet_hargreaves(
@@ -64,10 +69,16 @@ def calculate_event_statistics(
     return frequency, average_duration
 
 
-def process_climate_file(filepath: Path, pourpoint_id: str) -> dict:
-    """Process a single climate file and return all statistics."""
-    df = pd.read_csv(filepath)
-    df['date'] = pd.to_datetime(df['date'])
+def process_climate_dataframe(df: pd.DataFrame, pourpoint_id: str) -> dict:
+    """Compute climate statistics from a daily climate DataFrame.
+
+    ``df`` is indexed by date with columns ``precip_mm``, ``tmax_c``, ``tmin_c``.
+    """
+    df = df.copy().dropna(how="all")
+    df = df.reset_index().rename(columns={"index": "date"})
+    if "date" not in df.columns:
+        df.rename(columns={df.columns[0]: "date"}, inplace=True)
+    df["date"] = pd.to_datetime(df["date"])
 
     df['pet_mm'] = calculate_pet_hargreaves(df['tmax_c'], df['tmin_c'], df['date'])
     df['tmean_c'] = (df['tmax_c'] + df['tmin_c']) / 2
@@ -101,40 +112,41 @@ def process_climate_file(filepath: Path, pourpoint_id: str) -> dict:
     return results
 
 
-def main(target: str = "watersheds") -> None:
-    tp = get_target_paths(target)
-    climate_dir = tp["climate_dir"]
+def main(target: str = "watersheds", scope: str = "training") -> None:
+    tp = get_eval_target_paths(target) if scope == "eval" else get_target_paths(target)
+    climate_zarr = tp["climate_zarr"]
     climate_stats_output = tp["climate_stats_output"]
 
     print("=" * 70)
     print(f"Climate Statistics Calculator  [target={target}]")
     print("=" * 70)
 
-    if not climate_dir.exists():
-        print(f"ERROR: Climate directory not found: {climate_dir}")
+    if not climate_zarr.exists():
+        print(f"ERROR: Climate zarr not found: {climate_zarr}")
         return
 
-    climate_files = sorted(climate_dir.glob("climate_*.csv"))
-    print(f"\nFound {len(climate_files)} climate files to process")
+    print(f"\nReading climate cube: {climate_zarr}")
+    climate_dfs = load_climate_dataframes(climate_zarr)
+    print(f"Found {len(climate_dfs)} basins to process")
 
-    if len(climate_files) == 0:
-        print("ERROR: No climate files found")
+    if len(climate_dfs) == 0:
+        print("ERROR: No basins in climate cube")
         return
 
     results = []
-    print("\nProcessing climate files...")
+    print("\nProcessing basins...")
 
-    for i, filepath in enumerate(climate_files, 1):
-        pourpoint_id = filepath.stem.replace('climate_', '')
-
-        if i % 20 == 0 or i == len(climate_files):
-            print(f"  Processing {i}/{len(climate_files)}: {pourpoint_id}")
+    items = list(climate_dfs.items())
+    for i, (pourpoint_id, df) in enumerate(items, 1):
+        pid = str(pourpoint_id)
+        if i % 50 == 0 or i == len(items):
+            print(f"  Processing {i}/{len(items)}: {pid}")
 
         try:
-            result = process_climate_file(filepath, pourpoint_id)
+            result = process_climate_dataframe(df, pid)
             results.append(result)
         except Exception as e:
-            print(f"  ERROR processing {pourpoint_id}: {e}")
+            print(f"  ERROR processing {pid}: {e}")
             continue
 
     results_df = pd.DataFrame(results)

@@ -7,20 +7,19 @@ cleaned flow files into tier subdirectories under data/training/flow/.
 from __future__ import annotations
 
 import csv
-import os
-import shutil
 from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
+from src.data.io import load_climate_dataframes, write_flow_zarr
 from src.paths import (
     BASIN_ATLAS_OUTPUT,
-    CLIMATE_DIR,
+    CLIMATE_WATERSHEDS_ZARR,
     FLOW_CLEANED_STRICT_DIR,
+    FLOW_ZARR,
     STEP_8_OUTPUT_DIR,
-    FLOW_DIR,
 )
 
 # Conversion factor: CFS -> mm/day over km2
@@ -78,6 +77,23 @@ def load_climate(path: str | Path, date_set: set | None = None) -> dict:
                     "tmean_c": (float(row["tmax_c"]) + float(row["tmin_c"])) / 2.0,
                 }
     return clim
+
+
+def load_climate_from_zarr(zarr_path: Path) -> dict[str, dict[str, dict]]:
+    """Load all climate from zarr cube into ``{pid: {date: {precip_mm, tmean_c}}}``."""
+    dfs = load_climate_dataframes(zarr_path)
+    out: dict[str, dict[str, dict]] = {}
+    for bid, df in dfs.items():
+        # df index is daily DatetimeIndex; convert once.
+        precip = df["precip_mm"].to_numpy()
+        tmean = ((df["tmax_c"].to_numpy() + df["tmin_c"].to_numpy()) / 2.0)
+        date_strs = df.index.strftime("%Y-%m-%d").to_numpy()
+        out[str(bid)] = {
+            d: {"precip_mm": float(p), "tmean_c": float(t)}
+            for d, p, t in zip(date_strs, precip, tmean)
+            if not (np.isnan(p) or np.isnan(t))
+        }
+    return out
 
 
 def monthly_regression_metrics(merged_data: list[dict]) -> dict:
@@ -148,6 +164,10 @@ def main() -> None:
     flow_files = sorted(FLOW_CLEANED_STRICT_DIR.glob("*_cleaned.csv"))
     print(f"Found {len(flow_files)} flow files.\n")
 
+    print(f"Loading climate from {CLIMATE_WATERSHEDS_ZARR.name} ...")
+    climate_by_pid = load_climate_from_zarr(CLIMATE_WATERSHEDS_ZARR)
+    print(f"  loaded {len(climate_by_pid)} basins from zarr")
+
     summary_rows = []
     flag_rows = []
     annual_detail_rows = []
@@ -171,12 +191,12 @@ def main() -> None:
             flag_rows.append({"PourPtID": pid, "Flag": "EMPTY_FLOW", "Detail": "No valid flow records"})
             continue
 
-        clim_path = CLIMATE_DIR / f"climate_{pid}.csv"
-        if not clim_path.exists():
-            flag_rows.append({"PourPtID": pid, "Flag": "NO_CLIMATE", "Detail": "Missing climate file"})
+        clim_data_full = climate_by_pid.get(pid)
+        if clim_data_full is None:
+            flag_rows.append({"PourPtID": pid, "Flag": "NO_CLIMATE", "Detail": "Missing climate in zarr"})
             continue
         flow_dates = set(r["date"] for r in flow_data)
-        clim_data = load_climate(clim_path, flow_dates)
+        clim_data = {d: v for d, v in clim_data_full.items() if d in flow_dates}
 
         merged = []
         for r in flow_data:
@@ -309,14 +329,14 @@ def main() -> None:
     # --- Write outputs ---
     if summary_rows:
         sum_path = STEP_8_OUTPUT_DIR / "qaqc_flow_vs_precip_summary.csv"
-        with open(sum_path, "w", newline="") as f:
+        with open(sum_path, "w", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=list(summary_rows[0].keys()))
             writer.writeheader()
             writer.writerows(summary_rows)
         print(f"\nSummary: {sum_path} ({len(summary_rows)} watersheds)")
 
     flag_path = STEP_8_OUTPUT_DIR / "qaqc_flow_vs_precip_flags.csv"
-    with open(flag_path, "w", newline="") as f:
+    with open(flag_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=["PourPtID", "Flag", "Detail"])
         writer.writeheader()
         writer.writerows(flag_rows)
@@ -324,48 +344,50 @@ def main() -> None:
 
     if annual_detail_rows:
         ann_path = STEP_8_OUTPUT_DIR / "qaqc_annual_runoff_ratios.csv"
-        with open(ann_path, "w", newline="") as f:
+        with open(ann_path, "w", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=list(annual_detail_rows[0].keys()))
             writer.writeheader()
             writer.writerows(annual_detail_rows)
         print(f"Annual:  {ann_path} ({len(annual_detail_rows)} water-year rows)")
 
-    # --- Sort flow files into tier subfolders under data/training/flow/ ---
-    tier_dirs = {
-        "tier_1": FLOW_DIR / "tier_1",
-        "tier_2": FLOW_DIR / "tier_2",
-        "tier_3": FLOW_DIR / "tier_3",
-    }
-    # Remove stale files so excluded basins don't persist from prior runs
-    for d in tier_dirs.values():
-        if d.exists():
-            for old in d.glob("*_cleaned.csv"):
-                old.unlink()
-        d.mkdir(parents=True, exist_ok=True)
-
-    n_tiers = {"tier_1": 0, "tier_2": 0, "tier_3": 0, "unclassified": 0}
+    # --- Build flow.zarr from tier classification ---
+    tier_map: dict[int, int] = {}
+    flow_data_map: dict[int, pd.DataFrame] = {}
+    n_tiers = {1: 0, 2: 0, 3: 0, "unclassified": 0}
     for fpath_str, r2 in tier_rows:
         fpath = Path(fpath_str)
+        pid = fpath.stem.replace("_cleaned", "")
+        try:
+            bid = int(pid)
+        except ValueError:
+            continue
         if r2 != r2:  # NaN
             n_tiers["unclassified"] += 1
             continue
         if r2 > 0.6:
-            tier = "tier_1"
+            tier = 1
         elif r2 >= 0.2:
-            tier = "tier_2"
+            tier = 2
         else:
-            tier = "tier_3"
-        shutil.copy2  # noqa: keep import for potential future use
-        df_tier = pd.read_csv(fpath, usecols=["date", "flow"])
-        df_tier.to_csv(tier_dirs[tier] / fpath.name, index=False)
+            tier = 3
+        df = pd.read_csv(
+            fpath, usecols=["date", "flow"], parse_dates=["date"]
+        ).set_index("date")
+        df["flow"] = df["flow"].astype("float32")
+        flow_data_map[bid] = df
+        tier_map[bid] = tier
         n_tiers[tier] += 1
 
-    print(f"\nTier sorting (copied to {FLOW_DIR}/):")
-    print(f"  tier_1 (R2 > 0.6):         {n_tiers['tier_1']} files")
-    print(f"  tier_2 (0.2 <= R2 <= 0.6): {n_tiers['tier_2']} files")
-    print(f"  tier_3 (R2 < 0.2):         {n_tiers['tier_3']} files")
+    print(f"\nTier classification:")
+    print(f"  tier_1 (R2 > 0.6):         {n_tiers[1]} basins")
+    print(f"  tier_2 (0.2 <= R2 <= 0.6): {n_tiers[2]} basins")
+    print(f"  tier_3 (R2 < 0.2):         {n_tiers[3]} basins")
     if n_tiers["unclassified"]:
-        print(f"  unclassified (NaN R2):     {n_tiers['unclassified']} files")
+        print(f"  unclassified (NaN R2):     {n_tiers['unclassified']} basins")
+
+    if flow_data_map:
+        print(f"\nWriting {FLOW_ZARR}  ({len(flow_data_map)} basins)")
+        write_flow_zarr(FLOW_ZARR, flow_data_map, tier_map=tier_map, overwrite=True)
 
     # --- Print overall summary ---
     n_pass = sum(1 for r in summary_rows if r["flags"] == "PASS")

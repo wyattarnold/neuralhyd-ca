@@ -46,11 +46,23 @@ WATERSHED_GEOJSON    = WATERSHEDS_DIR / "watersheds.geojson"
 
 # ---------------------------------------------------------------------------
 # Training data (final outputs used by the model)
+#
+# Layout: ``data/training/{climate,static}/<polygon-target>/`` for static
+# attributes; daily climate + flow time series are consolidated into compact
+# zarr cubes (see below).  ``<polygon-target>`` is one of ``watersheds``
+# (USGS gauge basins), ``huc8``, ``huc10``, ``huc12``.
 # ---------------------------------------------------------------------------
-CLIMATE_DIR          = TRAINING_DIR / "climate"
-STATIC_DIR           = TRAINING_DIR / "static"
-FLOW_DIR             = TRAINING_DIR / "flow"        # tier_1/, tier_2/, tier_3/
+TRAINING_CLIMATE_ROOT = TRAINING_DIR / "climate"
+TRAINING_STATIC_ROOT  = TRAINING_DIR / "static"
+STATIC_DIR           = TRAINING_STATIC_ROOT / "watersheds"
 TRAINING_OUTPUT_DIR  = TRAINING_DIR / "output"
+
+# ---------------------------------------------------------------------------
+# Compact zarr cube stores (single source of truth for daily time series).
+# ---------------------------------------------------------------------------
+CLIMATE_WATERSHEDS_ZARR = TRAINING_CLIMATE_ROOT / "watersheds.zarr"
+CLIMATE_HUC12_ZARR      = TRAINING_CLIMATE_ROOT / "huc12.zarr"
+FLOW_ZARR               = TRAINING_DIR / "flow.zarr"
 
 # Static attribute inputs (GIS intersect tables — in prepare/geo_ops/)
 GEO_OPS_DIR          = QA_DIR / "geo_ops"
@@ -71,25 +83,42 @@ _TARGET_SUFFIX: dict[str, str] = {
     "training_watersheds": "Watersheds",
     "huc8":                "HUC8",
     "huc10":               "HUC10",
+    "huc12":               "HUC12",
 }
 
 
 def get_target_paths(target: str = "watersheds") -> dict[str, Path]:
     """Return input/output paths for a given polygon target.
 
-    For *watersheds* the base directory is ``data/training/``.
-    For *huc8* / *huc10*, climate goes to ``data/eval/climate/<target>/``
-    and static attrs go to ``data/eval/static/<target>/``.
+    All targets now live under ``data/training/{climate,static}/<target>/``.
+    For HUC targets the *full-domain* climate/static outputs additionally land
+    in ``data/eval/{climate,static}/<target>/`` (see ``get_eval_target_paths``);
+    the training subset is copied into the training tree by step 9 so trainable
+    configs only need a single root.
     """
     suffix = _TARGET_SUFFIX[target]
-    if target in ("watersheds", "training_watersheds"):
-        climate_dir = CLIMATE_DIR
-        static_dir  = STATIC_DIR
-    else:
-        climate_dir = EVAL_DIR / "climate" / target
-        static_dir  = EVAL_DIR / "static" / target
+    key = "watersheds" if target in ("watersheds", "training_watersheds") else target
+    static_dir  = TRAINING_STATIC_ROOT / key
     return {
-        "climate_dir":          climate_dir,
+        "climate_zarr":         TRAINING_CLIMATE_ROOT / f"{key}.zarr",
+        "static_dir":           static_dir,
+        "vicgrids_file":        GEO_OPS_DIR / f"VICGrids_Intersect_{suffix}.csv",
+        "basin_atlas_input":    GEO_OPS_DIR / f"BasinATLAS_v10_lev12_Intersect_{suffix}.csv",
+        "basin_atlas_output":   static_dir / f"Physical_Attributes_{suffix}.csv",
+        "climate_stats_output": static_dir / f"Climate_Statistics_{suffix}.csv",
+    }
+
+
+def get_eval_target_paths(target: str) -> dict[str, Path]:
+    """Return paths under ``data/eval/{climate,static}/<target>/``.
+
+    Used by step 9 to write *full-domain* HUC8/10/12 climate + static outputs.
+    Only the manifest subset is later copied into the training tree.
+    """
+    suffix = _TARGET_SUFFIX[target]
+    static_dir  = EVAL_DIR / "static" / target
+    return {
+        "climate_zarr":         EVAL_DIR / "climate" / f"{target}.zarr",
         "static_dir":           static_dir,
         "vicgrids_file":        GEO_OPS_DIR / f"VICGrids_Intersect_{suffix}.csv",
         "basin_atlas_input":    GEO_OPS_DIR / f"BasinATLAS_v10_lev12_Intersect_{suffix}.csv",

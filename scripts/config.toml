@@ -20,10 +20,10 @@
 
 [paths]
 data_dir             = "../data"
-climate_dir          = "../data/training/climate"
-flow_dir             = "../data/training/flow"
-static_basin_atlas   = "../data/training/static/Physical_Attributes_Watersheds.csv"
-static_climate       = "../data/training/static/Climate_Statistics_Watersheds.csv"
+climate_zarr          = "../data/training/climate/watersheds.zarr"
+flow_zarr             = "../data/training/flow.zarr"
+static_basin_atlas   = "../data/training/static/watersheds/Physical_Attributes_Watersheds.csv"
+static_climate       = "../data/training/static/watersheds/Climate_Statistics_Watersheds.csv"
 # output_dir         = "outputs"  # uncomment to override the auto-derived path
 
 [sequence]
@@ -65,6 +65,14 @@ grad_clip            = 1.0
 use_swa              = true   # Stochastic Weight Averaging after first plateau
 swa_lr               = 2e-4
 swa_patience         = 10     # SWA makes small gradual gains — give it room
+
+[hardware]
+# All flags are no-ops on devices that don't support them — safe on MPS / CPU.
+use_amp               = true   # bf16 autocast (CUDA only; ignored on MPS/CPU)
+pin_dataset_to_device = true   # pre-move full dataset to device (eliminates per-batch H2D copies).
+                                # Forces num_workers=0 on non-CPU devices.
+cudnn_benchmark       = true   # torch.backends.cudnn.benchmark (CUDA only)
+tf32                  = true   # TF32 matmul on Ampere+ (CUDA only)
 
 [validation]
 n_folds              = 5

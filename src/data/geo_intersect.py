@@ -20,7 +20,7 @@ import pandas as pd
 
 from src.paths import (
     GEO_OPS_DIR, BASIN_ATLAS_CLIPPED, VIC_GRIDS_GPKG,
-    WATERSHEDS_GPKG, WBDHU8_GPKG, WBDHU10_GPKG,
+    WATERSHEDS_GPKG, WBDHU8_GPKG, WBDHU10_GPKG, WBDHU12_GPKG,
 )
 
 # ── Layer registry ─────────────────────────────────────────────────────────────
@@ -34,6 +34,7 @@ TARGET_LAYERS: dict[str, str] = {
     "watersheds": "USGS_Training_Watersheds",
     "huc8":       "WBDHU8",
     "huc10":      "WBDHU10",
+    "huc12":      "WBDHU12",
 }
 
 # GeoPackage source for each geo layer (from data/raw/gis/)
@@ -47,6 +48,7 @@ _TARGET_GPKG: dict[str, Path] = {
     "watersheds": WATERSHEDS_GPKG,
     "huc8":       WBDHU8_GPKG,
     "huc10":      WBDHU10_GPKG,
+    "huc12":      WBDHU12_GPKG,
 }
 
 # Output filename for each (geo, target) combination
@@ -54,9 +56,11 @@ _OUTPUT_NAMES: dict[tuple[str, str], str] = {
     ("static", "watersheds"): "BasinATLAS_v10_lev12_Intersect_Watersheds.csv",
     ("static", "huc8"):       "BasinATLAS_v10_lev12_Intersect_HUC8.csv",
     ("static", "huc10"):      "BasinATLAS_v10_lev12_Intersect_HUC10.csv",
+    ("static", "huc12"):      "BasinATLAS_v10_lev12_Intersect_HUC12.csv",
     ("meteo",  "watersheds"): "VICGrids_Intersect_Watersheds.csv",
     ("meteo",  "huc8"):       "VICGrids_Intersect_HUC8.csv",
     ("meteo",  "huc10"):      "VICGrids_Intersect_HUC10.csv",
+    ("meteo",  "huc12"):      "VICGrids_Intersect_HUC12.csv",
 }
 
 # Equal-area CRS for accurate area/perimeter computation.
@@ -72,6 +76,7 @@ _TARGET_ID_COL: dict[str, str] = {
     "watersheds": "PourPtID",
     "huc8":       "huc8",
     "huc10":      "huc10",
+    "huc12":      "huc12",
 }
 
 
@@ -166,8 +171,20 @@ def run_intersect(geo: str, target: str) -> Path:
 
     # ── Standardise target ID to PourPtID ─────────────────────────────────────
     native_id = _TARGET_ID_COL.get(target, "PourPtID")
-    if native_id != "PourPtID" and native_id in intersect.columns:
-        intersect.rename(columns={native_id: "PourPtID"}, inplace=True)
+    if native_id != "PourPtID":
+        # Source layers are inconsistent about case (e.g. WBDHU8 uses
+        # uppercase ``HUC8`` while WBDHU10/12 use lowercase).  Match
+        # case-insensitively so all downstream code can rely on PourPtID.
+        match = next(
+            (c for c in intersect.columns if c.lower() == native_id.lower()),
+            None,
+        )
+        if match is None:
+            raise KeyError(
+                f"Expected target id column '{native_id}' (any case) in "
+                f"intersection output; found {list(intersect.columns)[:20]}…"
+            )
+        intersect.rename(columns={match: "PourPtID"}, inplace=True)
 
     # ── Column ordering ────────────────────────────────────────────────────────
     # BasinATLAS (static): target FID first, then target attrs, then geo.
@@ -175,7 +192,10 @@ def run_intersect(geo: str, target: str) -> Path:
     #              VICGrids was the Input Features layer).
     tgt_attr_cols = [c for c in tgt.columns    if c not in ("geometry", "_tgt_fid")]
     if native_id != "PourPtID":
-        tgt_attr_cols = ["PourPtID" if c == native_id else c for c in tgt_attr_cols]
+        tgt_attr_cols = [
+            "PourPtID" if c.lower() == native_id.lower() else c
+            for c in tgt_attr_cols
+        ]
     geo_attr_cols = [c for c in geo_gdf.columns if c not in ("geometry", "_geo_fid")]
 
     if geo == "meteo":

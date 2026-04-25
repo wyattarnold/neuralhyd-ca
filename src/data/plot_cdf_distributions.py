@@ -23,11 +23,12 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.lines as mlines
 
+from src.data.io import load_climate_dataframes, load_flow_dataframes
 from src.paths import (
-    CLIMATE_DIR,
-    FLOW_DIR,
     BASIN_ATLAS_OUTPUT,
     CLIMATE_STATS_OUTPUT,
+    CLIMATE_WATERSHEDS_ZARR,
+    FLOW_ZARR,
     QAQC_FLOW_PRECIP_CSV,
     TIER_CHARACTERISTICS_DIR,
 )
@@ -125,78 +126,81 @@ def main() -> None:
     MONTHLY_VARS = ["flow_mm", "tmax", "tmin", "precip"]
     monthly_by_tier = {t: {v: [] for v in MONTHLY_VARS} for t in TIER_ORDER}
 
+    print("Loading flow + climate from zarr cubes …")
+    flow_dfs, tier_int_map = load_flow_dataframes(FLOW_ZARR)
+    # Map tier int (1/2/3) → tier string label used by this script.
+    int_to_tier = {1: "tier_1", 2: "tier_2", 3: "tier_3"}
+    flow_pids = [str(b) for b in flow_dfs.keys()]
+    climate_dfs_raw = load_climate_dataframes(CLIMATE_WATERSHEDS_ZARR, basin_ids=flow_pids)
+    climate_dfs = {str(b): df for b, df in climate_dfs_raw.items()}
+
     print("Processing watersheds …")
     n_processed = 0
-    for tier in TIER_ORDER:
-        tier_flow_dir = FLOW_DIR / tier
-        if not tier_flow_dir.exists():
-            print(f"  WARNING: {tier_flow_dir} not found, skipping")
+    for bid, flow_df_indexed in flow_dfs.items():
+        tier = int_to_tier.get(int(tier_int_map[bid]))
+        if tier is None:
+            continue
+        pid = str(bid)
+        area = area_by_pid.get(pid)
+        if area is None:
+            continue
+        clim_indexed = climate_dfs.get(pid)
+        if clim_indexed is None:
             continue
 
-        for flow_file in sorted(tier_flow_dir.glob("*_cleaned.csv")):
-            pid = flow_file.stem.replace("_cleaned", "")
-            area = area_by_pid.get(pid)
-            if area is None:
-                continue
+        clim    = clim_indexed.dropna(how="all").reset_index().rename(columns={"index": "date"})
+        flow_df = flow_df_indexed.dropna(subset=["flow"]).reset_index().rename(columns={"index": "date"})
+        n_processed += 1
 
-            clim_file = CLIMATE_DIR / f"climate_{pid}.csv"
-            if not clim_file.exists():
-                continue
+        flow_mm = flow_df["flow"].values * CFS_TO_MM_FACTOR / area
+        cdf_by_tier[tier]["flow_mm"].append(np.sort(flow_mm))
+        n_flow_days_by_tier[tier].append(len(flow_df))
 
-            clim    = pd.read_csv(clim_file, parse_dates=["date"])
-            flow_df = pd.read_csv(flow_file, parse_dates=["date"])
-            n_processed += 1
+        cdf_by_tier[tier]["tmax"].append(np.sort(clim["tmax_c"].dropna().values))
+        cdf_by_tier[tier]["tmin"].append(np.sort(clim["tmin_c"].dropna().values))
 
-            flow_mm = flow_df["flow"].values * CFS_TO_MM_FACTOR / area
-            cdf_by_tier[tier]["flow_mm"].append(np.sort(flow_mm))
-            n_flow_days_by_tier[tier].append(len(flow_df))
+        nz = clim.loc[clim["precip_mm"] > PRECIP_THRESH, "precip_mm"].values
+        if len(nz) > 0:
+            cdf_by_tier[tier]["precip_nz"].append(np.sort(nz))
+        cdf_by_tier[tier]["nonzero_precip_frac"].append(
+            (clim["precip_mm"] > PRECIP_THRESH).mean())
 
-            cdf_by_tier[tier]["tmax"].append(np.sort(clim["tmax_c"].dropna().values))
-            cdf_by_tier[tier]["tmin"].append(np.sort(clim["tmin_c"].dropna().values))
+        clim["month"] = clim["date"].dt.month
+        monthly_by_tier[tier]["tmax"].append(
+            clim.groupby("month")["tmax_c"].mean().reindex(range(1, 13)).values)
+        monthly_by_tier[tier]["tmin"].append(
+            clim.groupby("month")["tmin_c"].mean().reindex(range(1, 13)).values)
+        monthly_by_tier[tier]["precip"].append(
+            clim.groupby("month")["precip_mm"].mean().reindex(range(1, 13)).values)
+        flow_df["month"]         = flow_df["date"].dt.month
+        flow_df["flow_mm_daily"] = flow_df["flow"] * CFS_TO_MM_FACTOR / area
+        monthly_by_tier[tier]["flow_mm"].append(
+            flow_df.groupby("month")["flow_mm_daily"].mean().reindex(range(1, 13)).values)
 
-            nz = clim.loc[clim["precip_mm"] > PRECIP_THRESH, "precip_mm"].values
-            if len(nz) > 0:
-                cdf_by_tier[tier]["precip_nz"].append(np.sort(nz))
-            cdf_by_tier[tier]["nonzero_precip_frac"].append(
-                (clim["precip_mm"] > PRECIP_THRESH).mean())
+        flow_df["flow_mm"] = flow_mm
+        merged = flow_df[["date", "flow_mm"]].merge(
+            clim[["date", "precip_mm"]], on="date", how="inner")
+        merged["water_year"] = merged["date"].dt.year
+        merged.loc[merged["date"].dt.month >= 10, "water_year"] += 1
+        wy = merged.groupby("water_year").agg(
+            total_q=("flow_mm", "sum"), total_p=("precip_mm", "sum"))
+        wy = wy[wy["total_p"] > 10]
+        if len(wy) > 0:
+            cdf_by_tier[tier]["annual_qp"].append(
+                np.sort((wy["total_q"] / wy["total_p"]).values))
 
-            clim["month"] = clim["date"].dt.month
-            monthly_by_tier[tier]["tmax"].append(
-                clim.groupby("month")["tmax_c"].mean().reindex(range(1, 13)).values)
-            monthly_by_tier[tier]["tmin"].append(
-                clim.groupby("month")["tmin_c"].mean().reindex(range(1, 13)).values)
-            monthly_by_tier[tier]["precip"].append(
-                clim.groupby("month")["precip_mm"].mean().reindex(range(1, 13)).values)
-            flow_df["month"]         = flow_df["date"].dt.month
-            flow_df["flow_mm_daily"] = flow_df["flow"] * CFS_TO_MM_FACTOR / area
-            monthly_by_tier[tier]["flow_mm"].append(
-                flow_df.groupby("month")["flow_mm_daily"].mean().reindex(range(1, 13)).values)
-
-            flow_df["flow_mm"] = flow_mm
-            merged = flow_df[["date", "flow_mm"]].merge(
-                clim[["date", "precip_mm"]], on="date", how="inner")
-            merged["water_year"] = merged["date"].dt.year
-            merged.loc[merged["date"].dt.month >= 10, "water_year"] += 1
-            wy = merged.groupby("water_year").agg(
-                total_q=("flow_mm", "sum"), total_p=("precip_mm", "sum"))
-            wy = wy[wy["total_p"] > 10]
-            if len(wy) > 0:
-                cdf_by_tier[tier]["annual_qp"].append(
-                    np.sort((wy["total_q"] / wy["total_p"]).values))
-
-            if n_processed % 50 == 0:
-                print(f"  {n_processed} watersheds processed …")
+        if n_processed % 50 == 0:
+            print(f"  {n_processed} watersheds processed …")
 
     print(f"  Done — {n_processed} total watersheds")
 
     # ── Static attributes ─────────────────────────────────────────────────────
     print("Loading static attributes …")
-    pid_to_tier: dict[str, str] = {}
-    for tier in TIER_ORDER:
-        tier_dir = FLOW_DIR / tier
-        if tier_dir.exists():
-            for f in tier_dir.glob("*_cleaned.csv"):
-                pid_to_tier[f.stem.replace("_cleaned", "")] = tier
+    pid_to_tier: dict[str, str] = {
+        str(bid): int_to_tier[int(t)]
+        for bid, t in tier_int_map.items()
+        if int(t) in int_to_tier
+    }
 
     basin_df      = pd.read_csv(BASIN_ATLAS_OUTPUT)
     basin_df["PourPtID"] = basin_df["PourPtID"].astype(str).str.strip()

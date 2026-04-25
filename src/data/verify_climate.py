@@ -1,27 +1,30 @@
 """Verify area-weighted climate data by calculating monthly averages.
 
-Reads climate files from data/training/climate/ and produces monthly average
+Reads climate files from data/training/climate/watersheds/ and produces monthly average
 tables plus summary statistics.  Output goes to data/prepare/climate_verification/.
 """
 from __future__ import annotations
 
-import os
-
 import pandas as pd
 from tqdm import tqdm
 
-from src.paths import CLIMATE_DIR, CLIMATE_VERIFICATION_DIR
+from src.data.io import load_climate_dataframes
+from src.paths import CLIMATE_VERIFICATION_DIR, CLIMATE_WATERSHEDS_ZARR
 
 
-def calculate_monthly_averages(climate_file: str, pourptid: str | int) -> pd.DataFrame:
-    """Calculate monthly averages from daily climate data."""
-    df = pd.read_csv(climate_file)
-    df['date'] = pd.to_datetime(df['date'])
+def calculate_monthly_averages(df: pd.DataFrame, pourptid: str | int) -> pd.DataFrame:
+    """Calculate monthly averages from a daily climate DataFrame.
 
-    monthly_avg = df.groupby('month').agg({
-        'precip_mm': 'mean',
-        'tmax_c': 'mean',
-        'tmin_c': 'mean',
+    ``df`` is indexed by date with columns ``precip_mm``, ``tmax_c``, ``tmin_c``.
+    """
+    df = df.copy()
+    df = df.dropna(how="all")
+    df["month"] = df.index.month
+
+    monthly_avg = df.groupby("month").agg({
+        "precip_mm": "mean",
+        "tmax_c": "mean",
+        "tmin_c": "mean",
     }).reset_index()
 
     monthly_avg.columns = ['month', 'precip_mm_avg', 'tmax_c_avg', 'tmin_c_avg']
@@ -76,29 +79,19 @@ def main() -> None:
     print("Climate Data Verification - Monthly Averages")
     print("=" * 80)
 
-    # Read processing summary to get list of PourPtIDs
-    summary_file = CLIMATE_DIR / "processing_summary.csv"
-    print(f"\nReading processing summary: {summary_file}")
-    summary_df = pd.read_csv(summary_file)
-    print(f"Found {len(summary_df)} PourPtIDs to process")
+    # Load every basin's climate from the zarr cube
+    print(f"\nReading climate cube: {CLIMATE_WATERSHEDS_ZARR}")
+    climate_dfs = load_climate_dataframes(CLIMATE_WATERSHEDS_ZARR)
+    print(f"Loaded {len(climate_dfs)} basins")
 
     CLIMATE_VERIFICATION_DIR.mkdir(parents=True, exist_ok=True)
 
-    all_monthly_data = {}
-    failed_pourptids = []
+    all_monthly_data: dict = {}
+    failed_pourptids: list = []
 
-    for _, row in tqdm(summary_df.iterrows(), total=len(summary_df), desc="Processing PourPtIDs"):
-        pourptid = row['PourPtID']
-
-        # Use the repo path rather than whatever was saved in the summary
-        climate_file = CLIMATE_DIR / f"climate_{pourptid}.csv"
-        if not climate_file.exists():
-            print(f"\nWarning: File not found for PourPtID {pourptid}: {climate_file}")
-            failed_pourptids.append(pourptid)
-            continue
-
+    for pourptid, df in tqdm(climate_dfs.items(), desc="Processing PourPtIDs"):
         try:
-            monthly_avg = calculate_monthly_averages(str(climate_file), pourptid)
+            monthly_avg = calculate_monthly_averages(df, pourptid)
             all_monthly_data[pourptid] = monthly_avg
 
             output_file = CLIMATE_VERIFICATION_DIR / f"monthly_avg_{pourptid}.csv"

@@ -25,9 +25,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+from src.data.io import load_climate_dataframes
 from src.paths import (
-    CLIMATE_DIR,
     CLIMATE_STATS_OUTPUT,
+    CLIMATE_WATERSHEDS_ZARR,
     FLOW_CLEANED_DIR,
     FLOW_DROPPED_DIR,
     STEP_6_OUTPUT_DIR,
@@ -183,25 +184,34 @@ def _plot_site(
     plt.close("all")
 
 
-def process_site(site: str, snow_fraction: float = 0.0) -> dict:
-    """Process a single site. Returns dict with status, kept, dropped."""
+def process_site(
+    site: str,
+    snow_fraction: float = 0.0,
+    climate_df: pd.DataFrame | None = None,
+) -> dict:
+    """Process a single site. Returns dict with status, kept, dropped.
+
+    ``climate_df`` is the per-basin climate DataFrame indexed by date with
+    columns ``precip_mm``, ``tmax_c``, ``tmin_c`` (loaded once from zarr by
+    the caller).
+    """
     flow_path    = RAW_USGS_DIR / f"{site}.csv"
-    climate_path = CLIMATE_DIR  / f"climate_{site}.csv"
     out_clean    = FLOW_CLEANED_DIR / f"{site}_cleaned.csv"
     out_dropped  = FLOW_DROPPED_DIR / f"{site}_dropped.csv"
     out_fig      = FIGURES_DIR / f"{site}_filter.png"
 
     if not flow_path.exists():
         return {"status": f"[SKIP] no raw flow: {flow_path.name}"}
-    if not climate_path.exists():
-        return {"status": f"[SKIP] no climate: {climate_path.name}"}
+    if climate_df is None or climate_df.empty:
+        return {"status": f"[SKIP] no climate for {site}"}
 
-    # ── Load & merge ───────────────────────────────────────────────────────
+    # ── Load & merge ───────────────────────────────────────────────────
     flow_df = pd.read_csv(flow_path)
     flow_df["date"] = pd.to_datetime(flow_df["datetime"].str.split(" ", expand=True)[0])
 
-    climate_df = pd.read_csv(climate_path, parse_dates=["date"])
-    climate_df = climate_df[["date", "precip_mm", "tmax_c", "tmin_c"]]
+    climate_df = (
+        climate_df[["precip_mm", "tmax_c", "tmin_c"]].dropna(how="all").reset_index()
+    )
 
     merged = (pd.merge(flow_df, climate_df, on="date", how="inner")
                 .sort_values("date").reset_index(drop=True)
@@ -281,11 +291,16 @@ def main() -> None:
     sites = sorted(p.stem for p in RAW_USGS_DIR.glob("*.csv"))
     print(f"Found {len(sites)} sites.")
 
+    print(f"Loading climate from {CLIMATE_WATERSHEDS_ZARR.name} ...")
+    climate_dfs_raw = load_climate_dataframes(CLIMATE_WATERSHEDS_ZARR)
+    climate_dfs = {str(b): df for b, df in climate_dfs_raw.items()}
+    print(f"  loaded {len(climate_dfs)} basins")
+
     metrics = []
     for i, site in enumerate(sites, 1):
         sf = snow_map.get(site, 0.0)
         print(f"[{i}/{len(sites)}] {site} (snow_frac={sf:.2f}) ... ", end="", flush=True)
-        result = process_site(site, snow_fraction=sf)
+        result = process_site(site, snow_fraction=sf, climate_df=climate_dfs.get(site))
         # detect which flow column was used for site_metrics.csv
         flow_path = RAW_USGS_DIR / f"{site}.csv"
         flow_col = None

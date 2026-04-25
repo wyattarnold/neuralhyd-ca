@@ -8,8 +8,9 @@ from typing import Dict, List
 import numpy as np
 import pandas as pd
 
+from src.data.io import load_flow_dataframes
 from src.lstm.loss import compute_fhv, compute_fehv, compute_flv, compute_kge, compute_nse
-from src.paths import FLOW_DIR, VIC_RUNOFF_CSV
+from src.paths import FLOW_ZARR, VIC_RUNOFF_CSV
 
 METRICS = ["nse", "kge", "fhv", "fehv", "flv"]
 
@@ -103,33 +104,18 @@ def _load_vic_runoff() -> pd.DataFrame:
 
 
 def _load_observed_flow() -> Dict[str, pd.DataFrame]:
-    """Load observed daily flow (CFS) for all training watersheds.
+    """Load observed daily flow (CFS) for all training watersheds from flow.zarr.
 
-    Returns {basin_id_str: DataFrame(date, flow)}.
+    Returns {basin_id_str: DataFrame(date, flow)} with ``date`` as a column.
     """
-    flows: Dict[str, pd.DataFrame] = {}
-    for tier in (1, 2, 3):
-        tier_dir = FLOW_DIR / f"tier_{tier}"
-        if not tier_dir.exists():
-            continue
-        for csv in tier_dir.glob("*_cleaned.csv"):
-            bid = csv.stem.replace("_cleaned", "")
-            df = pd.read_csv(csv, parse_dates=["date"])
-            flows[bid] = df
-    return flows
+    flow_dfs, _ = load_flow_dataframes(FLOW_ZARR)
+    return {str(bid): df.reset_index() for bid, df in flow_dfs.items()}
 
 
 def _load_tier_map() -> Dict[str, int]:
-    """Build basin_id -> tier mapping from directory structure."""
-    tier_map: Dict[str, int] = {}
-    for tier in (1, 2, 3):
-        tier_dir = FLOW_DIR / f"tier_{tier}"
-        if not tier_dir.exists():
-            continue
-        for csv in tier_dir.glob("*_cleaned.csv"):
-            bid = csv.stem.replace("_cleaned", "")
-            tier_map[bid] = tier
-    return tier_map
+    """Build basin_id -> tier mapping from flow.zarr."""
+    _, tier_map = load_flow_dataframes(FLOW_ZARR)
+    return {str(bid): int(t) for bid, t in tier_map.items()}
 
 
 def compute_vic_metrics() -> pd.DataFrame:

@@ -1,0 +1,122 @@
+# =============================================================================
+# lstmhyd-ca — dual-pathway LSTM, SUBBASIN mode (HUC12 aggregation)
+#
+# Spatial scale of training inputs is the HUC12 sub-basin.  For each gauged
+# watershed, the model is run independently on every overlapping HUC12 and
+# the per-HUC12 predictions are area-weight-aggregated to the gauge before
+# the loss is computed.  This yields approximately uniform-scale LSTM inputs
+# across basins, at the cost of assuming instantaneous routing between each
+# HUC12 and its containing gauge outlet.
+#
+# Loss is computed in **mm/day** (observed-flow) space.  Subbasin
+# predictions are area-weight-aggregated to the gauge as
+#   Q_gauge_mmday = Σ_i (A_i / A_gauge) · q_i_mmday
+# (see aggregate_subbasins_to_gauge in src/lstm/subbasin_train.py).
+# No precip_mean normalisation is applied — the model learns mm/day
+# directly so each HUC12's prediction at inference is already in
+# physical units.
+#
+# Gauges whose area is less than `gauge_min_fraction_of_subbasin * subbasin_area`
+# and sit almost entirely inside one subbasin are filtered out at pipeline
+# build time by `src/data/subbasin_gauge_intersect.py`.
+#
+# Prerequisite data prep (run once):
+#   python scripts/prepare_data.py --step 9 --meteo-dir <METEO_DIR>
+#
+# To use HUC10 instead of HUC12, set `subbasin_level = "huc10"` and point
+# the four subbasin_* paths at the HUC10 artefacts.
+#
+# Run with:
+#   python scripts/train_kfold.py scripts/config_dual_lstm_subbasin_kfold.toml
+# =============================================================================
+
+[paths]
+data_dir             = "../data"
+climate_zarr          = "../data/training/climate/watersheds.zarr"
+flow_zarr             = "../data/training/flow.zarr"
+static_basin_atlas   = "../data/training/static/watersheds/Physical_Attributes_Watersheds.csv"
+static_climate       = "../data/training/static/watersheds/Climate_Statistics_Watersheds.csv"
+
+[subbasin]
+spatial_mode                    = "subbasin"
+subbasin_level                  = "huc12"
+subbasin_intersect_csv          = "../data/prepare/geo_ops/HUC12_Intersect_Watersheds.csv"
+subbasin_climate_zarr            = "../data/training/climate/huc12.zarr"
+subbasin_static_attrs           = "../data/training/static/huc12/Physical_Attributes_HUC12.csv"
+subbasin_climate_stats          = "../data/training/static/huc12/Climate_Statistics_HUC12.csv"
+gauge_min_fraction_of_subbasin  = 0.70
+
+[sequence]
+seq_len              = 365
+fast_window          = 28
+info_gap             = false
+
+[model]
+model_type           = "dual"
+fast_hidden_size     = 64
+slow_hidden_size     = 108
+static_embedding_dim = 10
+static_hidden_size   = 32
+dropout              = 0.15
+static_dropout       = 0.10
+basin_loss_weight_exponent = 0.5
+
+[aux_loss]
+aux_loss_weight      = 0.40
+baseflow_alpha       = 0.925
+
+[blended_loss]
+log_loss_lambda      = 0.05
+log_loss_epsilon     = 0.001
+
+[extreme_loss]
+extreme_start_quantile = 0.98
+extreme_top_quantile   = 0.995
+extreme_peak_boost     = 30.0
+
+[training]
+# subbasin stacks multiply the memory/compute per gauge-day by (mean subbasin
+# per gauge).  Per-batch padding (subbasin_collate) keeps the input tensor
+# bounded by the in-batch max, not the global max, so the batch size can be
+# kept reasonably large.
+pin_dataset_to_device= false
+batch_size           = 128
+learning_rate        = 4e-4
+weight_decay         = 1e-4
+input_noise_std      = 0.1
+warmup_epochs        = 3
+num_epochs           = 80
+patience             = 8
+min_delta            = 0.002
+num_workers          = 8
+grad_clip            = 1.0
+use_swa              = true
+swa_lr               = 2e-4
+swa_patience         = 10
+
+[validation]
+n_folds              = 5
+seed                 = 42
+
+[features]
+dynamic_features = ["precip_mm", "tmax_c", "tmin_c"]
+static_features  = [
+    "ele_mt_uav",
+    "slp_dg_uav",
+    "ria_ha_usu",
+    "riv_tc_usu",
+    "sgr_dk_sav",
+    "for_pc_use",
+    "cly_pc_uav",
+    "snd_pc_uav",
+    "clz_cl_smj",
+    "lit_cl_smj",
+    "aridity_index",
+    "snow_fraction",
+    "pet_mean",
+    "high_precip_freq",
+    "precip_mean",
+    "low_precip_dur",
+    "high_precip_dur",
+]
+log_transform_static = ["ria_ha_usu"]

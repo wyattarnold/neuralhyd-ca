@@ -1,0 +1,115 @@
+# =============================================================================
+# neuralhyd-ca — dPL + SAC-SMA (HUC12 lumped, k-fold training config)
+# Run with: python scripts/train_dpl_sacsma_kfold.py
+#
+# Architecture:
+#   • gA: LSTM + static encoder → physical parameters (static & dynamic)
+#   • Per-HUC12 forward: Hamon PET → Snow17 → SAC-SMA → Lohmann hillslope UH
+#   • Area-weighted aggregation across HUC12s to the USGS gauge
+#
+# Inputs expected at runtime:
+#   • [paths].huc12_climate_dir/climate_<huc12>.csv for every HUC12 in the manifest
+#     (date, precip_mm, tmax_c, tmin_c)
+#   • [paths].huc12_physical_csv      = per-HUC12 BasinATLAS-derived attrs
+#                                       (Physical_Attributes_HUC12.csv).
+#   • [paths].huc12_climate_stats_csv = per-HUC12 derived climate statistics
+#                                       (Climate_Statistics_HUC12.csv).
+#   Both static CSVs use a `PourPtID` column holding the 12-digit HUC12 ID
+#   and are joined inner-style on it (same convention as the subbasin LSTM).
+#   • [paths].huc12_manifest_csv columns:
+#       PourPtID (gauge id), huc12 (12-digit str), gauge_area_km2,
+#       huc12_area_km2, overlap_area_km2, frac_of_gauge, frac_of_huc12
+# =============================================================================
+
+[paths]
+data_dir                = "../data"
+huc12_climate_zarr       = "../data/training/climate/huc12.zarr"
+huc12_physical_csv      = "../data/training/static/huc12/Physical_Attributes_HUC12.csv"
+huc12_climate_stats_csv = "../data/training/static/huc12/Climate_Statistics_HUC12.csv"
+huc12_manifest_csv      = "../data/prepare/geo_ops/HUC12_Intersect_Watersheds.csv"
+flow_zarr                = "../data/training/flow.zarr"
+
+[sequence]
+seq_len       = 365
+warmup_steps  = 365
+n_mul         = 1
+
+[model]
+static_embedding_dim = 10
+static_hidden_size   = 64
+lstm_hidden_size     = 64
+lstm_num_layers      = 1
+dropout              = 0.15
+static_dropout       = 0.10
+basin_loss_weight_exponent = 0.5
+
+[physics]
+# Recession-rate trio only;
+# Bounds in src/dpl/config.py have been widened to encompass the GA-optimum
+# values from the Steinschneider-Lab 15-CDEC pooled SAC-SMA calibration.
+dynamic_params  = ["UZK", "LZPK", "LZSK", "UZTWM"]
+enable_snow17   = true
+enable_routing  = true
+
+[blended_loss]
+log_loss_lambda   = 0.20
+log_loss_epsilon  = 0.001
+# Auxiliary baseflow supervision (Song et al. 2024).  MSE between
+# aggregated SAC-SMA baseflow and Lyne–Hollick separated baseflow,
+# both in raw mm/day at the gauge.  Set to 0 to disable.
+baseflow_aux_lambda = 0.15
+baseflow_alpha      = 0.925
+# Peak-flow weighting on the primary blended loss.  When > 1.0 the
+# squared residual is multiplied by a ramp from 1 (at observed flow ≤
+# q_start) to extreme_peak_boost (at and above q_top), where q_start /
+# q_top are per-basin quantiles of observed mm/day.  Default 1.0 = off.
+extreme_peak_boost     = 1.0
+extreme_start_quantile = 0.98
+extreme_top_quantile   = 0.995
+
+[training]
+batch_size        = 128
+learning_rate     = 5e-4
+weight_decay      = 1e-5
+warmup_epochs     = 3
+num_epochs        = 60
+patience          = 8
+min_delta         = 0.002
+num_workers       = 0
+grad_clip         = 1.0
+use_swa           = false
+swa_lr            = 1e-4
+swa_patience      = 5
+
+[validation]
+n_folds = 5
+seed    = 42
+
+[features]
+dynamic_features = ["precip_mm", "tmax_c", "tmin_c"]
+# Static attributes are joined from per-HUC12 Physical_Attributes_HUC12.csv
+# (BasinATLAS lev12 derived) and Climate_Statistics_HUC12.csv (PRISM/Daymet
+# derived).  All names below must exist in one of the two files.  HUC12 area
+# is intentionally omitted: aggregation already uses manifest area weights
+# and the SAC-SMA / Snow-17 / Lohmann physics are intensive (mm/day), so
+# scale information is redundant.
+static_features  = [
+    "ele_mt_uav",
+    "slp_dg_uav",
+    "ria_ha_usu",
+    "riv_tc_usu",
+    "sgr_dk_sav",
+    "for_pc_use",
+    "cly_pc_uav",
+    "snd_pc_uav",
+    "clz_cl_smj",
+    "lit_cl_smj",
+    "aridity_index",
+    "snow_fraction",
+    "pet_mean",
+    "high_precip_freq",
+    "precip_mean",
+    "low_precip_dur",
+    "high_precip_dur",
+]
+log_transform_static = ["ria_ha_usu"]

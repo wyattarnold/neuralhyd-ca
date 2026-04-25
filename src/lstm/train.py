@@ -19,6 +19,7 @@ load_checkpoint(path, model, device)
 from __future__ import annotations
 
 import math
+from contextlib import nullcontext
 
 import numpy as np
 import torch
@@ -40,6 +41,24 @@ def pick_device() -> torch.device:
     if torch.cuda.is_available():
         return torch.device("cuda")
     return torch.device("cpu")
+
+
+def _amp_context(device: torch.device, config: Config | None):
+    """Return an autocast context when BF16 AMP is supported, else nullcontext.
+
+    BF16 autocast only enabled on CUDA.  MPS bf16 support is inconsistent
+    across PyTorch versions (especially for LSTMs / log / exp used in
+    CMAL), so we deliberately stay in fp32 on MPS to keep numerics
+    identical between macOS (M-series) and Windows (CUDA) runs.
+    """
+    if (
+        config is not None
+        and getattr(config, "use_amp", False)
+        and device.type == "cuda"
+        and torch.cuda.is_bf16_supported()
+    ):
+        return torch.autocast(device_type="cuda", dtype=torch.bfloat16)
+    return nullcontext()
 
 
 def _unwrap_model(model: torch.nn.Module) -> torch.nn.Module:
@@ -96,58 +115,61 @@ def train_epoch(
     cmal_entropy_w = config.cmal_entropy_weight if use_cmal else 0.0
     cmal_scale_w = config.cmal_scale_reg_weight if use_cmal else 0.0
     for x_d, x_s, y, y_comp, _bid, _pmean, basin_w, extreme_qs in loader:
-        x_d, x_s, y = x_d.to(device), x_s.to(device), y.to(device)
-        basin_w = basin_w.to(device)
-        extreme_qs = extreme_qs.to(device)
+        x_d = x_d.to(device, non_blocking=True)
+        x_s = x_s.to(device, non_blocking=True)
+        y = y.to(device, non_blocking=True)
+        basin_w = basin_w.to(device, non_blocking=True)
+        extreme_qs = extreme_qs.to(device, non_blocking=True)
         if noise_std > 0:
             x_d = x_d + torch.randn_like(x_d) * noise_std
         optimizer.zero_grad(set_to_none=True)
-        q_total, q_fast, q_slow = model(x_d, x_s)
+        with _amp_context(device, config):
+            q_total, q_fast, q_slow = model(x_d, x_s)
 
-        # Primary loss uses basin weights only (no extreme ramp).
-        # Extreme-flow sensitivity is handled by:
-        #   - log-MSE blend term in _blended_primary (relative errors on small flows)
-        #   - aux pathway extreme_peak_boost (dual only)
-        if use_cmal:
-            cmal_params = _get_cmal_params(model)
-            if cmal_use_crps:
-                primary = cmal_crps(
-                    y, *cmal_params,
-                    n_samples=config.cmal_crps_n_samples,
-                    beta=config.cmal_beta_crps,
+            # Primary loss uses basin weights only (no extreme ramp).
+            # Extreme-flow sensitivity is handled by:
+            #   - log-MSE blend term in _blended_primary (relative errors on small flows)
+            #   - aux pathway extreme_peak_boost (dual only)
+            if use_cmal:
+                cmal_params = _get_cmal_params(model)
+                if cmal_use_crps:
+                    primary = cmal_crps(
+                        y, *cmal_params,
+                        n_samples=config.cmal_crps_n_samples,
+                        beta=config.cmal_beta_crps,
+                        sample_weights=basin_w,
+                    )
+                else:
+                    primary = cmal_nll(y, *cmal_params, sample_weights=basin_w)
+            else:
+                mse_term = mse_loss(q_total, y, sample_weights=basin_w)
+                primary = _blended_primary(q_total, y, basin_w, mse_term, config)
+
+            loss = primary
+            if use_cmal and (cmal_entropy_w > 0 or cmal_scale_w > 0):
+                pi_c, _mu_c, bl_c, br_c = cmal_params
+                if cmal_entropy_w > 0:
+                    loss = loss + cmal_entropy_w * cmal_entropy_reg(pi_c)
+                if cmal_scale_w > 0:
+                    loss = loss + cmal_scale_w * cmal_scale_reg(bl_c, br_c)
+            if use_aux:
+                y_comp = y_comp.to(device, non_blocking=True)
+                y_fast_lh = y_comp[:, 0]
+                y_slow_lh = y_comp[:, 1]
+                # Per-basin quantile thresholds: [y_q_start, y_q_top]
+                # ramp width = y_q_top − y_q_start (floored inside extreme_ramp_weight)
+                q_start_b = extreme_qs[:, 0]
+                q_top_b = extreme_qs[:, 1]
+                ramp_b = (q_top_b - q_start_b)
+                loss = loss + config.aux_loss_weight * pathway_auxiliary_loss(
+                    q_fast, q_slow,
+                    y_fast_lh, y_slow_lh,
+                    y_total_norm=y if use_extreme_aux else None,
+                    extreme_threshold=q_start_b,
+                    extreme_peak_boost=config.extreme_peak_boost,
+                    extreme_ramp=ramp_b,
                     sample_weights=basin_w,
                 )
-            else:
-                primary = cmal_nll(y, *cmal_params, sample_weights=basin_w)
-        else:
-            mse_term = mse_loss(q_total, y, sample_weights=basin_w)
-            primary = _blended_primary(q_total, y, basin_w, mse_term, config)
-
-        loss = primary
-        if use_cmal and (cmal_entropy_w > 0 or cmal_scale_w > 0):
-            pi_c, _mu_c, bl_c, br_c = cmal_params
-            if cmal_entropy_w > 0:
-                loss = loss + cmal_entropy_w * cmal_entropy_reg(pi_c)
-            if cmal_scale_w > 0:
-                loss = loss + cmal_scale_w * cmal_scale_reg(bl_c, br_c)
-        if use_aux:
-            y_comp = y_comp.to(device)
-            y_fast_lh = y_comp[:, 0]
-            y_slow_lh = y_comp[:, 1]
-            # Per-basin quantile thresholds: [y_q_start, y_q_top]
-            # ramp width = y_q_top − y_q_start (floored inside extreme_ramp_weight)
-            q_start_b = extreme_qs[:, 0]
-            q_top_b = extreme_qs[:, 1]
-            ramp_b = (q_top_b - q_start_b)
-            loss = loss + config.aux_loss_weight * pathway_auxiliary_loss(
-                q_fast, q_slow,
-                y_fast_lh, y_slow_lh,
-                y_total_norm=y if use_extreme_aux else None,
-                extreme_threshold=q_start_b,
-                extreme_peak_boost=config.extreme_peak_boost,
-                extreme_ramp=ramp_b,
-                sample_weights=basin_w,
-            )
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=config.grad_clip)
         optimizer.step()
@@ -177,26 +199,29 @@ def validate_epoch(
     basin_pred: dict[int, list] = {}
     basin_obs: dict[int, list] = {}
     for x_d, x_s, y, _ycomp, bids, pmean, basin_w, _extreme_qs in loader:
-        x_d, x_s, y = x_d.to(device), x_s.to(device), y.to(device)
-        basin_w = basin_w.to(device)
-        q_total, _, _ = model(x_d, x_s)
-        if use_cmal:
-            cmal_params = _get_cmal_params(model)
-            if cmal_use_crps:
-                total_loss += cmal_crps(
-                    y, *cmal_params,
-                    n_samples=config.cmal_crps_n_samples,
-                    beta=config.cmal_beta_crps,
-                    sample_weights=basin_w,
-                )
+        x_d = x_d.to(device, non_blocking=True)
+        x_s = x_s.to(device, non_blocking=True)
+        y = y.to(device, non_blocking=True)
+        basin_w = basin_w.to(device, non_blocking=True)
+        with _amp_context(device, config):
+            q_total, _, _ = model(x_d, x_s)
+            if use_cmal:
+                cmal_params = _get_cmal_params(model)
+                if cmal_use_crps:
+                    total_loss += cmal_crps(
+                        y, *cmal_params,
+                        n_samples=config.cmal_crps_n_samples,
+                        beta=config.cmal_beta_crps,
+                        sample_weights=basin_w,
+                    )
+                else:
+                    total_loss += cmal_nll(y, *cmal_params, sample_weights=basin_w)
             else:
-                total_loss += cmal_nll(y, *cmal_params, sample_weights=basin_w)
-        else:
-            total_loss += mse_loss(q_total, y, sample_weights=basin_w)
+                total_loss += mse_loss(q_total, y, sample_weights=basin_w)
         n += 1
         # denormalise for NSE/KGE (scale = per-basin precip_mean)
-        scale = pmean.to(device)
-        pred_de = (q_total * scale).cpu().numpy()
+        scale = pmean.to(device, non_blocking=True)
+        pred_de = (q_total.float() * scale).cpu().numpy()
         obs_de = (y * scale).cpu().numpy()
         bid_np = bids.numpy() if isinstance(bids, torch.Tensor) else bids
         for i, bid in enumerate(bid_np):
@@ -309,6 +334,16 @@ def train_model(
     A ``log.txt`` file is written to the fold directory with per-epoch
     metrics (train loss, val loss, NSE, KGE, LR, and gate diagnostics).
     """
+    # Dispatch to subbasin-mode epoch functions when requested.
+    if getattr(config, "spatial_mode", "gauge") == "subbasin":
+        from .subbasin_train import (
+            train_epoch_subbasin as _train_epoch_impl,
+            validate_epoch_subbasin as _validate_epoch_impl,
+        )
+    else:
+        _train_epoch_impl = train_epoch
+        _validate_epoch_impl = validate_epoch
+
     optimizer = torch.optim.Adam(
         filter(lambda p: p.requires_grad, model.parameters()),
         lr=config.learning_rate, weight_decay=config.weight_decay,
@@ -343,9 +378,11 @@ def train_model(
     swa_model: AveragedModel | None = None
     swa_scheduler: torch.optim.lr_scheduler.LRScheduler | None = None
 
-    # torch.compile for graph-level optimisations (skipped on MPS — limited backend support)
-    if device.type != "mps" and hasattr(torch, "compile"):
-        model = torch.compile(model)
+    # torch.compile is intentionally not used here: LSTMs already hit a
+    # fused cuDNN kernel on CUDA, and Inductor's CUDA backend requires
+    # Triton (not shipped with default Windows PyTorch wheels).  On MPS
+    # compile support is still limited.  Skipping it keeps behaviour
+    # identical across macOS (MPS) and Windows/Linux (CUDA).
 
     ckpt_dir = config.output_dir / f"fold_{fold_idx}"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
@@ -381,7 +418,7 @@ def train_model(
             history[k] = []
 
     # Open log file — write header, then append each epoch
-    log_fh = open(log_path, "w")
+    log_fh = open(log_path, "w", encoding="utf-8")
     _log_columns = [
         "epoch", "phase", "lr",
         f"train_{_loss_tag}", "train_total",
@@ -450,22 +487,22 @@ def train_model(
 
     try:
         # ---- Epoch 0: cold (random-weight) performance ----
-        val_loss_0, val_nse_0, val_kge_0 = validate_epoch(model, val_loader, device, config)
+        val_loss_0, val_nse_0, val_kge_0 = _validate_epoch_impl(model, val_loader, device, config)
         _record_epoch(0, "init", 0.0, float("nan"), float("nan"),
                        val_loss_0, val_nse_0, val_kge_0, model)
 
         for epoch in range(1, config.num_epochs + 1):
-            train_mse, train_total = train_epoch(
+            train_mse, train_total = _train_epoch_impl(
                 model, train_loader, optimizer, device, config,
             )
 
             if swa_active:
                 swa_model.update_parameters(model)
                 swa_scheduler.step()
-                val_loss, val_nse, val_kge = validate_epoch(swa_model, val_loader, device, config)
+                val_loss, val_nse, val_kge = _validate_epoch_impl(swa_model, val_loader, device, config)
             else:
                 scheduler.step()
-                val_loss, val_nse, val_kge = validate_epoch(model, val_loader, device, config)
+                val_loss, val_nse, val_kge = _validate_epoch_impl(model, val_loader, device, config)
 
             lr_now = optimizer.param_groups[0]["lr"]
             phase = "swa" if swa_active else "train"

@@ -3,6 +3,11 @@
 *.geojson filter=lfs diff=lfs merge=lfs -text
 *.parquet filter=lfs diff=lfs merge=lfs -text
 *.zip filter=lfs diff=lfs merge=lfs -text
+*.gpkg filter=lfs diff=lfs merge=lfs -text
+
+# Zarr v3 cubes — every file inside a *.zarr directory (metadata + binary chunks).
+# Chunk files have no extension, so a path-based rule is required.
+*.zarr/** filter=lfs diff=lfs merge=lfs -text
 data/training/climate/watersheds.zarr/** filter=lfs diff=lfs merge=lfs -text
 data/training/climate/huc12.zarr/** filter=lfs diff=lfs merge=lfs -text
 data/training/flow.zarr/** filter=lfs diff=lfs merge=lfs -text

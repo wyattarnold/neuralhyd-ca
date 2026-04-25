@@ -23,7 +23,11 @@ from typing import List
 from src.paths import DEFAULT_CONFIG, TRAINING_OUTPUT_DIR
 
 _PATH_FIELDS = frozenset(
-    ["data_dir", "climate_dir", "flow_dir", "static_basin_atlas", "static_climate", "output_dir"]
+    ["data_dir", "climate_zarr", "flow_zarr", "static_basin_atlas", "static_climate", "output_dir"]
+)
+_OPTIONAL_PATH_FIELDS = frozenset(
+    ["subbasin_intersect_csv", "subbasin_climate_zarr",
+     "subbasin_static_attrs", "subbasin_climate_stats"]
 )
 
 
@@ -31,8 +35,8 @@ _PATH_FIELDS = frozenset(
 class Config:
     # ----- Paths -----
     data_dir: Path
-    climate_dir: Path
-    flow_dir: Path
+    climate_zarr: Path           # data/training/climate/<scope>.zarr
+    flow_zarr: Path              # data/training/flow.zarr
     static_basin_atlas: Path
     static_climate: Path
     output_dir: Path
@@ -126,6 +130,25 @@ class Config:
     basin_loss_weight_exponent: float = 0.5
     basin_loss_min_var: float = 0.1
 
+    # ----- Subbasin-mode (HUC10 / HUC12 aggregation) -----
+    # When ``spatial_mode="subbasin"`` the model is trained on HUC sub-basins
+    # and predictions are area-weight-aggregated to the gauge before the loss
+    # is computed.  Loss is evaluated in **mm/day** (not runoff-ratio) space
+    # in this mode.  See ``src/data/subbasin_gauge_intersect.py`` and the
+    # subbasin branch in ``src/lstm/train.py``.
+    spatial_mode: str = "gauge"              # "gauge" (default) | "subbasin"
+    subbasin_level: str = "huc12"            # "huc10" or "huc12"
+    # Pipeline artefact paths (used only in subbasin mode)
+    subbasin_intersect_csv: Path | None = None  # gauge × subbasin overlap table
+    subbasin_climate_zarr: Path | None = None   # per-subbasin climate zarr cube
+    subbasin_static_attrs: Path | None = None   # Physical_Attributes_<LEVEL>.csv
+    subbasin_climate_stats: Path | None = None  # Climate_Statistics_<LEVEL>.csv
+    # Drop a gauge when it sits inside a single subbasin (only one
+    # overlap) and covers less than this fraction of that subbasin's
+    # area — applied at pipeline-build time by
+    # ``subbasin_gauge_intersect.py`` and recorded here for traceability only.
+    gauge_min_fraction_of_subbasin: float = 0.70
+
     # ----- Probabilistic output -----
     output_type: str = "deterministic"   # "deterministic" or "cmal"
     cmal_n_components: int = 3           # K mixture components for CMAL
@@ -144,11 +167,48 @@ class Config:
     static_feature_groups: dict[str, List[str]] | None = None
     static_group_hidden: int = 0   # per-group encoder dim (0 = auto)
 
+    # ----- Hardware / throughput tuning -----
+    # Each flag is a no-op on devices that don't support the feature, so
+    # defaults are safe on macOS MPS and CPU.
+    use_amp: bool = True                # bf16 autocast (CUDA only; ignored on MPS/CPU)
+    pin_dataset_to_device: bool = True  # pre-move HydroDataset tensors to the
+                                        # training device to eliminate per-batch
+                                        # host→device copies. Forces num_workers=0
+                                        # and pin_memory=False on non-CPU devices.
+    cudnn_benchmark: bool = True        # torch.backends.cudnn.benchmark (CUDA only)
+    tf32: bool = True                   # TF32 matmul on Ampere+ (CUDA only)
+
     def __post_init__(self) -> None:
         for f in _PATH_FIELDS:
             val = getattr(self, f)
             if isinstance(val, str):
                 setattr(self, f, Path(val))
+        for f in _OPTIONAL_PATH_FIELDS:
+            val = getattr(self, f)
+            if isinstance(val, str):
+                setattr(self, f, Path(val))
+        if self.spatial_mode not in ("gauge", "subbasin"):
+            raise ValueError(
+                f"spatial_mode must be 'gauge' or 'subbasin', got {self.spatial_mode!r}"
+            )
+        if self.spatial_mode == "subbasin":
+            if self.output_type == "cmal":
+                raise ValueError(
+                    "spatial_mode='subbasin' is not yet supported with output_type='cmal'."
+                )
+            if self.subbasin_level not in ("huc10", "huc12"):
+                raise ValueError(
+                    f"subbasin_level must be 'huc10' or 'huc12', got {self.subbasin_level!r}"
+                )
+            missing = [
+                f for f in ("subbasin_intersect_csv", "subbasin_climate_zarr",
+                            "subbasin_static_attrs", "subbasin_climate_stats")
+                if getattr(self, f) is None
+            ]
+            if missing:
+                raise ValueError(
+                    f"spatial_mode='subbasin' requires these paths in the config: {missing}"
+                )
 
     @property
     def effective_static_features(self) -> List[str]:
@@ -237,6 +297,10 @@ def load_config(path: str | Path = DEFAULT_CONFIG) -> Config:
     for f in _PATH_FIELDS:
         val = getattr(cfg, f)
         if not val.is_absolute():
+            setattr(cfg, f, (config_dir / val).resolve())
+    for f in _OPTIONAL_PATH_FIELDS:
+        val = getattr(cfg, f)
+        if val is not None and not val.is_absolute():
             setattr(cfg, f, (config_dir / val).resolve())
 
     return cfg

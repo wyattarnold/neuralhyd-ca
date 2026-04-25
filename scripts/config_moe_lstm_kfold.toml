@@ -5,10 +5,10 @@
 
 [paths]
 data_dir             = "../data"
-climate_dir          = "../data/training/climate"
-flow_dir             = "../data/training/flow"
-static_basin_atlas   = "../data/training/static/Physical_Attributes_Watersheds.csv"
-static_climate       = "../data/training/static/Climate_Statistics_Watersheds.csv"
+climate_zarr          = "../data/training/climate/watersheds.zarr"
+flow_zarr             = "../data/training/flow.zarr"
+static_basin_atlas   = "../data/training/static/watersheds/Physical_Attributes_Watersheds.csv"
+static_climate       = "../data/training/static/watersheds/Climate_Statistics_Watersheds.csv"
 
 [sequence]
 seq_len              = 365

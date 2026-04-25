@@ -88,35 +88,22 @@ def load_all_data(config: Config):
     static_df : pd.DataFrame                  – indexed by PourPtID
     tier_map : dict[int, int]                 – basin_id → tier (1/2/3)
     """
-    # 1. Discover basins & tiers from the tiered flow directory
-    tier_map: Dict[int, int] = {}
-    flow_data: Dict[int, pd.DataFrame] = {}
+    # 1. Load streamflow + tier from the zarr cube
+    from src.data.io import load_flow_dataframes, load_climate_dataframes
 
-    for tier in (1, 2, 3):
-        tier_dir = config.flow_dir / f"tier_{tier}"
-        if not tier_dir.exists():
-            continue
-        for f in sorted(tier_dir.glob("*_cleaned.csv")):
-            basin_id = int(f.stem.replace("_cleaned", ""))
-            tier_map[basin_id] = tier
-            df = pd.read_csv(f, parse_dates=["date"], index_col="date")
-            flow_data[basin_id] = df[["flow"]]  # keep only flow column
-
+    flow_data, tier_map = load_flow_dataframes(config.flow_zarr)
     basin_ids = sorted(tier_map.keys())
 
-    # 2. Load area-weighted daily climate for every basin that has flow
-    climate_data: Dict[int, pd.DataFrame] = {}
-    missing_climate: list = []
-    for bid in basin_ids:
-        cpath = config.climate_dir / f"climate_{bid}.csv"
-        if cpath.exists():
-            cdf = pd.read_csv(cpath, parse_dates=["date"], index_col="date")
-            climate_data[bid] = cdf[config.dynamic_features]
-        else:
-            missing_climate.append(bid)
-
+    # 2. Load daily climate from the zarr cube for every basin that has flow
+    climate_dfs = load_climate_dataframes(
+        config.climate_zarr, basin_ids=basin_ids, variables=config.dynamic_features
+    )
+    climate_data: Dict[int, pd.DataFrame] = {
+        int(bid): df for bid, df in climate_dfs.items()
+    }
+    missing_climate = [b for b in basin_ids if b not in climate_data]
     if missing_climate:
-        print(f"Warning: no climate file for {len(missing_climate)} basins – skipping them")
+        print(f"Warning: no climate data for {len(missing_climate)} basins – skipping them")
     basin_ids = [b for b in basin_ids if b in climate_data]
 
     # 3. Static attributes (merge tables on PourPtID)
@@ -460,10 +447,19 @@ class HydroDataset(Dataset):
         static_df: pd.DataFrame,
         config: Config,
         norm_stats: dict,
+        device: torch.device | str | None = None,
     ):
         super().__init__()
         self.seq_len = config.seq_len
         self.use_window_snow_fraction = config.use_window_snow_fraction
+        # Target device for the per-basin tensors that __getitem__ slices.
+        # When set, the full dataset lives on-device and no host→device
+        # transfers are needed per batch.  Must be None (or CPU) if the
+        # DataLoader uses num_workers > 0 (workers can't share CUDA/MPS
+        # tensors).  ``pmean_f`` / ``lw_f`` / ``extreme_qs_np`` remain on
+        # CPU so legacy consumers of basin_data (e.g. evaluate_basin)
+        # can still treat them as plain scalars / numpy.
+        self.device = torch.device(device) if device is not None else None
 
         clim_mean, clim_std = norm_stats["climate"]
         stat_mean, stat_std = norm_stats["static"]
@@ -580,6 +576,18 @@ class HydroDataset(Dataset):
                 ], axis=1).astype(np.float32))  # (T, 2)
             else:
                 bd["components_norm"] = torch.zeros(len(flow_np), 2)
+
+        # Optionally pre-move hot tensors to the training device so
+        # __getitem__ returns on-device slices with zero H2D overhead.
+        if self.device is not None and self.device.type != "cpu":
+            hot_keys = (
+                "dynamic", "static", "flow_norm", "components_norm",
+                "precip_mean_tensor", "loss_w_tensor", "extreme_qs_tensor",
+            )
+            for bd in self.basin_data.values():
+                for k in hot_keys:
+                    if k in bd and isinstance(bd[k], torch.Tensor):
+                        bd[k] = bd[k].to(self.device, non_blocking=True)
 
     # ---- Dataset interface ----
 

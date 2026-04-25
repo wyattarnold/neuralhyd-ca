@@ -6,9 +6,11 @@
 
 | Directory | Contents |
 |---|---|
-| `training/climate/` | Daily climate CSVs per basin (`climate_<basin_id>.csv`): precip_mm, tmax_c, tmin_c (1915–2018) |
+| `training/climate/watersheds/` | Daily climate CSVs per gauge (`climate_<basin_id>.csv`): precip_mm, tmax_c, tmin_c (1915–2018) |
+| `training/climate/huc12/` | Daily climate CSVs per HUC12 (manifest subset — only HUC12s overlapping training gauges; full domain is in `data/eval/climate/huc12/`) |
 | `training/flow/` | Quality-filtered daily streamflow + climate, split by tier (`tier_{1,2,3}/<basin_id>_cleaned.csv`) |
-| `training/static/` | Basin-level attributes: `Physical_Attributes_Watersheds.csv` (physical/land-cover) and `Climate_Statistics_Watersheds.csv` (long-term climate normals) |
+| `training/static/watersheds/` | Gauge-level attributes: `Physical_Attributes_Watersheds.csv`, `Climate_Statistics_Watersheds.csv` |
+| `training/static/huc12/` | HUC12-level attributes (manifest subset) |
 | `training/watersheds/` | Watershed boundaries (`watersheds.geojson`) and pour-point table (`watersheds.csv`) |
 | `training/output/` | Model outputs created at runtime — per-fold checkpoints (`best_model.pt`), basin results, and predicted timeseries |
 

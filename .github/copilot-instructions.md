@@ -2,28 +2,39 @@
 
 ## Project Overview
 
-This is a **daily streamflow prediction** project using LSTM networks trained on 210 California USGS watersheds. Three model variants are available (selected via `Config.model_type`): a dual-pathway LSTM with multiplicative composition and physically interpretable flow decomposition, a single-LSTM baseline, and a mixture-of-experts LSTM (MoE-τ). The dual and single models optionally support a CMAL probabilistic output head (`output_type="cmal"`). The model predicts today's streamflow from a lookback window of daily climate forcing (precipitation, tmax, tmin) conditioned on static watershed attributes. It is **not** a forecast model — it uses observed climate inputs, not future predictions.
+This is a **daily streamflow prediction** project using LSTM networks trained on 210 California USGS watersheds. Four model variants are available: three neural variants selected via `Config.model_type` (a dual-pathway LSTM with multiplicative composition and physically interpretable flow decomposition, a single-LSTM baseline, and a mixture-of-experts LSTM, MoE-τ), plus a separate differentiable physics-based model (dPL+SAC-SMA+Snow17) under `src/dpl/`. The dual and single LSTM models optionally support a CMAL probabilistic output head (`output_type="cmal"`). The dual-pathway LSTM also supports a **subbasin (HUC12) input mode** in addition to the default gauge mode. The model predicts today's streamflow from a lookback window of daily climate forcing (precipitation, tmax, tmin) conditioned on static watershed attributes. It is **not** a forecast model — it uses observed climate inputs, not future predictions.
 
 ## Environment
 
-Use the `neuralhyd` environment for all scripts. The project is tested on Python 3.14 with the following key dependencies:
+Use the `neuralhyd` conda environment (defined in [environment.yml](environment.yml)) for all scripts. The project requires Python ≥ 3.11 and is OS-agnostic (developed on both Windows and macOS Apple Silicon).
 
-- **OS**: macOS (Apple Silicon). Set `KMP_DUPLICATE_LIB_OK=TRUE` to avoid duplicate OpenMP crashes.
-- **Device preference**: MPS → CUDA → CPU (auto-detected in `scripts/train_kfold.py`)
+- **Device preference**: CUDA → MPS → CPU (auto-detected in entry-point scripts)
+- **OpenMP duplicate-library workaround**: `KMP_DUPLICATE_LIB_OK=TRUE` is set automatically inside the training entry points via `os.environ.setdefault(...)`, so manual export is not required on any platform.
 
 ## Running
 
+From the repo root:
+
 ```bash
-KMP_DUPLICATE_LIB_OK=TRUE python scripts/train_kfold.py
+python scripts/train_kfold.py                                          # default config.toml
+python scripts/train_kfold.py scripts/config_dual_lstm_kfold.toml      # named experiment
 ```
 
 All hyperparameters live in `scripts/config.toml`. Pass an alternate TOML file as the first argument to `scripts/train_kfold.py` to run a named experiment — the output directory is derived automatically from the filename (e.g. `config_single_lstm_kfold.toml` → `data/training/output/single_lstm_kfold/`). The `Config` dataclass in `src/lstm/config.py` is the typed container; use `load_config(path)` from that module to instantiate it.
 
-Named experiment configs:
-- `config_dual_lstm_kfold.toml` — dual-pathway deterministic
-- `config_single_lstm_kfold.toml` — single LSTM baseline
+Named LSTM experiment configs:
+- `config_dual_lstm_kfold.toml` — dual-pathway deterministic (gauge mode)
+- `config_dual_lstm_subbasin_kfold.toml` — dual-pathway, HUC12 subbasin input mode (area-weighted aggregation to gauge before loss)
 - `config_dual_lstm_cmal_kfold.toml` — dual-pathway with CMAL probabilistic head
+- `config_single_lstm_kfold.toml` — single LSTM baseline
 - `config_moe_lstm_kfold.toml` — mixture-of-experts LSTM
+
+Differentiable physics model (separate entry point and config):
+
+```bash
+python scripts/train_dpl_sacsma_kfold.py                                       # uses config_dpl_sacsma_kfold.toml
+python scripts/train_dpl_sacsma_kfold.py scripts/config_dpl_sacsma_kfold.toml
+```
 
 Post-processing (eval metrics, CDF/barplot figures, historical simulation):
 
@@ -33,47 +44,53 @@ python scripts/post_process.py --cdf --barplot --runs dual_lstm_kfold single_lst
 python scripts/post_process.py --simulate dual_lstm_kfold --target training_watersheds
 ```
 
-Hyperparameter sweeps (Optuna, single-objective on fold 0):
-
-```bash
-KMP_DUPLICATE_LIB_OK=TRUE python scripts/sweep.py config_dual_lstm_cmal_kfold.toml --n-trials 100
-```
+There is currently no in-tree hyperparameter sweep entry point. An archived version lives at `_archive/sweep.py` for reference.
 
 ## Repository Structure
 
 ```
 scripts/
-  train_kfold.py              # Entry point: k-fold stratified spatial cross-validation
-  train_final.py              # Train on full dataset for deployment
-  prepare_data.py             # Data preparation pipeline (steps 1–8 + analysis)
-  post_process.py             # Post-training CLI: eval metrics, CDF/barplot figures, simulation
-  sweep.py                    # Optuna hyperparameter sweep (fold 0)
-  config.toml                 # Default experiment configuration
-  config_<name>.toml          # Named experiment configs (dual, single, cmal, moe)
+  train_kfold.py                    # Entry point: k-fold stratified spatial CV (LSTM variants, gauge or subbasin)
+  train_dpl_sacsma_kfold.py         # Entry point: k-fold CV for the dPL+SAC-SMA differentiable physics model
+  train_final.py                    # Train on full dataset for deployment
+  prepare_data.py                   # Data preparation pipeline
+  post_process.py                   # Post-training CLI: eval metrics, CDF/barplot figures, simulation
+  config.toml                       # Default experiment configuration
+  config_<name>.toml                # Named experiment configs (dual, single, cmal, moe, subbasin, dpl_sacsma)
 src/
-  paths.py                   # Top-level path constants (DEFAULT_CONFIG, TRAINING_OUTPUT_DIR)
-  lstm/                      # LSTM model package
-    config.py                # Config dataclass + load_config() — typed container for TOML values
-    dataset.py               # load_all_data(), create_folds(), compute_norm_stats(), HydroDataset
-    model.py                 # DualPathwayLSTM, SingleLSTM, MoELSTM, CMALHead, build_model()
-    train.py                 # train_epoch(), validate_epoch(), train_model(), load_checkpoint()
-    loss.py                  # mse_loss, blended_loss, pathway_auxiliary_loss, cmal_nll/crps, compute_nse/kge/fhv/fehv/flv
-    evaluate.py              # evaluate_basin(), evaluate_fold()
-  data/                      # Data preparation modules called by prepare_data.py
-    paths.py                 # Centralised path constants for the data pipeline
-  eval/                      # Post-training evaluation helpers
-    metrics.py               # Aggregate metric computation (LSTM + VIC)
-    plots.py                 # CDF, barplot, and VIC comparison plots
-    simulate.py              # Re-run trained models to produce timeseries (ensemble of folds)
+  paths.py                          # Top-level path constants (DEFAULT_CONFIG, TRAINING_OUTPUT_DIR)
+  lstm/                             # LSTM model package
+    config.py                       # Config dataclass + load_config() — typed container for TOML values
+    dataset.py                      # load_all_data(), create_folds(), compute_norm_stats(), HydroDataset
+    subbasin_dataset.py             # HUC12 subbasin-mode loaders (load_subbasin_data, SubbasinHydroDataset, ...)
+    model.py                        # DualPathwayLSTM, SingleLSTM, MoELSTM, CMALHead, build_model()
+    train.py                        # train_epoch(), validate_epoch(), train_model(), load_checkpoint()
+    subbasin_train.py               # evaluate_fold_subbasin(), aggregate_subbasins_to_gauge
+    loss.py                         # mse_loss, blended_loss, pathway_auxiliary_loss, cmal_nll/crps, compute_nse/kge/fhv/fehv/flv
+    evaluate.py                     # evaluate_basin(), evaluate_fold()
+  dpl/                              # Differentiable physics package (dPL + SAC-SMA + Snow17)
+    config.py, dataset.py, model.py # Config / data loaders / parameter-net + physics composite model
+    parameter_net.py                # NN that maps statics+climate signatures → SAC-SMA/Snow17 params
+    sacsma.py, snow17.py, pet.py    # Conceptual hydrology routines (differentiable PyTorch ops)
+    routing.py                      # Unit-hydrograph / channel routing
+    train.py, evaluate.py           # Training loop and per-basin evaluation
+  data/                             # Data preparation modules called by prepare_data.py
+    paths.py                        # Centralised path constants for the data pipeline
+  eval/                             # Post-training evaluation helpers
+    metrics.py                      # Aggregate metric computation (LSTM + VIC)
+    plots.py                        # CDF, barplot, and VIC comparison plots
+    simulate.py                     # Re-run trained models to produce timeseries (ensemble of folds)
 app/                         # Streamflow Explorer web app (FastAPI + React/Leaflet)
   server.py                  # FastAPI backend
   build_data.py              # Build app data bundles from eval outputs
   frontend/                  # React + Leaflet frontend (pre-built bundle in app/static/)
 data/
   training/          # All final training/evaluation inputs and model outputs
-    climate/         # climate_<basin_id>.csv — daily precip_mm, tmax_c, tmin_c (1915–2018)
+    climate/         # watersheds/climate_<basin_id>.csv — gauge-level daily precip_mm, tmax_c, tmin_c (1915–2018);
+                     # huc12/ holds the manifest subset for subbasin-mode training (full domain in ../eval/climate/huc12/)
     flow/            # tier_{1,2,3}/<basin_id>_cleaned.csv — daily flow + climate
-    static/          # Physical_Attributes_Watersheds.csv, Climate_Statistics_Watersheds.csv
+    static/          # watersheds/{Physical_Attributes,Climate_Statistics}_Watersheds.csv;
+                     # huc12/{Physical_Attributes,Climate_Statistics}_HUC12.csv (manifest subset)
     watersheds/      # watersheds.geojson, watersheds.csv
     output/          # Created at runtime — per-fold checkpoints, basin results, timeseries
   eval/              # Evaluation CSVs, CDF/barplot figures, simulated timeseries
@@ -111,7 +128,11 @@ All architectures use a static encoder — either a flat MLP (`StaticEncoder`: n
 
 ### Common Interface
 
-All models return `(q_total, q_fast, q_slow)` from `forward()`. Use `build_model(config)` to instantiate the correct class — all consumers (train, evaluate, train_kfold) accept `nn.Module`.
+All LSTM models return `(q_total, q_fast, q_slow)` from `forward()`. Use `build_model(config)` to instantiate the correct class — all consumers (train, evaluate, train_kfold) accept `nn.Module`.
+
+### Differentiable Physics: dPL + SAC-SMA + Snow17 (`src/dpl/`)
+
+A separate package (not a `model_type` of the LSTM `Config`) implementing learned-parameter conceptual hydrology. A neural parameter network maps static attributes and climate signatures to per-basin SAC-SMA and Snow17 parameters; the physics modules then run as differentiable PyTorch ops on daily climate forcing, with optional channel routing. Trained via `scripts/train_dpl_sacsma_kfold.py` against `config_dpl_sacsma_kfold.toml` using its own `load_dpl_config` / `load_dpl_data` / `build_model` / `train_model` / `evaluate_fold` interface (mirrors the LSTM API but is independent of it).
 
 ## Validation Design
 
@@ -170,9 +191,9 @@ Use `load_checkpoint(path, model, device)` from `src.lstm.train` to load a check
 
 - To add new dynamic features: update `Config.dynamic_features`, ensure they exist in the climate CSVs. `n_dynamic` in the model is auto-computed as `len(dynamic_features)`.
 - To add new static features: update `Config.static_features`, ensure they exist in the static attribute CSVs (joined from BasinATLAS + Climate Statistics tables on `PourPtID`).
-- To change the architecture: modify `src/lstm/model.py`. All models share the `forward()` signature `(x_dynamic, x_static) → (q_total, q_fast, q_slow)` used by train, evaluate, and train_kfold — keep it stable or update all consumers. Use `build_model(config)` for instantiation.
+- To change the architecture: modify `src/lstm/model.py`. All LSTM models share the `forward()` signature `(x_dynamic, x_static) → (q_total, q_fast, q_slow)` used by train, evaluate, and train_kfold — keep it stable or update all consumers. Use `build_model(config)` for instantiation.
 - To change the loss: modify `src/lstm/loss.py`. By default the training loop uses `blended_loss` (MSE + log-MSE, controlled by `log_loss_lambda`; set to 0 for pure MSE). CMAL models use `cmal_nll` or `cmal_crps` (selected via `config.cmal_loss`). Swap in an NSE-based loss by replacing the `blended_loss` / `mse_loss` call in `train_epoch`.
-- To run a hyperparameter sweep: use `scripts/sweep.py` with an appropriate config. It uses Optuna MedianPruner on fold 0 and reports a tier-weighted composite score.
+- To modify the differentiable physics model: edit modules under `src/dpl/` and the matching `config_dpl_sacsma_kfold.toml`. The package has its own loaders, build_model, and training loop — do not assume LSTM symbols apply.
 
 ## Documentation Alignment
 

@@ -20,8 +20,9 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 
+from src.data.io import load_climate_dataframes
 from src.paths import (
-    CLIMATE_DIR,
+    CLIMATE_WATERSHEDS_ZARR,
     FLOW_CLEANED_DIR,
     FLOW_DROPPED_DIR,
     FLOW_CLEANED_STRICT_DIR,
@@ -110,10 +111,20 @@ def _c(cond): return int(cond.sum())
 def _run_climate_qa() -> pd.DataFrame:
     print("=== Section 1: Climate QA ===")
     rows = []
-    for fp in sorted(CLIMATE_DIR.glob("climate_*.csv")):
-        sid = _sid(fp, prefix="climate_")
+    if not CLIMATE_WATERSHEDS_ZARR.exists():
+        print(f"  WARNING: {CLIMATE_WATERSHEDS_ZARR} not found; skipping climate QA")
+        clim_df = pd.DataFrame(rows)
+        clim_df.to_csv(STEP_7_OUTPUT_DIR / "sec1_climate_qa.csv", index=False)
+        return clim_df
+
+    climate_dfs = load_climate_dataframes(CLIMATE_WATERSHEDS_ZARR)
+    for basin_id, df_in in sorted(climate_dfs.items(), key=lambda kv: str(kv[0])):
+        sid = str(basin_id)
         try:
-            df = pd.read_csv(fp, parse_dates=["date"])
+            df = df_in.dropna(how="all").reset_index().rename(columns={"index": "date"})
+            if "date" not in df.columns:
+                df.rename(columns={df.columns[0]: "date"}, inplace=True)
+            df["date"] = pd.to_datetime(df["date"])
         except Exception as e:
             rows.append({"station_id": sid, "error": str(e)}); continue
 

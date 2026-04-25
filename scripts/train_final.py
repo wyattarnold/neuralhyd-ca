@@ -57,6 +57,15 @@ def main() -> None:
     device = pick_device()
     print(f"Device: {device}")
 
+    # CUDA performance knobs (no-ops on MPS / CPU)
+    if device.type == "cuda":
+        if config.cudnn_benchmark:
+            torch.backends.cudnn.benchmark = True
+        if config.tf32:
+            torch.set_float32_matmul_precision("high")
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.backends.cudnn.allow_tf32 = True
+
     # ---- load data ----
     print("Loading data …")
     basin_ids, climate_data, flow_data, static_df, tier_map = load_all_data(config)
@@ -74,22 +83,32 @@ def main() -> None:
 
     # ---- single dataset (train = val = all basins) ----
     print(f"  Building dataset  ({len(basin_ids)} basins) …")
-    ds = HydroDataset(basin_ids, climate_data, flow_data, static_df, config, norm)
+    ds_device = device if (config.pin_dataset_to_device and device.type != "cpu") else None
+    ds = HydroDataset(
+        basin_ids, climate_data, flow_data, static_df, config, norm,
+        device=ds_device,
+    )
     print(
         f"    {len(ds):,} samples  "
         f"(batch size {config.batch_size} → {len(ds) // config.batch_size:,} batches/epoch)"
     )
 
-    pin = device.type == "cuda"
-    pw = config.num_workers > 0
+    if ds_device is not None:
+        num_workers = 0
+        pin = False
+        pw = False
+    else:
+        num_workers = config.num_workers
+        pin = device.type == "cuda"
+        pw = num_workers > 0
     train_loader = torch.utils.data.DataLoader(
         ds, batch_size=config.batch_size, shuffle=True,
-        num_workers=config.num_workers, pin_memory=pin,
+        num_workers=num_workers, pin_memory=pin,
         persistent_workers=pw,
     )
     val_loader = torch.utils.data.DataLoader(
         ds, batch_size=config.batch_size, shuffle=False,
-        num_workers=config.num_workers, pin_memory=pin,
+        num_workers=num_workers, pin_memory=pin,
         persistent_workers=pw,
     )
 

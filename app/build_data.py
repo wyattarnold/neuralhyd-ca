@@ -42,9 +42,9 @@ HUC10_GPKG = GIS_DIR / "WBDHU10.gpkg"
 WATERSHEDS_GPKG = GIS_DIR / "USGS_Training_Watersheds.gpkg"
 AGG = REPO / "data" / "external" / "cec" / "VIC-Sim" / "aggregated"
 
-FLOW_DIR = REPO / "data" / "training" / "flow"
-STATIC_CSV = REPO / "data" / "training" / "static" / "Physical_Attributes_Watersheds.csv"
-CLIMATE_STATIC_CSV = REPO / "data" / "training" / "static" / "Climate_Statistics_Watersheds.csv"
+FLOW_ZARR = REPO / "data" / "training" / "flow.zarr"
+STATIC_CSV = REPO / "data" / "training" / "static" / "watersheds" / "Physical_Attributes_Watersheds.csv"
+CLIMATE_STATIC_CSV = REPO / "data" / "training" / "static" / "watersheds" / "Climate_Statistics_Watersheds.csv"
 VIC_KGE_CSV = REPO / "data" / "external" / "cec" / "model_kge_comparison.csv"
 LSTM_DIR = REPO / "data" / "training" / "output" / "dual_lstm_kfold"
 LSTM_SINGLE_DIR = REPO / "data" / "training" / "output" / "single_lstm_kfold"
@@ -128,33 +128,35 @@ def build_training_watersheds_geojson(tol: float) -> None:
     vic_nse_map: dict[str, float] = {}
     vic_ts_path = AGG / "training_watersheds_runoff.csv"
     if vic_ts_path.exists():
+        from src.data.io import load_flow_dataframes
+        flow_all, _ = load_flow_dataframes(FLOW_ZARR)
         vic_wide = pd.read_csv(vic_ts_path, index_col="date", parse_dates=True)
-        for tier in [1, 2, 3]:
-            for csv in sorted((FLOW_DIR / f"tier_{tier}").glob("*_cleaned.csv")):
-                bid = csv.stem.replace("_cleaned", "")
-                if bid not in vic_wide.columns:
-                    continue
-                obs_df = pd.read_csv(csv, usecols=["date", "flow"], index_col="date", parse_dates=True)
-                merged = obs_df.join(vic_wide[[bid]].rename(columns={bid: "vic"}), how="inner").dropna()
-                if len(merged) < 365:
-                    continue
-                obs_arr = merged["flow"].values
-                sim_arr = merged["vic"].values
-                mean_obs = obs_arr.mean()
-                ss_res = np.sum((obs_arr - sim_arr) ** 2)
-                ss_tot = np.sum((obs_arr - mean_obs) ** 2)
-                if ss_tot > 0:
-                    vic_nse_map[bid] = float(1.0 - ss_res / ss_tot)
+        for bid_int, obs_df in flow_all.items():
+            bid = str(bid_int)
+            if bid not in vic_wide.columns:
+                continue
+            merged = obs_df.join(vic_wide[[bid]].rename(columns={bid: "vic"}), how="inner").dropna()
+            if len(merged) < 365:
+                continue
+            obs_arr = merged["flow"].values
+            sim_arr = merged["vic"].values
+            mean_obs = obs_arr.mean()
+            ss_res = np.sum((obs_arr - sim_arr) ** 2)
+            ss_tot = np.sum((obs_arr - mean_obs) ** 2)
+            if ss_tot > 0:
+                vic_nse_map[bid] = float(1.0 - ss_res / ss_tot)
 
     # --- Observed record date ranges ---
+    from src.data.io import load_flow_dataframes
+    flow_all, _ = load_flow_dataframes(FLOW_ZARR)
     obs_range: dict[str, tuple[str, str]] = {}
-    for tier in [1, 2, 3]:
-        for csv in sorted((FLOW_DIR / f"tier_{tier}").glob("*_cleaned.csv")):
-            bid = csv.stem.replace("_cleaned", "")
-            dates = pd.read_csv(csv, usecols=["date", "flow"])
-            valid = dates.dropna(subset=["flow"])
-            if len(valid):
-                obs_range[bid] = (str(valid["date"].iloc[0]), str(valid["date"].iloc[-1]))
+    for bid_int, obs_df in flow_all.items():
+        valid = obs_df.dropna(subset=["flow"])
+        if len(valid):
+            obs_range[str(bid_int)] = (
+                valid.index[0].strftime("%Y-%m-%d"),
+                valid.index[-1].strftime("%Y-%m-%d"),
+            )
 
     # --- Load and simplify geometry ---
     gdf = gpd.read_file(WATERSHEDS_GPKG).to_crs("EPSG:4326")
@@ -200,17 +202,15 @@ def build_vic_parquet(key: str, vic_csv: Path) -> None:
 # ---------------------------------------------------------------------------
 
 def build_obs_parquet() -> None:
-    """Read cleaned flow CSVs across all tiers, convert CFS → wide Parquet."""
+    """Read cleaned flow from zarr cube, convert CFS → wide Parquet."""
     out_path = TS_DIR / "obs.parquet"
     print("  obs … ", end="", flush=True)
 
-    series: dict[str, pd.Series] = {}
-    for tier in [1, 2, 3]:
-        tier_dir = FLOW_DIR / f"tier_{tier}"
-        for csv in sorted(tier_dir.glob("*_cleaned.csv")):
-            bid = csv.stem.replace("_cleaned", "")
-            df = pd.read_csv(csv, usecols=["date", "flow"], index_col="date", parse_dates=True)
-            series[bid] = df["flow"]
+    from src.data.io import load_flow_dataframes
+    flow_all, _ = load_flow_dataframes(FLOW_ZARR)
+    series: dict[str, pd.Series] = {
+        str(bid): df["flow"] for bid, df in flow_all.items()
+    }
 
     wide = pd.DataFrame(series)
     wide = wide.round(1)
@@ -368,19 +368,16 @@ def build_obs_baseflow_parquet() -> None:
     out_path = TS_DIR / "obs_baseflow.parquet"
     print("  obs_baseflow … ", end="", flush=True)
 
+    from src.data.io import load_flow_dataframes
+    flow_all, _ = load_flow_dataframes(FLOW_ZARR)
     series: dict[str, pd.Series] = {}
-    for tier in [1, 2, 3]:
-        tier_dir = FLOW_DIR / f"tier_{tier}"
-        for csv in sorted(tier_dir.glob("*_cleaned.csv")):
-            bid = csv.stem.replace("_cleaned", "")
-            df = pd.read_csv(csv, usecols=["date", "flow"], index_col="date", parse_dates=True)
-            flow = df["flow"].values
-            # Fill NaN gaps with 0 for filter stability, restore NaN after
-            mask = np.isnan(flow)
-            flow_filled = np.where(mask, 0.0, flow)
-            bf = _lyne_hollick(flow_filled)
-            bf[mask] = np.nan
-            series[bid] = pd.Series(bf.round(1), index=df.index)
+    for bid_int, df in flow_all.items():
+        flow = df["flow"].values
+        mask = np.isnan(flow)
+        flow_filled = np.where(mask, 0.0, flow)
+        bf = _lyne_hollick(flow_filled)
+        bf[mask] = np.nan
+        series[str(bid_int)] = pd.Series(bf.round(1), index=df.index)
 
     wide = pd.DataFrame(series)
     wide.index.name = "date"

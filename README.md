@@ -44,6 +44,7 @@ Named experiment configs
 | `config_single_lstm_kfold.toml` | Single LSTM baseline |
 | `config_dual_lstm_cmal_kfold.toml` | Dual-pathway with CMAL probabilistic head |
 | `config_moe_lstm_kfold.toml` | Mixture-of-experts LSTM |
+| `config_dual_lstm_subbasin_kfold.toml` | Dual-pathway, **HUC12 sub-basin inputs with gauge-level loss** (see [Subbasin mode](#subbasin-mode-huc-inputs-with-gauge-level-loss)) |
 
 ### 3. Post-process
 
@@ -353,3 +354,36 @@ python -m app serve --port 9000
 ```
 
 The frontend is a React + Leaflet application; a pre-built bundle is served from `app/static/`. The backend is FastAPI, serving GeoJSON layers and timeseries data from `app/data/`.
+
+## Subbasin mode (HUC inputs with gauge-level loss)
+
+Gauged training basins span a wide range of sizes (a few km² to several thousand km²). The subbasin mode normalises this by predicting flow at the HUC12 level (≈30–100 km² each; HUC10 is also supported) and aggregating the subbasin predictions up to each gauge for the loss:
+
+$$ \hat Q^{\text{gauge}}_{\text{mm/day}} = \sum_{i=1}^{N_g} \frac{A_i}{A_g} \cdot \hat y_i $$
+
+where $A_i, A_g$ are the subbasin and gauge areas and $\hat y_i$ is the model's raw, area-normalised prediction for subbasin $i$ in mm/day. The model is trained directly against observed gauge flow in mm/day — no per-subbasin precipitation scaling is applied. A gauge is dropped only when it sits inside a **single** subbasin (its entire footprint overlaps exactly one) AND its own area is less than 85 % of that subbasin's area; gauges that span two or more subbasins are always kept.
+
+### Preparation
+
+Run step 9 once (requires `--meteo-dir` pointing at the VIC grids). HUC12 is the default; pass `--subbasin-level huc10` for the coarser level:
+
+```bash
+python prepare_data.py --step 9 --meteo-dir <path-to-WGEN-grids>
+# or, explicitly:
+python prepare_data.py --step 9 --subbasin-level huc12 --meteo-dir <path-to-WGEN-grids>
+```
+
+This produces `data/prepare/geo_ops/HUC12_{Intersect,Kept,In_Scope}_*.csv`, full-domain HUC12 climate + static at `data/eval/{climate,static}/huc12/` (every HUC12 in the domain — used for ungauged-basin simulation), and the in-scope manifest subset copied into `data/training/{climate,static}/huc12/` for trainable configs.
+
+### Training
+
+```bash
+python train_kfold.py config_dual_lstm_subbasin_kfold.toml
+```
+
+Notes:
+- Each sample is a padded stack of up to $N_{\max}$ subbasins; dropped/padded rows have `mask=0` and contribute nothing to the aggregate.
+- Loss (MSE + Lyne-Hollick pathway auxiliary for dual) is computed in **mm/day** on the aggregated gauge flow.
+- CMAL output is **not** supported in this mode.
+- A subbasin feeding both a train and a val gauge is not label leakage — the gauge-level target is never duplicated across folds.
+- Switch level via the config: set `subbasin_level = "huc10"` and point the four `subbasin_*` paths at the HUC10 artefacts.
