@@ -1,4 +1,4 @@
-"""Training loop, early stopping, LR scheduling, and checkpoint I/O.
+﻿"""Training loop, early stopping, LR scheduling, and checkpoint I/O.
 
 Key exports
 -----------
@@ -7,9 +7,10 @@ train_epoch(model, loader, optimiser, config)
 validate_epoch(model, loader, config)
     Inference-only pass; returns mean validation loss.
 train_model(model, train_loader, val_loader, config, norm_stats)
-    Full training run with warmup → cosine annealing → optional SWA,
-    using patience-based transitions.  Saves ``best_model.pt`` when
-    validation loss improves; bundles ``norm_stats`` into the checkpoint.
+    Full training run with warmup â†’ cosine annealing â†’ optional SWA,
+    using patience-based transitions.  Saves ``best_model.pt`` when the
+    configured validation selection metric improves; bundles ``norm_stats``
+    into the checkpoint.
     Writes a ``log.txt`` per fold with full epoch-by-epoch metrics.
 load_checkpoint(path, model, device)
     Load a ``best_model.pt`` checkpoint into *model* in-place and return
@@ -19,6 +20,8 @@ load_checkpoint(path, model, device)
 from __future__ import annotations
 
 import math
+import random
+from contextlib import nullcontext
 
 import numpy as np
 import torch
@@ -27,19 +30,55 @@ from torch.utils.data import DataLoader
 
 from .config import Config
 from .loss import (
-    mse_loss, pathway_auxiliary_loss,
+    mse_loss, pathway_auxiliary_loss, extreme_ramp_weight,
     cmal_nll, cmal_crps, cmal_entropy_reg, cmal_scale_reg,
     compute_nse, compute_kge,
 )
 
 
+
 def pick_device() -> torch.device:
-    """Select the best available torch device: MPS → CUDA → CPU."""
+    """Select the best available torch device: MPS â†’ CUDA â†’ CPU."""
     if torch.backends.mps.is_available():
         return torch.device("mps")
     if torch.cuda.is_available():
         return torch.device("cuda")
     return torch.device("cpu")
+
+
+def seed_everything(seed: int) -> None:
+    """Seed Python, NumPy, and PyTorch RNGs for reproducible LSTM runs."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+
+def _amp_context(device: torch.device, config: Config | None):
+    """Return an autocast context when BF16 AMP is supported, else nullcontext.
+
+    BF16 autocast only enabled on CUDA.  MPS bf16 support is inconsistent
+    across PyTorch versions (especially for LSTMs / log / exp used in
+    CMAL), so we deliberately stay in fp32 on MPS to keep numerics
+    identical between macOS (M-series) and Windows (CUDA) runs.
+    """
+    if (
+        config is not None
+        and getattr(config, "use_amp", False)
+        and device.type == "cuda"
+        and torch.cuda.is_bf16_supported()
+    ):
+        return torch.autocast(device_type="cuda", dtype=torch.bfloat16)
+    return nullcontext()
+
+
+def _to(t: torch.Tensor, device: torch.device) -> torch.Tensor:
+    """Move *t* to *device*. ``non_blocking`` only applies on CUDA.
+
+    We keep async H2D transfers as a CUDA-only optimisation.
+    """
+    return t.to(device, non_blocking=(device.type == "cuda"))
 
 
 def _unwrap_model(model: torch.nn.Module) -> torch.nn.Module:
@@ -76,6 +115,77 @@ def _blended_primary(
     return (1 - config.log_loss_lambda) * mse_term + config.log_loss_lambda * log_term
 
 
+def _weighted_mean_tensor(
+    per_sample: torch.Tensor,
+    sample_weights: torch.Tensor,
+) -> torch.Tensor:
+    return (per_sample * sample_weights).sum() / (sample_weights.sum() + 1e-8)
+
+
+def _weighted_bias_pct(
+    pred: torch.Tensor,
+    target: torch.Tensor,
+    sample_weights: torch.Tensor,
+) -> torch.Tensor:
+    numer = ((pred - target) * sample_weights).sum()
+    denom = (target * sample_weights).sum().clamp_min(1e-8)
+    return numer / denom * 100.0
+
+
+
+def _is_improved(value: float, best: float, min_delta: float) -> bool:
+    if not math.isfinite(best):
+        return True
+    return value < best * (1.0 - min_delta)
+
+
+def _selection_metric(config: Config) -> str:
+    return str(getattr(config, "validation_selection_metric", "loss"))
+
+
+def _initial_selection_score(config: Config) -> float:
+    return float("inf") if _selection_metric(config) == "loss" else -float("inf")
+
+
+def _validation_selection_score(
+    val_loss: float,
+    val_nse: float,
+    val_kge: float,
+    config: Config,
+) -> float:
+    metric = _selection_metric(config)
+    if metric == "nse":
+        return val_nse
+    if metric == "kge":
+        return val_kge
+    return val_loss
+
+
+def _is_selection_improved(value: float, best: float, config: Config) -> bool:
+    if not math.isfinite(value):
+        return False
+    metric = _selection_metric(config)
+    if metric == "loss":
+        return _is_improved(value, best, config.min_delta)
+    if not math.isfinite(best):
+        return True
+    return value > best + config.min_delta
+
+
+def _is_selection_better(value: float, reference: float, config: Config) -> bool:
+    if not math.isfinite(value):
+        return False
+    if not math.isfinite(reference):
+        return True
+    if _selection_metric(config) == "loss":
+        return value < reference
+    return value > reference
+
+
+def _get_train_stats(model: torch.nn.Module) -> dict:
+    return getattr(_unwrap_model(model), "_last_train_stats", {})
+
+
 def train_epoch(
     model: torch.nn.Module,
     loader: DataLoader,
@@ -95,65 +205,70 @@ def train_epoch(
     cmal_use_crps = use_cmal and config.cmal_loss == "crps"
     cmal_entropy_w = config.cmal_entropy_weight if use_cmal else 0.0
     cmal_scale_w = config.cmal_scale_reg_weight if use_cmal else 0.0
-    for x_d, x_s, y, y_comp, _bid, _pmean, basin_w, extreme_qs in loader:
-        x_d, x_s, y = x_d.to(device), x_s.to(device), y.to(device)
-        basin_w = basin_w.to(device)
-        extreme_qs = extreme_qs.to(device)
+    for batch in loader:
+        x_d, x_s, y, y_comp, _bid, _pmean, basin_w, extreme_qs = batch
+        x_d = _to(x_d, device)
+        x_s = _to(x_s, device)
+        y = _to(y, device)
+        basin_w = _to(basin_w, device)
+        extreme_qs = _to(extreme_qs, device)
         if noise_std > 0:
             x_d = x_d + torch.randn_like(x_d) * noise_std
         optimizer.zero_grad(set_to_none=True)
-        q_total, q_fast, q_slow = model(x_d, x_s)
+        with _amp_context(device, config):
+            q_total, q_fast, q_slow = model(x_d, x_s)
 
-        # Primary loss uses basin weights only (no extreme ramp).
-        # Extreme-flow sensitivity is handled by:
-        #   - log-MSE blend term in _blended_primary (relative errors on small flows)
-        #   - aux pathway extreme_peak_boost (dual only)
-        if use_cmal:
-            cmal_params = _get_cmal_params(model)
-            if cmal_use_crps:
-                primary = cmal_crps(
-                    y, *cmal_params,
-                    n_samples=config.cmal_crps_n_samples,
-                    beta=config.cmal_beta_crps,
+            # Primary loss uses basin weights only (no extreme ramp).
+            # Extreme-flow sensitivity is handled by:
+            #   - log-MSE blend term in _blended_primary (relative errors on small flows)
+            #   - aux pathway extreme_peak_boost (dual only)
+            if use_cmal:
+                cmal_params = _get_cmal_params(model)
+                if cmal_use_crps:
+                    primary = cmal_crps(
+                        y, *cmal_params,
+                        n_samples=config.cmal_crps_n_samples,
+                        beta=config.cmal_beta_crps,
+                        sample_weights=basin_w,
+                    )
+                else:
+                    primary = cmal_nll(y, *cmal_params, sample_weights=basin_w)
+            else:
+                mse_term = mse_loss(q_total, y, sample_weights=basin_w)
+                primary = _blended_primary(q_total, y, basin_w, mse_term, config)
+
+            loss = primary
+
+
+            if use_cmal and (cmal_entropy_w > 0 or cmal_scale_w > 0):
+                pi_c, _mu_c, bl_c, br_c = cmal_params
+                if cmal_entropy_w > 0:
+                    loss = loss + cmal_entropy_w * cmal_entropy_reg(pi_c)
+                if cmal_scale_w > 0:
+                    loss = loss + cmal_scale_w * cmal_scale_reg(bl_c, br_c)
+            if use_aux:
+                y_comp = _to(y_comp, device)
+                y_fast_lh = y_comp[:, 0]
+                y_slow_lh = y_comp[:, 1]
+                # Per-basin quantile thresholds: [y_q_start, y_q_top]
+                # ramp width = y_q_top âˆ’ y_q_start (floored inside extreme_ramp_weight)
+                q_start_b = extreme_qs[:, 0]
+                q_top_b = extreme_qs[:, 1]
+                ramp_b = (q_top_b - q_start_b)
+                loss = loss + config.aux_loss_weight * pathway_auxiliary_loss(
+                    q_fast, q_slow,
+                    y_fast_lh, y_slow_lh,
+                    y_total_norm=y if use_extreme_aux else None,
+                    extreme_threshold=q_start_b,
+                    extreme_peak_boost=config.extreme_peak_boost,
+                    extreme_ramp=ramp_b,
                     sample_weights=basin_w,
                 )
-            else:
-                primary = cmal_nll(y, *cmal_params, sample_weights=basin_w)
-        else:
-            mse_term = mse_loss(q_total, y, sample_weights=basin_w)
-            primary = _blended_primary(q_total, y, basin_w, mse_term, config)
-
-        loss = primary
-        if use_cmal and (cmal_entropy_w > 0 or cmal_scale_w > 0):
-            pi_c, _mu_c, bl_c, br_c = cmal_params
-            if cmal_entropy_w > 0:
-                loss = loss + cmal_entropy_w * cmal_entropy_reg(pi_c)
-            if cmal_scale_w > 0:
-                loss = loss + cmal_scale_w * cmal_scale_reg(bl_c, br_c)
-        if use_aux:
-            y_comp = y_comp.to(device)
-            y_fast_lh = y_comp[:, 0]
-            y_slow_lh = y_comp[:, 1]
-            # Per-basin quantile thresholds: [y_q_start, y_q_top]
-            # ramp width = y_q_top − y_q_start (floored inside extreme_ramp_weight)
-            q_start_b = extreme_qs[:, 0]
-            q_top_b = extreme_qs[:, 1]
-            ramp_b = (q_top_b - q_start_b)
-            loss = loss + config.aux_loss_weight * pathway_auxiliary_loss(
-                q_fast, q_slow,
-                y_fast_lh, y_slow_lh,
-                y_total_norm=y if use_extreme_aux else None,
-                extreme_threshold=q_start_b,
-                extreme_peak_boost=config.extreme_peak_boost,
-                extreme_ramp=ramp_b,
-                sample_weights=basin_w,
-            )
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=config.grad_clip)
         optimizer.step()
         sum_primary += primary.detach()
         sum_total += loss.detach()
-        n += 1
     return sum_primary.item() / max(n, 1), sum_total.item() / max(n, 1)
 
 
@@ -176,27 +291,31 @@ def validate_epoch(
     # Accumulate per-basin predictions and observations
     basin_pred: dict[int, list] = {}
     basin_obs: dict[int, list] = {}
-    for x_d, x_s, y, _ycomp, bids, pmean, basin_w, _extreme_qs in loader:
-        x_d, x_s, y = x_d.to(device), x_s.to(device), y.to(device)
-        basin_w = basin_w.to(device)
-        q_total, _, _ = model(x_d, x_s)
-        if use_cmal:
-            cmal_params = _get_cmal_params(model)
-            if cmal_use_crps:
-                total_loss += cmal_crps(
-                    y, *cmal_params,
-                    n_samples=config.cmal_crps_n_samples,
-                    beta=config.cmal_beta_crps,
-                    sample_weights=basin_w,
-                )
+    for batch in loader:
+        x_d, x_s, y, _ycomp, bids, pmean, basin_w, _extreme_qs = batch
+        x_d = _to(x_d, device)
+        x_s = _to(x_s, device)
+        y = _to(y, device)
+        basin_w = _to(basin_w, device)
+        with _amp_context(device, config):
+            q_total, _, _ = model(x_d, x_s)
+            if use_cmal:
+                cmal_params = _get_cmal_params(model)
+                if cmal_use_crps:
+                    total_loss += cmal_crps(
+                        y, *cmal_params,
+                        n_samples=config.cmal_crps_n_samples,
+                        beta=config.cmal_beta_crps,
+                        sample_weights=basin_w,
+                    )
+                else:
+                    total_loss += cmal_nll(y, *cmal_params, sample_weights=basin_w)
             else:
-                total_loss += cmal_nll(y, *cmal_params, sample_weights=basin_w)
-        else:
-            total_loss += mse_loss(q_total, y, sample_weights=basin_w)
+                total_loss += mse_loss(q_total, y, sample_weights=basin_w)
         n += 1
         # denormalise for NSE/KGE (scale = per-basin precip_mean)
-        scale = pmean.to(device)
-        pred_de = (q_total * scale).cpu().numpy()
+        scale = _to(pmean, device)
+        pred_de = (q_total.float() * scale).cpu().numpy()
         obs_de = (y * scale).cpu().numpy()
         bid_np = bids.numpy() if isinstance(bids, torch.Tensor) else bids
         for i, bid in enumerate(bid_np):
@@ -238,7 +357,7 @@ def _save_checkpoint(
 
 
 def _get_gate_stats(model: torch.nn.Module) -> dict | None:
-    """Extract tau and last-batch mean π/blend from gated/moe models.
+    """Extract tau and last-batch mean Ï€/blend from gated/moe models.
 
     Returns None for models without a gating network.
     """
@@ -250,14 +369,20 @@ def _get_gate_stats(model: torch.nn.Module) -> dict | None:
     stats: dict = {}
     if hasattr(m, "tau"):
         stats["tau"] = m.tau.item()
+        tau_min = getattr(m, "tau_min", None)
+        if tau_min is not None:
+            stats["tau_eff"] = max(stats["tau"], float(tau_min))
+    gate_names = getattr(m, "gate_output_names", None)
     if hasattr(m, "_last_pi"):
         pi = m._last_pi
         for i in range(pi.shape[0]):
-            stats[f"pi_{i}"] = pi[i].item()
+            key = f"pi_{gate_names[i]}" if gate_names is not None else f"pi_{i}"
+            stats[key] = pi[i].item()
     else:
         # Before the first forward pass, fill with NaN so columns exist
         for i in range(n_out):
-            stats[f"pi_{i}"] = float("nan")
+            key = f"pi_{gate_names[i]}" if gate_names is not None else f"pi_{i}"
+            stats[key] = float("nan")
     return stats
 
 
@@ -290,13 +415,13 @@ def train_model(
     epoch_callback: callable | None = None,
     norm_stats: dict | None = None,
 ) -> tuple[torch.nn.Module, dict]:
-    """Train with warmup → cosine → optional SWA. Returns (best model, history).
+    """Train with warmup â†’ cosine â†’ optional SWA. Returns (best model, history).
 
     Two phases controlled by a single patience counter:
       1. Normal training: warmup then cosine LR.  Best checkpoint saved.
-         When patience exhausts → if use_swa, activate SWA; else stop.
+         When patience exhausts â†’ if use_swa, activate SWA; else stop.
       2. SWA phase: fixed low LR, weight averaging every epoch.
-         When patience exhausts again → stop.  Final averaged model returned.
+         When patience exhausts again â†’ stop.  Final averaged model returned.
 
     If *epoch_callback* is provided, it is called as
     ``epoch_callback(epoch, val_loss)`` after each validation step.
@@ -309,12 +434,24 @@ def train_model(
     A ``log.txt`` file is written to the fold directory with per-epoch
     metrics (train loss, val loss, NSE, KGE, LR, and gate diagnostics).
     """
-    optimizer = torch.optim.Adam(
-        filter(lambda p: p.requires_grad, model.parameters()),
-        lr=config.learning_rate, weight_decay=config.weight_decay,
-    )
+    _train_epoch_impl = train_epoch
+    _validate_epoch_impl = validate_epoch
 
-    # Warmup → cosine annealing
+    decay_params = []
+    no_decay_params = []
+    for name, param in model.named_parameters():
+        if not param.requires_grad:
+            continue
+        if name.endswith("_log_tau"):
+            no_decay_params.append(param)
+        else:
+            decay_params.append(param)
+    param_groups = [{"params": decay_params, "weight_decay": config.weight_decay}]
+    if no_decay_params:
+        param_groups.append({"params": no_decay_params, "weight_decay": 0.0})
+    optimizer = torch.optim.Adam(param_groups, lr=config.learning_rate)
+
+    # Warmup â†’ cosine annealing
     # When warmup_epochs=0 (e.g. fine-tuning pretrained weights), skip the
     # warmup and use bare cosine to avoid SequentialLR edge cases.
     if config.warmup_epochs > 0:
@@ -343,21 +480,29 @@ def train_model(
     swa_model: AveragedModel | None = None
     swa_scheduler: torch.optim.lr_scheduler.LRScheduler | None = None
 
-    # torch.compile for graph-level optimisations (skipped on MPS — limited backend support)
-    if device.type != "mps" and hasattr(torch, "compile"):
-        model = torch.compile(model)
+    # torch.compile is intentionally not used here: LSTMs already hit a
+    # fused cuDNN kernel on CUDA, and Inductor's CUDA backend requires
+    # Triton (not shipped with default Windows PyTorch wheels).  On MPS
+    # compile support is still limited.  Skipping it keeps behaviour
+    # identical across macOS (MPS) and Windows/Linux (CUDA).
 
     ckpt_dir = config.output_dir / f"fold_{fold_idx}"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     ckpt_path = ckpt_dir / "best_model.pt"
+    raw_ckpt_path = ckpt_dir / "best_raw_model.pt"
+    swa_ckpt_path = ckpt_dir / "swa_model.pt"
     log_path = ckpt_dir / "log.txt"
 
     # Determine whether model has a gating network (for extra columns)
     has_gate = _get_gate_stats(model) is not None
+    train_extra_keys: list[str] = []
 
-    best_val = float("inf")
+    best_val = _initial_selection_score(config)
+    raw_best_score = _initial_selection_score(config)
+    swa_best_score = _initial_selection_score(config)
     wait = 0
     swa_active = False
+    curriculum_phase = "daily"
 
     if config.output_type == "cmal":
         _loss_tag = config.cmal_loss          # "nll" or "crps"
@@ -371,25 +516,36 @@ def train_model(
         f"train_{_loss_tag}": [], "train_total": [],
         f"val_{_loss_tag}": [], "val_nse": [], "val_kge": [],
     }
+    for key in train_extra_keys:
+        history[key] = []
     if has_gate:
         _init_gate = _get_gate_stats(model)
         if "tau" in _init_gate:
             history["tau"] = []
+        if "tau_eff" in _init_gate:
+            history["tau_eff"] = []
         # Pre-populate pi column names from initial stats
-        gate_pi_keys = [k for k in sorted(_init_gate) if k.startswith("pi_")]
+        gate_names = getattr(_unwrap_model(model), "gate_output_names", None)
+        if gate_names is not None:
+            gate_pi_keys = [f"pi_{name}" for name in gate_names]
+        else:
+            gate_pi_keys = [k for k in sorted(_init_gate) if k.startswith("pi_")]
         for k in gate_pi_keys:
             history[k] = []
 
-    # Open log file — write header, then append each epoch
-    log_fh = open(log_path, "w")
+    # Open log file â€” write header, then append each epoch
+    log_fh = open(log_path, "w", encoding="utf-8")
     _log_columns = [
         "epoch", "phase", "lr",
         f"train_{_loss_tag}", "train_total",
         f"val_{_loss_tag}", "val_nse", "val_kge",
     ]
+    _log_columns.extend(train_extra_keys)
     if has_gate:
         if "tau" in _init_gate:
             _log_columns.append("tau")
+        if "tau_eff" in _init_gate:
+            _log_columns.append("tau_eff")
         _log_columns.extend(gate_pi_keys)
 
     log_fh.write("\t".join(_log_columns) + "\n")
@@ -398,8 +554,10 @@ def train_model(
     def _record_epoch(epoch: int, phase: str, lr: float,
                       train_mse: float, train_total: float,
                       val_loss: float, val_nse: float, val_kge: float,
-                      active_model: torch.nn.Module) -> None:
+                      active_model: torch.nn.Module,
+                      train_extra: dict | None = None) -> None:
         """Append one row to history, log file, and console."""
+        train_extra = train_extra or {}
         history["epoch"].append(epoch)
         history["phase"].append(phase)
         history["lr"].append(lr)
@@ -408,6 +566,8 @@ def train_model(
         history[f"val_{_loss_tag}"].append(val_loss)
         history["val_nse"].append(val_nse)
         history["val_kge"].append(val_kge)
+        for key in train_extra_keys:
+            history[key].append(train_extra.get(key, float("nan")))
 
         # gate diagnostics
         gate_str = ""
@@ -415,11 +575,17 @@ def train_model(
             gs = _get_gate_stats(active_model)
             if "tau" in gs:
                 history["tau"].append(gs["tau"])
+            if "tau_eff" in gs:
+                history["tau_eff"].append(gs["tau_eff"])
             for k in gate_pi_keys:
                 history[k].append(gs.get(k, float("nan")))
             pi_vals = " ".join(f"{gs.get(k, 0):.3f}" for k in gate_pi_keys)
-            tau_str = f"τ={gs['tau']:.4f} " if "tau" in gs else ""
-            gate_str = f" | {tau_str}π=[{pi_vals}]"
+            tau_str = ""
+            if "tau" in gs:
+                tau_str = f"Ï„={gs['tau']:.4f} "
+                if "tau_eff" in gs and abs(gs["tau_eff"] - gs["tau"]) > 1e-6:
+                    tau_str = f"Ï„={gs['tau']:.4f}/{gs['tau_eff']:.4f} "
+            gate_str = f" | {tau_str}Ï€=[{pi_vals}]"
 
         # console
         has_train = not (math.isnan(train_mse) or math.isnan(train_total))
@@ -440,9 +606,13 @@ def train_model(
             f"{train_mse:.6f}", f"{train_total:.6f}",
             f"{val_loss:.6f}", f"{val_nse:.4f}", f"{val_kge:.4f}",
         ]
+        for key in train_extra_keys:
+            row.append(f"{train_extra.get(key, float('nan')):.6f}")
         if has_gate:
             if "tau" in gs:
                 row.append(f"{gs['tau']:.6f}")
+            if "tau_eff" in gs:
+                row.append(f"{gs['tau_eff']:.6f}")
             for k in gate_pi_keys:
                 row.append(f"{gs.get(k, float('nan')):.6f}")
         log_fh.write("\t".join(str(v) for v in row) + "\n")
@@ -450,57 +620,71 @@ def train_model(
 
     try:
         # ---- Epoch 0: cold (random-weight) performance ----
-        val_loss_0, val_nse_0, val_kge_0 = validate_epoch(model, val_loader, device, config)
-        _record_epoch(0, "init", 0.0, float("nan"), float("nan"),
+        val_loss_0, val_nse_0, val_kge_0 = _validate_epoch_impl(model, val_loader, device, config)
+        _record_epoch(0, f"init_{curriculum_phase}", 0.0, float("nan"), float("nan"),
                        val_loss_0, val_nse_0, val_kge_0, model)
 
         for epoch in range(1, config.num_epochs + 1):
-            train_mse, train_total = train_epoch(
+            train_mse, train_total = _train_epoch_impl(
                 model, train_loader, optimizer, device, config,
             )
 
             if swa_active:
                 swa_model.update_parameters(model)
                 swa_scheduler.step()
-                val_loss, val_nse, val_kge = validate_epoch(swa_model, val_loader, device, config)
+                val_loss, val_nse, val_kge = _validate_epoch_impl(swa_model, val_loader, device, config)
             else:
                 scheduler.step()
-                val_loss, val_nse, val_kge = validate_epoch(model, val_loader, device, config)
+                val_loss, val_nse, val_kge = _validate_epoch_impl(model, val_loader, device, config)
 
             lr_now = optimizer.param_groups[0]["lr"]
-            phase = "swa" if swa_active else "train"
+            phase = "swa" if swa_active else curriculum_phase
             active_model = swa_model if swa_active else model
+            train_extra = _get_train_stats(model) if train_extra_keys else None
 
             _record_epoch(epoch, phase, lr_now, train_mse, train_total,
-                          val_loss, val_nse, val_kge, active_model)
+                          val_loss, val_nse, val_kge, active_model,
+                          train_extra=train_extra)
 
             if epoch_callback is not None:
                 epoch_callback(epoch, val_loss)
 
-            # Track improvement using val loss (lower is better).
-            threshold = best_val * (1.0 - config.min_delta)
-            if val_loss < threshold:
-                best_val = val_loss
+
+            # Track improvement using the configured validation selection metric.
+            selection_score = _validation_selection_score(val_loss, val_nse, val_kge, config)
+            if _is_selection_improved(selection_score, best_val, config):
+                best_val = selection_score
                 wait = 0
                 if not swa_active:
                     _save_checkpoint(model.state_dict(), ckpt_path, norm_stats)
+                    _save_checkpoint(model.state_dict(), raw_ckpt_path, norm_stats)
+                    raw_best_score = selection_score
+                else:
+                    _save_checkpoint(swa_model.module.state_dict(), swa_ckpt_path, norm_stats)
+                    swa_best_score = selection_score
             else:
                 wait += 1
 
-            # Patience exhausted → transition or stop
+            # Patience exhausted â†’ transition or stop
             current_patience = config.swa_patience if swa_active else config.patience
             if wait >= current_patience:
                 if not swa_active and config.use_swa:
                     # Reload best pre-SWA weights and start averaging from there
                     load_checkpoint(ckpt_path, model, device)
                     swa_model = AveragedModel(model, device=device)
+                    # The next epoch is the first SWA update.  Set LR immediately so
+                    # that epoch does not train from the raw-best checkpoint at the
+                    # pre-SWA scheduler LR before SWALR has a chance to anneal.
+                    for group in optimizer.param_groups:
+                        group["lr"] = config.swa_lr
                     swa_scheduler = torch.optim.swa_utils.SWALR(
-                        optimizer, swa_lr=config.swa_lr, anneal_epochs=2,
+                        optimizer, swa_lr=config.swa_lr, anneal_epochs=1,
                     )
                     swa_active = True
-                    best_val = float("inf")  # reset for SWA phase
+                    best_val = _initial_selection_score(config)  # reset for SWA phase
+                    swa_best_score = _initial_selection_score(config)
                     wait = 0
-                    print(f"  >> Val plateau at epoch {epoch} — activating SWA")
+                    print(f"  >> Val plateau at epoch {epoch} â€” activating SWA")
                     log_fh.write(f"# SWA activated at epoch {epoch}\n")
                     log_fh.flush()
                 else:
@@ -512,11 +696,24 @@ def train_model(
     finally:
         log_fh.close()
 
-    # Return final model
+    # Return selected model. SWA is only promoted when its best validation
+    # selection score beats the best raw daily checkpoint.
     if swa_active:
-        _save_checkpoint(swa_model.module.state_dict(), ckpt_path, norm_stats)
-        load_checkpoint(ckpt_path, model, device)
-        print(f"  SWA model saved (averaged over {swa_model.n_averaged} snapshots)")
+        if _is_selection_better(swa_best_score, raw_best_score, config):
+            load_checkpoint(swa_ckpt_path, model, device)
+            _save_checkpoint(model.state_dict(), ckpt_path, norm_stats)
+            print(
+                f"  SWA model promoted over raw best "
+                f"({_selection_metric(config)}={swa_best_score:.4f}; "
+                f"averaged over {swa_model.n_averaged} snapshots)"
+            )
+        else:
+            load_checkpoint(ckpt_path, model, device)
+            print(
+                f"  Raw best retained over SWA "
+                f"({_selection_metric(config)} raw={raw_best_score:.4f}, "
+                f"swa={swa_best_score:.4f}; averaged over {swa_model.n_averaged} snapshots)"
+            )
     else:
         load_checkpoint(ckpt_path, model, device)
 

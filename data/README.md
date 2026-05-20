@@ -2,13 +2,15 @@
 
 ## Model Inputs
 
-`training/` — All final training/evaluation data, read directly by the model code (paths set in `config.toml`).
+`training/` — All final training/evaluation data, read directly by the model code (paths set in `scripts/cfg_*.toml`).
 
 | Directory | Contents |
 |---|---|
-| `training/climate/` | Daily climate CSVs per basin (`climate_<basin_id>.csv`): precip_mm, tmax_c, tmin_c (1915–2018) |
+| `training/climate/watersheds/` | Daily climate CSVs per gauge (`climate_<basin_id>.csv`): precip_mm, tmax_c, tmin_c (1915–2018) |
+| `training/climate/huc12/` | Daily climate CSVs per HUC12 (manifest subset — only HUC12s overlapping training gauges; full domain is in `data/eval/climate/huc12/`) |
 | `training/flow/` | Quality-filtered daily streamflow + climate, split by tier (`tier_{1,2,3}/<basin_id>_cleaned.csv`) |
-| `training/static/` | Basin-level attributes: `Physical_Attributes_Watersheds.csv` (physical/land-cover) and `Climate_Statistics_Watersheds.csv` (long-term climate normals) |
+| `training/static/watersheds/` | Gauge-level attributes: `Physical_Attributes_Watersheds.csv`, `Climate_Statistics_Watersheds.csv` |
+| `training/static/huc12/` | HUC12-level attributes (manifest subset) |
 | `training/watersheds/` | Watershed boundaries (`watersheds.geojson`) and pour-point table (`watersheds.csv`) |
 | `training/output/` | Model outputs created at runtime — per-fold checkpoints (`best_model.pt`), basin results, and predicted timeseries |
 
@@ -45,10 +47,10 @@
 
 | File / directory | Contents |
 |---|---|
-| `dual_lstm_kfold.csv` | Per-basin evaluation metrics (NSE, KGE, FHV, FLV) for the dual-pathway LSTM 5-fold cross-validation |
-| `dual_lstm_cmal_kfold.csv` | Per-basin metrics for the dual-pathway LSTM with CMAL probabilistic head |
-| `single_lstm_kfold.csv` | Per-basin metrics for the single LSTM baseline |
-| `moe_lstm_kfold.csv` | Per-basin metrics for the mixture-of-experts LSTM |
+| `dual_lstm.csv` | Per-basin evaluation metrics (NSE, KGE, FHV, FLV) for the dual-pathway LSTM 5-fold cross-validation |
+| `dual_lstm_cmal.csv` | Per-basin metrics for the dual-pathway LSTM with CMAL probabilistic head |
+| `single_lstm.csv` | Per-basin metrics for the single LSTM baseline |
+| `moe_lstm.csv` | Per-basin metrics for the mixture-of-experts LSTM |
 | `vic_simulated.csv` | Per-basin metrics for VIC simulated runoff vs observed flow |
 | `cdf_nse.png`, `cdf_kge.png`, `cdf_fhv.png`, `cdf_flv.png` | CDF plots of each metric across all models (generated via `--cdf`) |
 | `cdf_kge_vic_comparison.png` | CDF of KGE comparing LSTM vs VIC calibrated/regionalized on overlapping basins |

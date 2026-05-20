@@ -8,7 +8,6 @@ from __future__ import annotations
 import sys
 import traceback
 from pathlib import Path
-from typing import Optional
 
 import pandas as pd
 import dataretrieval.nwis as nwis
@@ -16,7 +15,7 @@ import dataretrieval.nwis as nwis
 from src.paths import STATION_TABLE, RAW_USGS_DIR
 
 
-def fetch_and_save_station(station_no: str, start_year: int, end_year: int) -> Optional[Path]:
+def fetch_and_save_station(station_no: str, start_year: int, end_year: int) -> Path | None:
     """Fetch daily values for a station and save to CSV.
 
     Requests discharge (00060) and water temperature (00010).
@@ -97,7 +96,7 @@ def main() -> None:
             traceback.print_exc()
             failures += 1
 
-    print(f"\nDone. Success: {success}, Failures: {failures}, Total: {total}")
+    print(f"\nDone. Success: {success}, Failures: {failures}, Stations with temp: {has_temp}, Total: {total}")
     print(f"Stations with water temperature data: {has_temp}/{success}")
 
 

@@ -1,0 +1,116 @@
+# =============================================================================
+# neuralhyd-ca - single LSTM with grouped static attributes
+# Run with: python scripts/train_kfold.py scripts/cfg_single_lstm_grouped_static.toml
+# =============================================================================
+
+[paths]
+data_dir             = "../data"
+climate_zarr          = "../data/training/climate/watersheds.zarr"
+flow_zarr             = "../data/training/flow.zarr"
+static_basin_atlas   = "../data/training/static/watersheds/Physical_Attributes_Watersheds.csv"
+static_climate       = "../data/training/static/watersheds/Climate_Statistics_Watersheds.csv"
+
+[basins]
+training_manifest    = "huc12_intersect"
+include_cdec_basins  = true
+
+[sequence]
+seq_len              = 365
+
+[model]
+model_type           = "single"
+single_hidden_size   = 128
+dropout              = 0.15
+static_dropout       = 0.25
+basin_loss_weight_exponent = 0.50
+
+[static_encoding]
+static_attribute_mode = "grouped"
+static_group_dropout  = 0.15
+
+[blended_loss]
+log_loss_lambda      = 0.05
+log_loss_epsilon     = 0.001
+
+[training]
+batch_size           = 512
+learning_rate        = 4e-4
+weight_decay         = 3e-4
+input_noise_std      = 0.1
+warmup_epochs        = 3
+num_epochs           = 80
+patience             = 8
+min_delta            = 0.002
+num_workers          = 0
+grad_clip            = 1.0
+use_swa              = true
+swa_lr               = 2e-4
+swa_patience         = 10
+
+[validation]
+n_folds              = 5
+seed                 = 42
+
+[features]
+dynamic_features = ["precip_mm", "tmax_c", "tmin_c"]
+static_features  = [
+    "ele_mt_uav", "slp_dg_uav", "sgr_dk_sav",
+    "ria_ha_usu", "riv_tc_usu", "discharge_mean_m3s",
+    "river_mean_depth_m", "river_residence_days", "dist_main_km",
+    "log_gauge_area_km2",
+    "log_gauge_flow_length_km", "lka_pc_use",
+    "gwt_cm_sav", "cly_pc_uav", "slt_pc_uav", "snd_pc_uav",
+    "soc_th_uav", "swc_pc_uyr", "lit_cl_top1", "lit_pc_top1",
+    "lit_cl_top2", "lit_pc_top2", "lit_cl_top3", "lit_pc_top3",
+    "for_pc_use", "glc_cl_top1", "glc_pc_top1", "glc_cl_top2",
+    "glc_pc_top2", "glc_cl_top3", "glc_pc_top3", "pnv_cl_top1",
+    "pnv_pc_top1", "pnv_cl_top2", "pnv_pc_top2", "pnv_cl_top3",
+    "pnv_pc_top3", "wet_cl_smj", "snow_fraction", "clz_cl_smj",
+    "aridity_index", "cmi_ix_uyr", "pet_mean", "high_precip_freq",
+    "precip_mean", "low_precip_dur", "high_precip_dur",
+]
+log_transform_static = [
+    "ria_ha_usu", "riv_tc_usu", "discharge_mean_m3s", "river_residence_days",
+]
+categorical_static_features = [
+    "clz_cl_smj", "lit_cl_top1", "lit_cl_top2", "lit_cl_top3",
+    "glc_cl_top1", "glc_cl_top2", "glc_cl_top3", "pnv_cl_top1",
+    "pnv_cl_top2", "pnv_cl_top3", "wet_cl_smj",
+]
+
+[categorical_static_feature_values]
+clz_cl_smj = [6, 7, 8, 9, 10, 11, 12, 15]
+lit_cl_top1 = [1, 2, 3, 5, 7, 8, 9, 10, 11, 13]
+lit_cl_top2 = [0, 1, 2, 3, 5, 7, 8, 9, 10, 11, 12, 13]
+lit_cl_top3 = [0, 1, 2, 3, 5, 7, 8, 9, 10, 13]
+glc_cl_top1 = [4, 12, 13, 14]
+glc_cl_top2 = [0, 1, 4, 6, 9, 12, 13, 14, 16, 20, 22]
+glc_cl_top3 = [0, 4, 9, 11, 12, 13, 14, 15, 16, 20, 21, 22]
+pnv_cl_top1 = [4, 5, 6, 9, 10, 11, 12, 13]
+pnv_cl_top2 = [0, 4, 5, 6, 9, 10, 11, 12, 13]
+pnv_cl_top3 = [0, 4, 5, 6, 8, 9, 10, 11, 12, 13]
+wet_cl_smj = [0, 1, 2, 9, 10, 11]
+
+[static_feature_groups]
+topography = ["ele_mt_uav", "slp_dg_uav", "sgr_dk_sav"]
+routing = [
+    "ria_ha_usu", "riv_tc_usu", "discharge_mean_m3s",
+    "river_mean_depth_m", "river_residence_days", "dist_main_km",
+    "log_gauge_area_km2",
+    "log_gauge_flow_length_km", "lka_pc_use",
+]
+soil = [
+    "gwt_cm_sav", "cly_pc_uav", "slt_pc_uav", "snd_pc_uav",
+    "soc_th_uav", "swc_pc_uyr", "lit_cl_top1", "lit_pc_top1",
+    "lit_cl_top2", "lit_pc_top2", "lit_cl_top3", "lit_pc_top3",
+]
+land_cover = [
+    "for_pc_use", "glc_cl_top1", "glc_pc_top1", "glc_cl_top2",
+    "glc_pc_top2", "glc_cl_top3", "glc_pc_top3", "pnv_cl_top1",
+    "pnv_pc_top1", "pnv_cl_top2", "pnv_pc_top2", "pnv_cl_top3",
+    "pnv_pc_top3", "wet_cl_smj",
+]
+hydroclimate = [
+    "snow_fraction", "clz_cl_smj", "aridity_index", "cmi_ix_uyr", "pet_mean",
+    "high_precip_freq", "precip_mean", "low_precip_dur", "high_precip_dur",
+]

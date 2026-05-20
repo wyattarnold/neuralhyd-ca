@@ -1,7 +1,7 @@
 """Typed configuration container for experiment hyperparameters.
 
-All tuneable values live in a TOML file (default ``scripts/config.toml``).
-The ``Config`` dataclass is the single source of truth consumed by every
+All tuneable values live in named TOML files under ``scripts/``.  The
+``Config`` dataclass is the single source of truth consumed by every
 other module — no magic numbers should appear elsewhere.
 
 Key exports
@@ -10,8 +10,7 @@ Config
     Dataclass holding every hyperparameter; path fields are resolved to
     absolute ``Path`` objects automatically on load.
 load_config(path)
-    Parse a TOML file and return a validated ``Config`` instance.  Pass
-    an alternate path to run a named experiment.
+    Parse a TOML file and return a validated ``Config`` instance.
 """
 from __future__ import annotations
 
@@ -20,10 +19,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List
 
-from src.paths import DEFAULT_CONFIG, TRAINING_OUTPUT_DIR
+from src.paths import TRAINING_OUTPUT_DIR
 
 _PATH_FIELDS = frozenset(
-    ["data_dir", "climate_dir", "flow_dir", "static_basin_atlas", "static_climate", "output_dir"]
+    ["data_dir", "climate_zarr", "flow_zarr", "static_basin_atlas", "static_climate", "output_dir"]
 )
 
 
@@ -31,8 +30,8 @@ _PATH_FIELDS = frozenset(
 class Config:
     # ----- Paths -----
     data_dir: Path
-    climate_dir: Path
-    flow_dir: Path
+    climate_zarr: Path           # data/training/climate/<scope>.zarr
+    flow_zarr: Path              # data/training/flow.zarr
     static_basin_atlas: Path
     static_climate: Path
     output_dir: Path
@@ -42,14 +41,8 @@ class Config:
 
     # ----- Model architecture -----
     model_type: str
-    static_embedding_dim: int
-    static_hidden_size: int
     dropout: float
     static_dropout: float
-
-    # ----- Blended loss -----
-    log_loss_lambda: float
-    log_loss_epsilon: float
 
     # ----- Training -----
     batch_size: int
@@ -75,6 +68,13 @@ class Config:
     static_features: List[str]
     log_transform_static: List[str]
 
+    # ----- Validation selection -----
+    validation_selection_metric: str = "loss"  # "loss", "nse", or "kge"
+
+    # ----- Blended loss -----
+    log_loss_lambda: float = 0.05
+    log_loss_epsilon: float = 0.001
+
     # ----- Dual-pathway defaults (not needed for single/moe configs) -----
     single_hidden_size: int = 128
     fast_window: int = 28
@@ -83,6 +83,12 @@ class Config:
     slow_hidden_size: int = 128
     aux_loss_weight: float = 0.4
     baseflow_alpha: float = 0.925
+    static_embedding_dim: int = 32   # flat encoder only; ignored in grouped mode
+    static_hidden_size: int = 64     # flat encoder only; ignored in grouped mode
+
+    # ----- Basin domain / filtering -----
+    training_manifest: str = "gages"
+    include_cdec_basins: bool = True
 
     # ----- Flow normalisation -----
     # The model uses a jointly-learned per-basin scale head (ScaleHead on the
@@ -99,17 +105,27 @@ class Config:
     ])
     use_window_snow_fraction: bool = False
 
-    # ----- MoE-τ architecture (model_type="moe") -----
+    # ----- Static attribute representation -----
+    # ``static_attribute_mode='flat'`` uses one row per gauge watershed with the
+    # flat MLP encoder. ``'grouped'`` uses gauge-watershed static attributes,
+    # adds gauge-level derived routing/area features when requested, and feeds
+    # them through semantic static groups.
+    static_attribute_mode: str = "flat"  # "flat" or "grouped"
+    categorical_static_features: List[str] = field(default_factory=list)
+    categorical_static_feature_values: dict[str, List[int]] = field(default_factory=dict)
+
+    # ----- MoE-tau architecture (model_type="moe") -----
     moe_n_experts: int = 2
     moe_expert_hidden_size: int = 128
     moe_gate_hidden_size: int = 64
     moe_attention_dim: int = 32
     moe_tau_init: float = 0.5
+    moe_tau_min: float = 1e-4
 
     # ----- Extreme-flow loss weighting -----
     # Per-basin quantile-based: weight ramps from 1 at quantile
     # extreme_start_quantile up to extreme_peak_boost at extreme_top_quantile.
-    # Defaults (p99 → p99.9) treat 1-in-100-day events as the start of
+    # Defaults (p99 -> p99.9) treat 1-in-100-day events as the start of
     # "extreme" and 1-in-1000-day events as the full-weight peak, for every
     # basin regardless of flow regime.  Thresholds are computed per basin
     # on the normalised target (flow / precip_mean) at fold-init time.
@@ -120,11 +136,16 @@ class Config:
     # ----- Per-basin loss weighting (gradient balancing) -----
     # Weight per basin = 1 / max(var_b, basin_loss_min_var)^basin_loss_weight_exponent
     # where var_b = var(flow / precip_mean) for basin b.
-    #   exponent = 0.0  → no weighting (uniform; high-var basins dominate)
-    #   exponent = 0.5  → sqrt-compressed (~10× spread)
-    #   exponent = 1.0  → full inverse-variance (~100× spread, balanced per-basin)
+    #   exponent = 0.0  -> no weighting (uniform; high-var basins dominate)
+    #   exponent = 0.5  -> sqrt-compressed (~10x spread)
+    #   exponent = 1.0  -> full inverse-variance (~100x spread, balanced per-basin)
     basin_loss_weight_exponent: float = 0.5
     basin_loss_min_var: float = 0.1
+    # Optional record-length balancing.  DataLoader sampling is per day, so without
+    # this a basin's total exposure is still roughly proportional to n_obs.  Setting
+    # 0.5 partially compresses long/short-record imbalance; 1.0 gives each basin
+    # roughly equal total loss mass per epoch.  Default 0 preserves legacy behavior.
+    basin_record_weight_exponent: float = 0.0
 
     # ----- Probabilistic output -----
     output_type: str = "deterministic"   # "deterministic" or "cmal"
@@ -134,28 +155,72 @@ class Config:
     cmal_crps_n_samples: int = 50        # samples per component for CRPS spread term
     cmal_entropy_weight: float = 0.1     # weight on mixture-weight entropy reg (0 = off)
     cmal_scale_reg_weight: float = 0.0   # weight on scale-collapse penalty (0 = off)
-    cmal_beta_crps: float = 0.0          # β-CRPS spread penalty (0 = off; 0.5 typical)
+    cmal_beta_crps: float = 0.0          # beta-CRPS spread penalty (0 = off; 0.5 typical)
 
     # ----- Grouped static encoder -----
-    # Ordered dict of group_name → list[feature_name].  When set, features
+    # Ordered dict of group_name -> list[feature_name].  When set, features
     # are concatenated **in group order** and a GroupedStaticEncoder is used
     # instead of the flat MLP.  Every feature in effective_static_features
-    # must appear in exactly one group.
+    # must appear in exactly one group.  Per-group output dims are auto-sized
+    # to max(ceil(2*sqrt(n)), 4), and each model branch gets its own encoder.
     static_feature_groups: dict[str, List[str]] | None = None
-    static_group_hidden: int = 0   # per-group encoder dim (0 = auto)
+    static_group_dropout: float = 0.0  # probability of dropping a whole static group
+
+    # ----- Hardware / throughput tuning -----
+    # Each flag is a no-op on devices that don't support the feature, so
+    # defaults are safe on macOS MPS and CPU.
+    use_amp: bool = True                # bf16 autocast (CUDA only; ignored on MPS/CPU)
+    cudnn_benchmark: bool = True        # torch.backends.cudnn.benchmark (CUDA only)
+    tf32: bool = True                   # TF32 matmul on Ampere+ (CUDA only)
 
     def __post_init__(self) -> None:
         for f in _PATH_FIELDS:
             val = getattr(self, f)
             if isinstance(val, str):
                 setattr(self, f, Path(val))
+        self.training_manifest = str(self.training_manifest).lower()
+        if self.training_manifest not in {"gages"}:
+            raise ValueError(
+                "training_manifest must be 'gages'; "
+                f"got {self.training_manifest!r}"
+            )
+        self.static_attribute_mode = str(self.static_attribute_mode).lower()
+        if self.static_attribute_mode not in {"flat", "grouped"}:
+            raise ValueError(
+                "static_attribute_mode must be 'flat' or 'grouped'; "
+                f"got {self.static_attribute_mode!r}"
+            )
+        if not (0.0 <= self.static_group_dropout < 1.0):
+            raise ValueError("static_group_dropout must be in [0, 1)")
+        categorical = set(self.categorical_static_features)
+        for feat in categorical:
+            if feat not in self.categorical_static_feature_values:
+                raise ValueError(
+                    f"categorical_static_feature_values must define categories for {feat!r}"
+                )
+            if not self.categorical_static_feature_values[feat]:
+                raise ValueError(f"categorical feature {feat!r} must define at least one category")
+        for feat in self.effective_static_features:
+            if feat in categorical and feat not in self.categorical_static_feature_values:
+                raise ValueError(
+                    f"categorical static feature {feat!r} is missing category values"
+                )
+        if self.validation_selection_metric not in ("loss", "nse", "kge"):
+            raise ValueError(
+                "validation_selection_metric must be 'loss', 'nse', or 'kge'; "
+                f"got {self.validation_selection_metric!r}"
+            )
+        if not (0.0 < self.moe_tau_init < 1.0):
+            raise ValueError(f"moe_tau_init must be in (0, 1), got {self.moe_tau_init}")
+        if not (0.0 < self.moe_tau_min < 1.0):
+            raise ValueError(f"moe_tau_min must be in (0, 1), got {self.moe_tau_min}")
 
     @property
     def effective_static_features(self) -> List[str]:
         """Static features after optional exclusion/addition of climate-derived ones.
 
         When ``static_feature_groups`` is defined, features are returned in
-        **group order** (group-1 features, then group-2, …) so that
+        **group order** (group-1 features, then group-2, ...) so that
         ``GroupedStaticEncoder`` can split the flat vector by group sizes.
         """
         feats = list(self.static_features)
@@ -189,30 +254,74 @@ class Config:
         return feats
 
     @property
+    def grouped_static_output_dim(self) -> int | None:
+        """Auto-computed output dim of GroupedStaticEncoder, or None for flat mode."""
+        sizes = self.static_group_sizes
+        if sizes is None:
+            return None
+        import math
+        return sum(max(math.ceil(2.0 * math.sqrt(n)), 4) for n in sizes)
+
+    @property
     def static_group_sizes(self) -> list[int] | None:
-        """Number of features per group (in group order), or None."""
+        """Number of encoded features per group (in group order), or None."""
         if self.static_feature_groups is None:
             return None
-        return [len(v) for v in self.static_feature_groups.values()]
+        return [sum(self._encoded_size_for_feature(f) for f in v)
+                for v in self.static_feature_groups.values()]
+
+    @property
+    def static_group_names(self) -> list[str] | None:
+        """Semantic static group names in input-vector order, or None."""
+        if self.static_feature_groups is None:
+            return None
+        return list(self.static_feature_groups.keys())
+
+    @property
+    def encoded_static_feature_names(self) -> List[str]:
+        """Feature names after expanding categorical columns to one-hot slots."""
+        names: list[str] = []
+        categorical = set(self.categorical_static_features)
+        for feat in self.effective_static_features:
+            if feat not in categorical:
+                names.append(feat)
+                continue
+            for value in self.categorical_static_feature_values[feat]:
+                names.append(f"{feat}={int(value)}")
+        return names
+
+    @property
+    def encoded_static_is_categorical(self) -> List[bool]:
+        """Mask over encoded static slots that should stay on their native scale."""
+        flags: list[bool] = []
+        categorical = set(self.categorical_static_features)
+        for feat in self.effective_static_features:
+            width = self._encoded_size_for_feature(feat)
+            flags.extend([feat in categorical] * width)
+        return flags
+
+    def _encoded_size_for_feature(self, feature: str) -> int:
+        if feature in set(self.categorical_static_features):
+            return len(self.categorical_static_feature_values[feature])
+        return 1
 
 
-def load_config(path: str | Path = DEFAULT_CONFIG) -> Config:
+def load_config(path: str | Path) -> Config:
     """Load a TOML config file and return a Config instance.
 
-    output_dir is derived from the config filename when not explicitly set:
-      config.toml          → data/training/output/
-      config_<name>.toml   → data/training/output/<name>/
-      <other>.toml         → data/training/output/<stem>/
+        output_dir is derived from the config filename when not explicitly set:
+            cfg_<name>.toml      -> data/training/output/<name>/
+            <other>.toml         -> data/training/output/<stem>/
     """
     path = Path(path).resolve()
     config_dir = path.parent
     with open(path, "rb") as fh:
         raw = tomllib.load(fh)
 
-    # Flatten TOML sections into a single dict of field → value.
+    # Flatten TOML sections into a single dict of field -> value.
     # Sections whose name matches a Config field that expects a nested
     # dict (e.g. static_feature_groups) are preserved as-is.
-    _NESTED_FIELDS = {"static_feature_groups"}
+    _NESTED_FIELDS = {"static_feature_groups", "categorical_static_feature_values"}
     flat: dict = {}
     for key, val in raw.items():
         if key in _NESTED_FIELDS:
@@ -222,11 +331,9 @@ def load_config(path: str | Path = DEFAULT_CONFIG) -> Config:
 
     # Derive output_dir from filename when the TOML doesn't specify it.
     if "output_dir" not in flat:
-        stem = path.stem  # e.g. "config", "config_single", "my_exp"
-        if stem == "config":
-            flat["output_dir"] = str(TRAINING_OUTPUT_DIR)
-        elif stem.startswith("config_"):
-            flat["output_dir"] = str(TRAINING_OUTPUT_DIR / stem[len("config_"):])
+        stem = path.stem
+        if stem.startswith("cfg_"):
+            flat["output_dir"] = str(TRAINING_OUTPUT_DIR / stem[len("cfg_"):])
         else:
             flat["output_dir"] = str(TRAINING_OUTPUT_DIR / stem)
 

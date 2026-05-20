@@ -7,7 +7,7 @@ Output directory structure:
     data/eval/sim/<model>/<type>/<scenario>/<basin_id>.csv
 
 Where:
-    <model>    = training run name (e.g. dual_lstm_kfold)
+    <model>    = training run name (e.g. dual_lstm)
     <type>     = input domain (training_watersheds, huc_8, huc_10)
     <scenario> = climate scenario (historical, ...)
 
@@ -150,13 +150,12 @@ def _load_climate_data(
     basin_ids: List[int],
 ) -> Dict[int, pd.DataFrame]:
     """Load raw daily climate for the requested basins."""
-    climate: Dict[int, pd.DataFrame] = {}
-    for bid in basin_ids:
-        cpath = config.climate_dir / f"climate_{bid}.csv"
-        if cpath.exists():
-            cdf = pd.read_csv(cpath, parse_dates=["date"], index_col="date")
-            climate[bid] = cdf[config.dynamic_features]
-    return climate
+    from src.data.io import load_climate_dataframes
+
+    raw = load_climate_dataframes(
+        config.climate_zarr, basin_ids=basin_ids, variables=config.dynamic_features
+    )
+    return {int(bid): df for bid, df in raw.items()}
 
 
 def _load_static_df(config: Config) -> tuple[pd.DataFrame, pd.Series]:
@@ -167,20 +166,16 @@ def _load_static_df(config: Config) -> tuple[pd.DataFrame, pd.Series]:
     """
     return load_static_attributes(
         config.static_basin_atlas, config.static_climate,
-        config.log_transform_static,
+        config,
     )
 
 
 def _discover_basins(config: Config) -> tuple[List[int], Dict[int, int]]:
-    """Discover basin IDs and tier map from the flow directory structure."""
-    tier_map: Dict[int, int] = {}
-    for tier in (1, 2, 3):
-        tier_dir = config.flow_dir / f"tier_{tier}"
-        if not tier_dir.exists():
-            continue
-        for f in sorted(tier_dir.glob("*_cleaned.csv")):
-            basin_id = int(f.stem.replace("_cleaned", ""))
-            tier_map[basin_id] = tier
+    """Discover basin IDs and tier map from the flow zarr."""
+    from src.data.io import read_flow_zarr
+
+    basins, _, _, tier = read_flow_zarr(config.flow_zarr)
+    tier_map: Dict[int, int] = {int(b): int(t) for b, t in zip(basins, tier)}
     basin_ids = sorted(tier_map.keys())
     return basin_ids, tier_map
 
@@ -210,7 +205,7 @@ def _normalise_basin(
     dynamic = torch.from_numpy(clim_norm)
 
     # Static → z-score
-    eff_feats = config.effective_static_features
+    eff_feats = config.encoded_static_feature_names
     sv = static_df.loc[basin_id, eff_feats].values.astype(np.float32)
     sv_norm = (sv - stat_mean) / (stat_std + 1e-8)
     static = torch.from_numpy(sv_norm)
@@ -243,7 +238,7 @@ def simulate_training_watersheds(
 
     Parameters
     ----------
-    config_path : Path to the experiment TOML (e.g. config_dual_lstm_kfold.toml)
+    config_path : Path to the experiment TOML (e.g. cfg_dual_lstm.toml)
     output_base : Root output directory (e.g. data/eval/sim/)
     device      : Torch device; auto-detected if None
 
@@ -252,7 +247,7 @@ def simulate_training_watersheds(
     Path to the scenario output directory containing per-basin CSVs.
     """
     config = load_config(config_path)
-    run_name = config.output_dir.name  # e.g. "dual_lstm_kfold"
+    run_name = config.output_dir.name  # e.g. "dual_lstm"
 
     if device is None:
         device = pick_device()
@@ -333,37 +328,43 @@ def simulate_training_watersheds(
 # Ensemble simulation (all folds × all basins)
 # ---------------------------------------------------------------------------
 
-def _discover_basins_from_climate(climate_dir: Path) -> List[int]:
-    """Discover basin IDs from a climate directory (no tier structure needed)."""
-    ids = []
-    for f in sorted(climate_dir.glob("climate_*.csv")):
-        bid = int(f.stem.replace("climate_", ""))
-        ids.append(bid)
-    return ids
+def _discover_basins_from_climate_zarr(climate_zarr: Path) -> List[int]:
+    """Discover basin IDs from a climate zarr cube (no tier needed)."""
+    from src.data.io import read_climate_zarr
+
+    basins, _, _, dtype = read_climate_zarr(climate_zarr)
+    if dtype == "int64":
+        return [int(b) for b in basins]
+    return [int(b) for b in basins]
 
 
-def _load_climate_from_dir(
-    climate_dir: Path,
+def _load_climate_from_zarr(
+    climate_zarr: Path,
     basin_ids: List[int],
     dynamic_features: List[str],
 ) -> Dict[int, pd.DataFrame]:
-    """Load raw daily climate from an arbitrary directory."""
-    climate: Dict[int, pd.DataFrame] = {}
-    for bid in basin_ids:
-        cpath = climate_dir / f"climate_{bid}.csv"
-        if cpath.exists():
-            cdf = pd.read_csv(cpath, parse_dates=["date"], index_col="date")
-            climate[bid] = cdf[dynamic_features]
-    return climate
+    """Load raw daily climate from an arbitrary zarr cube."""
+    from src.data.io import load_climate_dataframes
+
+    raw = load_climate_dataframes(
+        climate_zarr, basin_ids=basin_ids, variables=dynamic_features
+    )
+    return {int(bid): df for bid, df in raw.items()}
 
 
 def _load_static_from_paths(
     basin_atlas_path: Path,
     climate_stats_path: Path,
-    log_transform: List[str],
+    config: Config,
 ) -> tuple[pd.DataFrame, pd.Series]:
     """Load and prepare static attributes from explicit CSV paths."""
-    return load_static_attributes(basin_atlas_path, climate_stats_path, log_transform)
+    if config.static_attribute_mode != "gauge":
+        raise ValueError(
+            "simulate_ensemble(target=...) with explicit target paths currently supports "
+            "only static_attribute_mode='gauge'. Use --target training_watersheds for "
+            "HUC12 area-weighted dPL-static LSTM runs."
+        )
+    return load_static_attributes(basin_atlas_path, climate_stats_path, config)
 
 
 def simulate_ensemble(
@@ -395,7 +396,7 @@ def simulate_ensemble(
 
     # Resolve input paths based on target
     target_paths = get_target_paths(target)
-    climate_dir = target_paths["climate_dir"]
+    climate_zarr = target_paths["climate_zarr"]
     basin_atlas_path = target_paths["basin_atlas_output"]
     climate_stats_path = target_paths["climate_stats_output"]
 
@@ -403,25 +404,22 @@ def simulate_ensemble(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # Discover basins and load shared data
-    basin_ids = _discover_basins_from_climate(climate_dir)
+    basin_ids = _discover_basins_from_climate_zarr(climate_zarr)
 
     # For training_watersheds, restrict to the basins that actually have flow
-    # data in the tiered flow directories (avoids processing extra basins that
-    # have climate files but were not used for training).
+    # data in the flow zarr (avoids processing extra basins that have climate
+    # but were not used for training).
     if target == "training_watersheds":
-        flow_basin_ids: set[int] = set()
-        for tier in (1, 2, 3):
-            tier_dir = config.flow_dir / f"tier_{tier}"
-            if tier_dir.exists():
-                for f in tier_dir.glob("*_cleaned.csv"):
-                    flow_basin_ids.add(int(f.stem.replace("_cleaned", "")))
+        from src.data.io import read_flow_zarr
+        flow_basins, _, _, _ = read_flow_zarr(config.flow_zarr)
+        flow_basin_ids = {int(b) for b in flow_basins}
         basin_ids = [b for b in basin_ids if b in flow_basin_ids]
 
-    climate_data = _load_climate_from_dir(
-        climate_dir, basin_ids, config.dynamic_features,
+    climate_data = _load_climate_from_zarr(
+        climate_zarr, basin_ids, config.dynamic_features,
     )
     static_df, raw_area_km2 = _load_static_from_paths(
-        basin_atlas_path, climate_stats_path, config.log_transform_static,
+        basin_atlas_path, climate_stats_path, config,
     )
 
     # Keep only basins with both climate and static data

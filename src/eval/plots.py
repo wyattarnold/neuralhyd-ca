@@ -233,8 +233,8 @@ def plot_metric_barplot(
     # Display name mapping for xtick labels
     _DISPLAY_NAMES: dict[str, str] = {
         "VIC":              "VIC",
-        "single_lstm_kfold": "Single LSTM",
-        "dual_lstm_kfold":   "Dual LSTM",
+        "single_lstm": "Single LSTM",
+        "dual_lstm":   "Dual LSTM",
     }
     tick_labels = [_DISPLAY_NAMES.get(l, l) for l in labels]
 

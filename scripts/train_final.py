@@ -9,7 +9,7 @@ on new basins without the original training data.
 
 Usage
 -----
-    python scripts/train_final.py [config.toml]
+    python scripts/train_final.py scripts/cfg_dual_lstm.toml
 
 Output (written to ``config.output_dir``):
     best_model.pt    Checkpoint: ``model_state_dict`` + ``norm_stats``
@@ -35,17 +35,14 @@ from src.lstm.dataset import (
 )
 from src.lstm.evaluate import evaluate_fold
 from src.lstm.model import build_model
-from src.lstm.train import pick_device, train_model
-
-_SCRIPTS_DIR = Path(__file__).resolve().parent
-
+from src.lstm.train import pick_device, seed_everything, train_model
 
 def main() -> None:
     import argparse
     parser = argparse.ArgumentParser(description="Train final model on all basins.")
     parser.add_argument(
-        "config", nargs="?", default=str(_SCRIPTS_DIR / "config.toml"),
-        help="Path to TOML config file (default: scripts/config.toml)",
+        "config",
+        help="Path to an LSTM TOML config file, e.g. scripts/cfg_dual_lstm.toml",
     )
     args = parser.parse_args()
 
@@ -53,9 +50,20 @@ def main() -> None:
     config.output_dir = config.output_dir / "dual_lstm_final"
     config.output_dir.mkdir(parents=True, exist_ok=True)
 
+    seed_everything(config.seed)
+
     # ---- device ----
     device = pick_device()
     print(f"Device: {device}")
+
+    # CUDA performance knobs (no-ops on MPS / CPU)
+    if device.type == "cuda":
+        if config.cudnn_benchmark:
+            torch.backends.cudnn.benchmark = True
+        if config.tf32:
+            torch.set_float32_matmul_precision("high")
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.backends.cudnn.allow_tf32 = True
 
     # ---- load data ----
     print("Loading data …")
@@ -74,22 +82,25 @@ def main() -> None:
 
     # ---- single dataset (train = val = all basins) ----
     print(f"  Building dataset  ({len(basin_ids)} basins) …")
-    ds = HydroDataset(basin_ids, climate_data, flow_data, static_df, config, norm)
+    ds = HydroDataset(
+        basin_ids, climate_data, flow_data, static_df, config, norm,
+    )
     print(
         f"    {len(ds):,} samples  "
         f"(batch size {config.batch_size} → {len(ds) // config.batch_size:,} batches/epoch)"
     )
 
+    num_workers = config.num_workers
     pin = device.type == "cuda"
-    pw = config.num_workers > 0
+    pw = num_workers > 0
     train_loader = torch.utils.data.DataLoader(
         ds, batch_size=config.batch_size, shuffle=True,
-        num_workers=config.num_workers, pin_memory=pin,
+        num_workers=num_workers, pin_memory=pin,
         persistent_workers=pw,
     )
     val_loader = torch.utils.data.DataLoader(
         ds, batch_size=config.batch_size, shuffle=False,
-        num_workers=config.num_workers, pin_memory=pin,
+        num_workers=num_workers, pin_memory=pin,
         persistent_workers=pw,
     )
 

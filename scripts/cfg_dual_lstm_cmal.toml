@@ -1,0 +1,100 @@
+# =============================================================================
+# neuralhyd-ca - dual-pathway LSTM with CMAL probabilistic output
+# Run with: python scripts/train_kfold.py scripts/cfg_dual_lstm_cmal.toml
+#
+# This is still model_type="dual", so dual pathway sizes and auxiliary pathway
+# supervision remain relevant.  Deterministic blended-loss settings are omitted
+# because CMAL uses CRPS/NLL as the primary objective.
+# =============================================================================
+
+[paths]
+data_dir             = "../data"
+climate_zarr          = "../data/training/climate/watersheds.zarr"
+flow_zarr             = "../data/training/flow.zarr"
+static_basin_atlas   = "../data/training/static/watersheds/Physical_Attributes_Watersheds.csv"
+static_climate       = "../data/training/static/watersheds/Climate_Statistics_Watersheds.csv"
+
+[basins]
+# "gages" uses the gauge watershed domain.  CDEC full-natural-flow basins are
+# included when their flow, climate, and static rows are available.
+training_manifest    = "gages"
+include_cdec_basins  = true
+
+[sequence]
+# CMAL uses the same dual windows as the deterministic dual model, with a wider
+# fast window here to condition the distributional head on longer event context.
+seq_len              = 365
+fast_window          = 35
+info_gap             = false
+
+[model]
+# output_type="cmal" swaps the point head for a Countable Mixture of Asymmetric
+# Laplacians.  The saved q_total is the mixture expectation.
+model_type           = "dual"
+fast_hidden_size     = 48
+slow_hidden_size     = 96
+static_embedding_dim = 10
+static_hidden_size   = 32
+dropout              = 0.15
+static_dropout       = 0.10
+basin_loss_weight_exponent = 0.50
+
+output_type          = "cmal"
+cmal_n_components    = 3
+cmal_hidden_size     = 64
+cmal_loss            = "crps"
+cmal_crps_n_samples  = 50
+cmal_entropy_weight  = 0.10
+
+[aux_loss]
+# Pathway heads are retained in CMAL mode so the hidden states remain physically
+# interpretable; this auxiliary loss does not replace the CMAL primary loss.
+aux_loss_weight      = 0.25
+baseflow_alpha       = 0.925
+
+[training]
+batch_size           = 512
+learning_rate        = 5e-4
+weight_decay         = 1e-4
+input_noise_std      = 0.1
+warmup_epochs        = 3
+num_epochs           = 80
+patience             = 5
+min_delta            = 0.002
+num_workers          = 0
+grad_clip            = 1.0
+use_swa              = true
+swa_lr               = 2e-4
+swa_patience         = 10
+
+[validation]
+n_folds              = 5
+seed                 = 42
+
+[features]
+dynamic_features = ["precip_mm", "tmax_c", "tmin_c"]
+static_features  = [
+    # topography - Physical CSV
+    "total_Shape_Area_km2",
+    "ele_mt_uav",
+    "slp_dg_uav",
+    # river network - Physical CSV
+    "ria_ha_usu",
+    "riv_tc_usu",
+    "sgr_dk_sav",
+    # soil and surface - Physical CSV
+    "for_pc_use",
+    "cly_pc_uav",
+    "snd_pc_uav",
+    "clz_cl_smj",
+    "lit_cl_top1",
+    # climate normals - Climate CSV
+    "aridity_index",
+    "snow_fraction",
+    "pet_mean",
+    "high_precip_freq",
+    "precip_mean",
+    "low_precip_dur",
+    "high_precip_dur",
+]
+log_transform_static = ["total_Shape_Area_km2", "ria_ha_usu"]

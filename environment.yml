@@ -1,25 +1,25 @@
 name: neuralhyd
 channels:
-  - pytorch
   - conda-forge
-  - defaults
+  - nodefaults
 dependencies:
-  - python>=3.11
+  - python=3.14
   # ML / numerics
+  - scipy>=1.10
   - pytorch>=2.0
   - numpy>=1.24
   - pandas>=2.0
   - scikit-learn>=1.3
+  - shapely>=2.0
   # visualization
   - matplotlib>=3.7
-  # geospatial
+  # data retrieval / storage
   - geopandas>=0.13
-  - cartopy
+  - dataretrieval>=1.1.2
+  - zarr>=3.0
   - xarray
-  # data retrieval
+  # HTTP / utilities
   - requests
-  - dataretrieval
-  # utilities
   - tqdm>=4.65
   - pyarrow
   # web app
@@ -32,3 +32,4 @@ dependencies:
       - optuna>=3.0
       - sphinx>=7.0
       - furo>=2024.0
+      - pynhd>=0.16

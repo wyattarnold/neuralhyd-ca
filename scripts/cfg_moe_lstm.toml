@@ -1,0 +1,93 @@
+# =============================================================================
+# neuralhyd-ca - unsupervised MoE-tau LSTM
+# Run with: python scripts/train_kfold.py scripts/cfg_moe_lstm.toml
+#
+# The MoE baseline has no explicit fast/slow pathways, no auxiliary pathway
+# loss, and no regime curriculum.  Only MoE architecture settings are included.
+# =============================================================================
+
+[paths]
+data_dir             = "../data"
+climate_zarr          = "../data/training/climate/watersheds.zarr"
+flow_zarr             = "../data/training/flow.zarr"
+static_basin_atlas   = "../data/training/static/watersheds/Physical_Attributes_Watersheds.csv"
+static_climate       = "../data/training/static/watersheds/Climate_Statistics_Watersheds.csv"
+
+[basins]
+# "gages" uses the gauge watershed domain.  CDEC full-natural-flow basins are
+# included when their flow, climate, and static rows are available.
+training_manifest    = "gages"
+include_cdec_basins  = true
+
+[sequence]
+# Every expert and the gate process the full lookback.
+seq_len              = 365
+
+[model]
+model_type           = "moe"
+static_embedding_dim = 10
+static_hidden_size   = 32
+dropout              = 0.10
+static_dropout       = 0.10
+basin_loss_weight_exponent = 0.50
+
+[moe]
+# K independent LSTM experts are mixed by an LSTM-attention gate.  Lower tau
+# sharpens expert selection; moe_tau_min prevents the softmax from collapsing.
+moe_n_experts          = 3
+moe_expert_hidden_size = 64
+moe_gate_hidden_size   = 32
+moe_attention_dim      = 16
+moe_tau_init           = 0.25
+moe_tau_min            = 1e-4
+
+[blended_loss]
+log_loss_lambda      = 0.05
+log_loss_epsilon     = 0.001
+
+[training]
+batch_size           = 512
+learning_rate        = 4e-4
+weight_decay         = 1e-4
+input_noise_std      = 0.1
+warmup_epochs        = 3
+num_epochs           = 80
+patience             = 8
+min_delta            = 0.002
+num_workers          = 0
+grad_clip            = 1.0
+use_swa              = true
+swa_lr               = 2e-4
+swa_patience         = 10
+
+[validation]
+n_folds              = 5
+seed                 = 42
+
+[features]
+dynamic_features = ["precip_mm", "tmax_c", "tmin_c"]
+static_features  = [
+    # topography - Physical CSV
+    "total_Shape_Area_km2",
+    "ele_mt_uav",
+    "slp_dg_uav",
+    # river network - Physical CSV
+    "ria_ha_usu",
+    "riv_tc_usu",
+    "sgr_dk_sav",
+    # soil and surface - Physical CSV
+    "for_pc_use",
+    "cly_pc_uav",
+    "snd_pc_uav",
+    "clz_cl_smj",
+    "lit_cl_top1",
+    # climate normals - Climate CSV
+    "aridity_index",
+    "snow_fraction",
+    "pet_mean",
+    "high_precip_freq",
+    "precip_mean",
+    "low_precip_dur",
+    "high_precip_dur",
+]
+log_transform_static = ["total_Shape_Area_km2", "ria_ha_usu"]

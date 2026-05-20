@@ -41,10 +41,7 @@ def _ramp_weight(y: np.ndarray, q_start: float, q_top: float, peak: float) -> np
     return 1.0 + (peak - 1.0) * frac
 
 
-def main(config: Config | None = None) -> None:
-    if config is None:
-        config = load_config()
-
+def main(config: Config) -> None:
     out_dir = QA_DIR / "flow_extremes"
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -268,5 +265,9 @@ Outputs saved to: {out_dir}
 
 
 if __name__ == "__main__":
-    cfg = load_config(Path(sys.argv[1])) if len(sys.argv) > 1 else None
+    if len(sys.argv) < 2:
+        raise SystemExit(
+            "Usage: python -m src.data.analyse_flow_extremes scripts/cfg_dual_lstm.toml"
+        )
+    cfg = load_config(Path(sys.argv[1]))
     main(cfg)

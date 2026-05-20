@@ -20,8 +20,9 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 
+from src.data.io import load_climate_dataframes, detect_flow_col, water_year
 from src.paths import (
-    CLIMATE_DIR,
+    CLIMATE_WATERSHEDS_ZARR,
     FLOW_CLEANED_DIR,
     FLOW_DROPPED_DIR,
     FLOW_CLEANED_STRICT_DIR,
@@ -57,8 +58,6 @@ INTENTIONAL_EXCLUSIONS = {
     "10308783": "tiny, sparse observations",
 }
 
-FLOW_COL_ORDER = ["00060_Mean", "00060_2_Mean", "00054_Observation at 24:00"]
-
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
@@ -84,16 +83,6 @@ def _gap_stats(dates: pd.Series) -> dict:
 
 def _pct(n, total): return round(100.0 * n / total, 4) if total else np.nan
 
-def _wy(dt) -> int:
-    dt = pd.Timestamp(dt)
-    return dt.year + 1 if dt.month >= 10 else dt.year
-
-def _detect_flow_col(cols):
-    for c in FLOW_COL_ORDER:
-        if c in cols: return c
-    candidates = [c for c in cols if "60" in c and c.endswith("_Mean")]
-    return candidates[0] if candidates else None
-
 def _parse_raw_datetimes(series: pd.Series) -> pd.Series:
     if series.dt.tz is not None:
         series = series.dt.tz_convert(None)
@@ -110,10 +99,20 @@ def _c(cond): return int(cond.sum())
 def _run_climate_qa() -> pd.DataFrame:
     print("=== Section 1: Climate QA ===")
     rows = []
-    for fp in sorted(CLIMATE_DIR.glob("climate_*.csv")):
-        sid = _sid(fp, prefix="climate_")
+    if not CLIMATE_WATERSHEDS_ZARR.exists():
+        print(f"  WARNING: {CLIMATE_WATERSHEDS_ZARR} not found; skipping climate QA")
+        clim_df = pd.DataFrame(rows)
+        clim_df.to_csv(STEP_7_OUTPUT_DIR / "sec1_climate_qa.csv", index=False)
+        return clim_df
+
+    climate_dfs = load_climate_dataframes(CLIMATE_WATERSHEDS_ZARR)
+    for basin_id, df_in in sorted(climate_dfs.items(), key=lambda kv: str(kv[0])):
+        sid = str(basin_id)
         try:
-            df = pd.read_csv(fp, parse_dates=["date"])
+            df = df_in.dropna(how="all").reset_index().rename(columns={"index": "date"})
+            if "date" not in df.columns:
+                df.rename(columns={df.columns[0]: "date"}, inplace=True)
+            df["date"] = pd.to_datetime(df["date"])
         except Exception as e:
             rows.append({"station_id": sid, "error": str(e)}); continue
 
@@ -187,7 +186,7 @@ def _run_flow_qa() -> pd.DataFrame:
 
         fit_false = np.nan
         if "flow_7day_fit" in df.columns:
-            fit_false = int((df["flow_7day_fit"] == False).sum())  # noqa: E712
+            fit_false = int((~df["flow_7day_fit"]).sum())
 
         tlt = np.nan
         if "tmax_c" in df.columns and "tmin_c" in df.columns:
@@ -312,7 +311,7 @@ def _run_raw_vs_cleaned() -> pd.DataFrame:
         try:
             rw       = pd.read_csv(fp_raw, parse_dates=["datetime"])
             rw["date"] = _parse_raw_datetimes(rw["datetime"])
-            flow_col   = _detect_flow_col(rw.columns)
+            flow_col   = detect_flow_col(rw.columns)
 
             if flow_col is None:
                 rows.append({
@@ -371,10 +370,10 @@ def _run_zero_wy_detection() -> pd.DataFrame:
         try:
             rw = pd.read_csv(fp_raw, parse_dates=["datetime"])
             rw["date"]   = _parse_raw_datetimes(rw["datetime"])
-            flow_col = _detect_flow_col(rw.columns)
+            flow_col = detect_flow_col(rw.columns)
             if flow_col is None:
                 continue
-            rw["_wy"] = rw["date"].apply(_wy)
+            rw["_wy"] = rw["date"].apply(water_year)
             for wy, grp in rw.groupby("_wy"):
                 valid  = grp[flow_col].dropna()
                 if len(valid) == 0:
@@ -525,7 +524,7 @@ def _run_excluded_basins() -> pd.DataFrame:
             try:
                 rw = pd.read_csv(fp_raw, parse_dates=["datetime"])
                 rw["date"] = _parse_raw_datetimes(rw["datetime"])
-                flow_col = _detect_flow_col(rw.columns)
+                flow_col = detect_flow_col(rw.columns)
                 if flow_col is not None:
                     rw = rw.rename(columns={flow_col: "flow"})
                     df = rw[["date", "flow"]].dropna(subset=["flow"])
@@ -659,11 +658,11 @@ def _write_report(
     va           = audit_df[audit_df["error"].isna()] if has_err else audit_df
     reconcilable = va
     if "raw_no_discharge_col" in va.columns:
-        no_disc = va[va.get("raw_no_discharge_col", pd.Series(False, index=va.index)) == True]  # noqa: E712
+        no_disc = va[va.get("raw_no_discharge_col", pd.Series(False, index=va.index))]
         reconcilable = va[~va.index.isin(no_disc.index)]
     L(f"  Stations audited                 : {len(va)}")
     if "raw_file_exists" in va.columns:
-        L(f"  Stations missing raw file        : {_c(va['raw_file_exists'] == False)}")  # noqa: E712
+        L(f"  Stations missing raw file        : {_c(~va['raw_file_exists'])}")
     if "cleaned_days" in reconcilable.columns:
         L(f"  Days retained (cleaned)          : {_s(reconcilable['cleaned_days']):>12,}")
     if "dropped_days" in reconcilable.columns:

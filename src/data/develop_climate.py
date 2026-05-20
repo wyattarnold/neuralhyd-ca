@@ -2,7 +2,8 @@
 
 Reads VICGrids intersect table and gridded meteo files to produce
 area-weighted daily precipitation, tmax, and tmin for each watershed.
-Output goes to data/training/climate/.
+Output goes to data/training/climate/<target>/ (default ``target="watersheds"``)
+or data/eval/climate/<target>/ when ``scope="eval"``.
 
 The meteo directory must be supplied as an argument (it is a large external
 dataset not stored in the repo).
@@ -17,12 +18,134 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from src.paths import VICGRIDS_FILE, CLIMATE_DIR, get_target_paths
+from src.data.io import (
+    CLIMATE_VARS,
+    read_climate_zarr,
+    write_climate_zarr,
+)
+from src.paths import (
+    get_eval_target_paths,
+    get_target_paths,
+)
+
+
+def _grid_token(value: object) -> str:
+    """Mirror the filename token formatting used by the meteo archive."""
+    return str(value)
+
+
+def _grid_key(lat: object, lon: object) -> str:
+    return f"{_grid_token(lat)},{_grid_token(lon)}"
+
+
+def _grid_filename(lat: object, lon: object) -> str:
+    return f"data_{_grid_token(lat)}_{_grid_token(lon)}"
+
+
+def _read_vicgrids(
+    target: str,
+    scope: str,
+    scope_ids: list | set | None = None,
+) -> tuple[pd.DataFrame, Path]:
+    if scope == "eval":
+        tp = get_eval_target_paths(target)
+    else:
+        tp = get_target_paths(target)
+
+    vicgrids_file = tp["vicgrids_file"]
+    print(f"\nReading VICGrids file: {vicgrids_file}")
+    vicgrids_df = pd.read_csv(vicgrids_file, dtype={"PourPtID": str})
+    print(f"Loaded {len(vicgrids_df)} records")
+    print(f"Unique PourPtIDs: {vicgrids_df['PourPtID'].nunique()}")
+
+    if scope_ids is not None:
+        scope_set = set(str(s) for s in scope_ids)
+        vicgrids_df = vicgrids_df[
+            vicgrids_df['PourPtID'].astype(str).isin(scope_set)
+        ].copy()
+        print(f"Scope filter applied — {vicgrids_df['PourPtID'].nunique()} of "
+              f"{len(scope_set)} requested IDs matched the VICGrids table")
+
+    return vicgrids_df, vicgrids_file
+
+
+def _available_grid_keys(meteo_dir: str) -> set[str]:
+    available: set[str] = set()
+    for path in Path(meteo_dir).iterdir():
+        if not path.is_file() or not path.name.startswith("data_"):
+            continue
+        payload = path.name.removeprefix("data_")
+        if "_" not in payload:
+            continue
+        lat_token, lon_token = payload.split("_", maxsplit=1)
+        available.add(f"{lat_token},{lon_token}")
+    return available
+
+
+def diagnose_missing_grids(
+    meteo_dir: str,
+    target: str = "watersheds",
+    scope_ids: list | set | None = None,
+    scope: str = "training",
+) -> pd.DataFrame:
+    """Report any VIC grid cells that do not have a matching meteo file."""
+    vicgrids_df, _ = _read_vicgrids(target=target, scope=scope, scope_ids=scope_ids)
+
+    print(f"\nScanning meteo directory: {meteo_dir}")
+    available_keys = _available_grid_keys(meteo_dir)
+    print(f"Indexed {len(available_keys)} available meteo grid files")
+
+    grid_keys = vicgrids_df['Field1'].map(_grid_token).str.cat(
+        vicgrids_df['Field2'].map(_grid_token),
+        sep=",",
+    )
+    missing_mask = ~grid_keys.isin(available_keys)
+
+    columns = ['PourPtID', 'Field1', 'Field2']
+    if 'name' in vicgrids_df.columns:
+        columns.append('name')
+
+    missing_df = vicgrids_df.loc[missing_mask, columns].copy()
+    missing_df['grid'] = grid_keys.loc[missing_mask].values
+
+    print("\n" + "=" * 80)
+    print(f"Missing Grid Diagnostic  [target={target}]")
+    print("=" * 80)
+
+    if missing_df.empty:
+        print("No missing meteo grid files detected.")
+        return missing_df
+
+    unique_grid_count = missing_df['grid'].nunique()
+    affected_pourptids = missing_df['PourPtID'].astype(str).nunique()
+    print(f"Missing intersect rows: {len(missing_df)}")
+    print(f"Missing unique grid cells: {unique_grid_count}")
+    print(f"Affected PourPtIDs: {affected_pourptids}")
+
+    print("\nTop missing grid cells:")
+    by_grid = missing_df.groupby('grid').size().sort_values(ascending=False)
+    for grid, count in by_grid.head(20).items():
+        print(f"  {grid}  rows={count}")
+    if len(by_grid) > 20:
+        print(f"  ... {len(by_grid) - 20} more grid cells")
+
+    print("\nAffected PourPtIDs:")
+    affected_cols = ['PourPtID'] + (['name'] if 'name' in missing_df.columns else [])
+    affected = missing_df[affected_cols].drop_duplicates().sort_values('PourPtID')
+    for row in affected.head(40).itertuples(index=False):
+        if 'name' in affected.columns:
+            print(f"  {row.PourPtID}  {row.name}")
+        else:
+            print(f"  {row.PourPtID}")
+    if len(affected) > 40:
+        print(f"  ... {len(affected) - 40} more PourPtIDs")
+
+    return missing_df
 
 
 def read_meteo_file(lat: float, lon: float, meteo_dir: str) -> pd.DataFrame | None:
     """Read a gridded meteo file for a given lat/lon cell."""
-    filepath = os.path.join(meteo_dir, f"data_{lat}_{lon}")
+    filepath = os.path.join(meteo_dir, _grid_filename(lat, lon))
 
     if not os.path.exists(filepath):
         print(f"Warning: File not found: {filepath}")
@@ -101,7 +224,13 @@ def calculate_area_weighted_average(
     return result_df
 
 
-def main(meteo_dir: str | None = None, target: str = "watersheds") -> pd.DataFrame | None:
+def main(
+    meteo_dir: str | None = None,
+    target: str = "watersheds",
+    scope_ids: list | set | None = None,
+    force: bool = False,
+    scope: str = "training",
+) -> pd.DataFrame | None:
     """Run the climate development pipeline.
 
     Parameters
@@ -110,7 +239,20 @@ def main(meteo_dir: str | None = None, target: str = "watersheds") -> pd.DataFra
         Path to the directory containing gridded meteo files.
         Required — pass as CLI argument or directly.
     target : str
-        Polygon target (``"watersheds"``, ``"huc8"``, ``"huc10"``).
+        Polygon target (``"watersheds"``, ``"huc8"``, ``"huc10"``, ``"huc12"``).
+    scope_ids : list or set, optional
+        When provided, restrict processing to this subset of PourPtIDs.
+        Used by HUC subbasin data prep to limit climate generation to
+        only the sub-basins touched by kept gauges (see
+        ``<LEVEL>_In_Scope.csv`` written by ``subbasin_gauge_intersect``).
+    force : bool
+        If False (default), skip any PourPtID already present in the
+        existing climate zarr cube.  Set True to regenerate from scratch.
+    scope : {"training", "eval"}
+        Selects the output root.  ``"training"`` (default) writes to
+        ``data/training/climate/<target>.zarr``; ``"eval"`` writes the
+        full-domain outputs to ``data/eval/climate/<target>.zarr``.  For
+        ``target="watersheds"`` only ``"training"`` is valid.
     """
     if meteo_dir is None:
         if len(sys.argv) < 2:
@@ -119,53 +261,88 @@ def main(meteo_dir: str | None = None, target: str = "watersheds") -> pd.DataFra
             sys.exit(1)
         meteo_dir = sys.argv[1]
 
-    tp = get_target_paths(target)
-    vicgrids_file = tp["vicgrids_file"]
-    climate_dir = tp["climate_dir"]
+    vicgrids_df, vicgrids_file = _read_vicgrids(
+        target=target,
+        scope=scope,
+        scope_ids=scope_ids,
+    )
+    if scope == "eval":
+        tp = get_eval_target_paths(target)
+    else:
+        tp = get_target_paths(target)
+    climate_zarr = tp["climate_zarr"]
+    # HUC ids are strings, gauge basin ids are integers.
+    basin_id_dtype = "int64" if target in ("watersheds", "training_watersheds") else "str"
 
     print("=" * 80)
     print(f"Area-Weighted Climate Data Generator  [target={target}]")
     print("=" * 80)
 
-    print(f"\nReading VICGrids file: {vicgrids_file}")
-    vicgrids_df = pd.read_csv(vicgrids_file)
-    print(f"Loaded {len(vicgrids_df)} records")
-    print(f"Unique PourPtIDs: {vicgrids_df['PourPtID'].nunique()}")
+    pourptids = list(vicgrids_df['PourPtID'].unique())
 
-    pourptids = vicgrids_df['PourPtID'].unique()
+    # ``basin_data[bid] = DataFrame[date → climate vars]`` accumulates results
+    # in memory; we write the full zarr cube once at the end.
+    basin_data: dict[object, pd.DataFrame] = {}
+
+    # Resume support: re-load any basins already in the zarr (unless --force).
+    if not force and climate_zarr.exists():
+        existing_basins, dates, arrays, _ = read_climate_zarr(climate_zarr)
+        idx = pd.DatetimeIndex(dates)
+        for i, bid in enumerate(existing_basins):
+            df = pd.DataFrame({v: arrays[v][i] for v in CLIMATE_VARS}, index=idx)
+            df.index.name = "date"
+            basin_data[str(bid)] = df.dropna(how="all")
+        existing_str = set(basin_data.keys())
+        pourptids_todo = [p for p in pourptids if str(p) not in existing_str]
+        n_skip = len(pourptids) - len(pourptids_todo)
+        if n_skip:
+            print(f"Resuming — {n_skip} PourPtIDs already in {climate_zarr.name} "
+                  f"(pass --force to regenerate)")
+        pourptids = pourptids_todo
+
     print(f"\nProcessing {len(pourptids)} PourPtIDs...")
-
-    climate_dir.mkdir(parents=True, exist_ok=True)
 
     summary = []
     for pourptid in tqdm(pourptids, desc="PourPtIDs"):
         grid_data = vicgrids_df[vicgrids_df['PourPtID'] == pourptid]
         result_df = calculate_area_weighted_average(pourptid, grid_data, meteo_dir)
 
-        if result_df is not None:
-            output_file = climate_dir / f"climate_{pourptid}.csv"
-            result_df.to_csv(output_file, index=False)
+        if result_df is None:
+            continue
 
-            summary.append({
-                'PourPtID': pourptid,
-                'n_grids': len(grid_data),
-                'total_area': grid_data['Shape_Area'].sum(),
-                'start_date': result_df['date'].min(),
-                'end_date': result_df['date'].max(),
-                'n_records': len(result_df),
-                'output_file': str(output_file),
-            })
+        df_indexed = (
+            result_df.set_index("date")[list(CLIMATE_VARS)].astype("float32")
+        )
+        basin_data[str(pourptid)] = df_indexed
 
+        summary.append({
+            'PourPtID': pourptid,
+            'n_grids': len(grid_data),
+            'total_area': grid_data['Shape_Area'].sum(),
+            'start_date': df_indexed.index.min(),
+            'end_date': df_indexed.index.max(),
+            'n_records': len(df_indexed),
+        })
+
+    if not basin_data:
+        print("\nNo basins to write — nothing to do.")
+        return pd.DataFrame(summary)
+
+    print(f"\nWriting zarr cube: {climate_zarr}  ({len(basin_data)} basins)")
+    write_climate_zarr(
+        climate_zarr,
+        basin_data,
+        basin_id_dtype=basin_id_dtype,
+        overwrite=True,
+    )
     summary_df = pd.DataFrame(summary)
-    summary_file = climate_dir / "processing_summary.csv"
-    summary_df.to_csv(summary_file, index=False)
 
     print("\n" + "=" * 80)
     print("Processing Complete!")
     print("=" * 80)
-    print(f"\nSuccessfully processed {len(summary_df)} PourPtIDs")
-    print(f"Output directory: {climate_dir}")
-    print(f"Summary file: {summary_file}")
+    print(f"\nSuccessfully processed {len(summary_df)} new PourPtIDs")
+    print(f"Total basins in store: {len(basin_data)}")
+    print(f"Zarr store: {climate_zarr}")
 
     if not summary_df.empty:
         print(f"\nSummary Statistics:")

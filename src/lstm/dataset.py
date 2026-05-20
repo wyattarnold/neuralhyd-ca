@@ -47,10 +47,62 @@ from .config import Config
 # ---------------------------------------------------------------------------
 
 
+def _window_derived_static_features(config: Config) -> set[str]:
+    feats = set()
+    if config.use_window_snow_fraction and "snow_fraction" in config.effective_static_features:
+        feats.add("snow_fraction")
+    return feats
+
+
+def _encoded_static_frame(raw_static: pd.DataFrame, config: Config) -> pd.DataFrame:
+    """Return model-ready static columns, expanding categorical features."""
+    categorical = set(config.categorical_static_features)
+    window_derived = _window_derived_static_features(config)
+    pieces: dict[str, np.ndarray] = {}
+    for feature in config.effective_static_features:
+        if feature in window_derived:
+            continue
+        if feature not in raw_static.columns:
+            raise KeyError(f"static attributes are missing requested feature {feature!r}")
+        values = pd.to_numeric(raw_static[feature], errors="coerce")
+        if feature not in categorical:
+            pieces[feature] = values.to_numpy(dtype=np.float32)
+            continue
+        codes = np.rint(values.to_numpy(dtype=np.float64, copy=False))
+        for category in config.categorical_static_feature_values[feature]:
+            pieces[f"{feature}={int(category)}"] = (
+                codes == int(category)
+            ).astype(np.float32)
+    encoded = pd.DataFrame(pieces, index=raw_static.index)
+    encoded = encoded.fillna(encoded.median(numeric_only=True)).fillna(0.0)
+    return encoded.astype(np.float32)
+
+
+def _add_gauge_derived_static_features(static_df: pd.DataFrame, config: Config) -> pd.DataFrame:
+    """Add gauge-watershed derived static features requested by grouped configs."""
+    out = static_df.copy()
+    requested = set(config.effective_static_features)
+
+    if "log_gauge_area_km2" in requested and "log_gauge_area_km2" not in out.columns:
+        if "total_Shape_Area_km2" not in out.columns:
+            raise KeyError("log_gauge_area_km2 requires total_Shape_Area_km2")
+        area = pd.to_numeric(out["total_Shape_Area_km2"], errors="coerce")
+        out["log_gauge_area_km2"] = np.log10(area.clip(lower=1e-6))
+
+    if "log_gauge_flow_length_km" in requested and "log_gauge_flow_length_km" not in out.columns:
+        source_col = "dist_main_km" if "dist_main_km" in out.columns else "dist_sink_km"
+        if source_col not in out.columns:
+            raise KeyError("log_gauge_flow_length_km requires dist_main_km or dist_sink_km")
+        length = pd.to_numeric(out[source_col], errors="coerce")
+        out["log_gauge_flow_length_km"] = np.log10(length.clip(lower=0.0) + 1.0)
+
+    return out
+
+
 def load_static_attributes(
     basin_atlas_path: Path,
     climate_stats_path: Path,
-    log_transform: List[str],
+    config: Config,
 ) -> Tuple[pd.DataFrame, pd.Series | None]:
     """Load and prepare static attributes from the two CSV sources.
 
@@ -69,12 +121,13 @@ def load_static_attributes(
     if "total_Shape_Area_km2" in static_df.columns:
         raw_area_km2 = static_df["total_Shape_Area_km2"].copy()
 
-    for feat in log_transform:
+    static_df = _add_gauge_derived_static_features(static_df, config)
+    for feat in config.log_transform_static:
         if feat in static_df.columns:
             static_df[feat] = np.log10(static_df[feat].clip(lower=1e-6))
 
     static_df = static_df.fillna(static_df.median(numeric_only=True))
-    return static_df, raw_area_km2
+    return _encoded_static_frame(static_df, config), raw_area_km2
 
 
 def load_all_data(config: Config):
@@ -88,42 +141,79 @@ def load_all_data(config: Config):
     static_df : pd.DataFrame                  – indexed by PourPtID
     tier_map : dict[int, int]                 – basin_id → tier (1/2/3)
     """
-    # 1. Discover basins & tiers from the tiered flow directory
-    tier_map: Dict[int, int] = {}
-    flow_data: Dict[int, pd.DataFrame] = {}
+    # 1. Load streamflow + tier from the zarr cube
+    from src.data.io import load_flow_dataframes, load_climate_dataframes
 
-    for tier in (1, 2, 3):
-        tier_dir = config.flow_dir / f"tier_{tier}"
-        if not tier_dir.exists():
-            continue
-        for f in sorted(tier_dir.glob("*_cleaned.csv")):
-            basin_id = int(f.stem.replace("_cleaned", ""))
-            tier_map[basin_id] = tier
-            df = pd.read_csv(f, parse_dates=["date"], index_col="date")
-            flow_data[basin_id] = df[["flow"]]  # keep only flow column
-
+    flow_data, tier_map = load_flow_dataframes(config.flow_zarr)
     basin_ids = sorted(tier_map.keys())
 
-    # 2. Load area-weighted daily climate for every basin that has flow
-    climate_data: Dict[int, pd.DataFrame] = {}
-    missing_climate: list = []
-    for bid in basin_ids:
-        cpath = config.climate_dir / f"climate_{bid}.csv"
-        if cpath.exists():
-            cdf = pd.read_csv(cpath, parse_dates=["date"], index_col="date")
-            climate_data[bid] = cdf[config.dynamic_features]
-        else:
-            missing_climate.append(bid)
+    # Optionally align gauge-mode experiments to the HUC12-intersect domain:
+    # keep only basins present in the HUC12 manifest used by dPL.
+    if getattr(config, "training_manifest", "gages") == "huc12_intersect":
+        manifest_path = getattr(config, "training_manifest_csv", None)
+        if manifest_path is None:
+            raise ValueError(
+                "training_manifest='huc12_intersect' requires training_manifest_csv"
+            )
+        manifest_df = pd.read_csv(manifest_path)
+        if "PourPtID" not in manifest_df.columns:
+            raise KeyError(
+                f"dPL manifest missing required 'PourPtID' column: {manifest_path}"
+            )
+        manifest_ids = set(manifest_df["PourPtID"].astype(int).tolist())
+        n_before = len(basin_ids)
+        basin_ids = [b for b in basin_ids if b in manifest_ids]
+        tier_map = {b: tier_map[b] for b in basin_ids}
+        flow_data = {b: flow_data[b] for b in basin_ids}
+        print(
+            "  training_manifest='huc12_intersect': "
+            f"kept {len(basin_ids)} / {n_before} basins present in "
+            f"{Path(manifest_path).name}"
+        )
 
+    # Optionally exclude CDEC full-natural-flow basins (IDs >= 990_000_000).
+    if not getattr(config, "include_cdec_basins", True):
+        n_before = len(basin_ids)
+        basin_ids = [b for b in basin_ids if b < 990_000_000]
+        tier_map = {b: tier_map[b] for b in basin_ids}
+        flow_data = {b: flow_data[b] for b in basin_ids}
+        if len(basin_ids) < n_before:
+            print(f"  include_cdec_basins=False: dropped {n_before - len(basin_ids)} CDEC basins")
+
+    # 2. Load daily climate from the zarr cube for every basin that has flow
+    climate_dfs = load_climate_dataframes(
+        config.climate_zarr, basin_ids=basin_ids, variables=config.dynamic_features
+    )
+    climate_data: Dict[int, pd.DataFrame] = {
+        int(bid): df for bid, df in climate_dfs.items()
+    }
+    missing_climate = [b for b in basin_ids if b not in climate_data]
     if missing_climate:
-        print(f"Warning: no climate file for {len(missing_climate)} basins – skipping them")
+        print(f"Warning: no climate data for {len(missing_climate)} basins – skipping them")
     basin_ids = [b for b in basin_ids if b in climate_data]
 
     # 3. Static attributes (merge tables on PourPtID)
     static_df, raw_area_km2 = load_static_attributes(
         config.static_basin_atlas, config.static_climate,
-        config.log_transform_static,
+        config,
     )
+
+    if getattr(config, "include_cdec_basins", True):
+        missing_cdec_static = sorted(
+            b for b in basin_ids
+            if b >= 990_000_000 and b not in static_df.index
+        )
+        if missing_cdec_static:
+            preview = missing_cdec_static[:10]
+            raise ValueError(
+                "include_cdec_basins=True, but some CDEC gauges are missing from "
+                f"the watershed physical-attributes table {config.static_basin_atlas.name}. "
+                "These gauges exist in flow/climate inputs, but the LSTM gauge loader "
+                "cannot build static features for them. First missing IDs: "
+                f"{preview}{' ...' if len(missing_cdec_static) > 10 else ''}. "
+                "Either add those CDEC rows to Physical_Attributes_Watersheds.csv "
+                "or set include_cdec_basins=false for this gauge-domain run."
+            )
 
     # Keep only basins present in all three sources
     basin_ids = [b for b in basin_ids if b in static_df.index]
@@ -245,11 +335,9 @@ def compute_norm_stats(
     clim_std = all_clim.std(axis=0).astype(np.float32)
 
     # --- static ---
-    eff_feats = config.effective_static_features
+    eff_feats = config.encoded_static_feature_names
     # Features sourced from static_df vs computed from the climate window
-    window_derived = set()
-    if config.use_window_snow_fraction and "snow_fraction" in eff_feats:
-        window_derived.add("snow_fraction")
+    window_derived = _window_derived_static_features(config)
     df_feats = [f for f in eff_feats if f not in window_derived]
 
     # Stats for CSV-based static features
@@ -295,6 +383,10 @@ def compute_norm_stats(
             df_idx += 1
     stat_mean = np.array(stat_mean_parts, dtype=np.float32)
     stat_std = np.array(stat_std_parts, dtype=np.float32)
+    categorical_mask = np.asarray(config.encoded_static_is_categorical, dtype=bool)
+    if categorical_mask.any():
+        stat_mean[categorical_mask] = 0.0
+        stat_std[categorical_mask] = 1.0
 
     # --- per-basin scale ---
     # The scale is the mean daily precipitation (mm/day), computed from each
@@ -469,10 +561,8 @@ class HydroDataset(Dataset):
         stat_mean, stat_std = norm_stats["static"]
 
         # Determine which effective features come from static_df vs window
-        eff_feats = config.effective_static_features
-        window_derived = set()
-        if self.use_window_snow_fraction and "snow_fraction" in eff_feats:
-            window_derived.add("snow_fraction")
+        eff_feats = config.encoded_static_feature_names
+        window_derived = _window_derived_static_features(config)
         df_feats = [f for f in eff_feats if f not in window_derived]
 
         # Build index mapping: for each effective feature, its position in
@@ -510,11 +600,19 @@ class HydroDataset(Dataset):
 
             # per-basin denormalisation scale: mean daily precipitation (mm/day)
             pmean = norm_stats["scale"].get(bid, np.float32(1.0))
+            # valid sample indices: observed flow & enough lookback
+            valid = np.where(~np.isnan(flow_arr))[0]
+            valid = valid[valid >= self.seq_len - 1]
+            n_valid = max(int(valid.size), 1)
+
             # per-basin loss weight: 1 / max(var, min_var) ** exponent (see Config)
             lvar = float(norm_stats.get("loss_var", {}).get(bid, np.float32(1.0)))
             p = float(config.basin_loss_weight_exponent)
             min_var = float(config.basin_loss_min_var)
-            lw = np.float32(1.0 / max(lvar, min_var) ** p) if p > 0 else np.float32(1.0)
+            var_weight = 1.0 / max(lvar, min_var) ** p if p > 0 else 1.0
+            record_p = float(getattr(config, "basin_record_weight_exponent", 0.0))
+            record_weight = n_valid ** (-record_p) if record_p > 0 else 1.0
+            lw = np.float32(var_weight * record_weight)
 
             # normalised static vector (only CSV-sourced features)
             if df_feats:
@@ -554,10 +652,6 @@ class HydroDataset(Dataset):
                 ).astype(np.float32)
 
             self.basin_data[bid] = bd_dict
-
-            # valid sample indices: observed flow & enough lookback
-            valid = np.where(~np.isnan(flow_arr))[0]
-            valid = valid[valid >= self.seq_len - 1]
             self.samples.extend((bid, int(i)) for i in valid)
 
         # Pre-compute normalised flow targets as a tensor per basin
@@ -568,7 +662,7 @@ class HydroDataset(Dataset):
                 np.where(np.isnan(flow_np), 0.0, flow_np / (pmean + 1e-8)).astype(np.float32)
             )
 
-            if config.aux_loss_weight > 0:
+            if config.model_type == "dual" and config.aux_loss_weight > 0:
                 # Lyne-Hollick separation: flow = quickflow + baseflow
                 baseflow = _lyne_hollick_baseflow(flow_np, alpha=config.baseflow_alpha)
                 quickflow = flow_np - baseflow

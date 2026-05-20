@@ -1,4 +1,4 @@
-"""Clean raw USGS flow files using exceedance-based precip filtering.
+"""Clean raw USGS/CDEC flow files using exceedance-based precip filtering.
 
 For each site:
   1. Merge raw USGS flow with area-weighted climate
@@ -25,19 +25,21 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+from src.data.io import load_climate_dataframes
+from src.data.io import load_climate_dataframes, detect_flow_col
 from src.paths import (
-    CLIMATE_DIR,
     CLIMATE_STATS_OUTPUT,
+    CLIMATE_WATERSHEDS_ZARR,
     FLOW_CLEANED_DIR,
     FLOW_DROPPED_DIR,
     STEP_6_OUTPUT_DIR,
+    CDEC_DAILY_FNF_DIR,
     RAW_USGS_DIR,
 )
 
 FIGURES_DIR = STEP_6_OUTPUT_DIR / "figures"
 
 # Discharge column fallback order (mirrors notebook)
-FLOW_COL_ORDER = ["00060_Mean", "00060_2_Mean", "00054_Observation at 24:00"]
 TOP_N = 15  # number of extreme events to inspect
 
 # Snowmelt exemption — avoid filtering legitimate melt-driven peaks
@@ -47,12 +49,11 @@ WINTER_PRECIP_WINDOW = 280    # rolling lookback (days) for winter accumulation
 WINTER_PRECIP_MIN = 100       # mm cumulative to trigger exemption
 
 
-def _detect_flow_col(cols) -> str | None:
-    for c in FLOW_COL_ORDER:
-        if c in cols:
-            return c
-    candidates = [c for c in cols if "60" in c and c.endswith("_Mean")]
-    return candidates[0] if candidates else None
+def _raw_flow_path(site: str) -> Path:
+    cdec_path = CDEC_DAILY_FNF_DIR / f"{site}.csv"
+    if site.startswith("990000") and cdec_path.exists():
+        return cdec_path
+    return RAW_USGS_DIR / f"{site}.csv"
 
 
 def _build_exc_df(df: pd.DataFrame) -> pd.DataFrame:
@@ -78,8 +79,7 @@ def _filter_site(
     drop_dates: list = []
     _exempt = exempt if exempt is not None else pd.Index([])
 
-    t = True
-    while t:
+    while True:
         top = exc_mast.iloc[-TOP_N:]
 
         # Criteria 1: 3-day precip < 1 mm
@@ -93,7 +93,7 @@ def _filter_site(
         # Criteria 2: 3-day precip < 10% of top-N mean AND outside 7-day flow window
         top = exc_mast.iloc[-TOP_N:]
         thresh = np.nanmean(top["pr_3day"]) * 0.1
-        bad2_cond = (top["pr_3day"] < thresh) & (top["flow_7day_fit"] == False)  # noqa: E712
+        bad2_cond = (top["pr_3day"] < thresh) & ~top["flow_7day_fit"]
         bad2 = top[bad2_cond].index.tolist()
         bad2 = [d for d in bad2 if d not in _exempt]
         if bad2:
@@ -102,7 +102,7 @@ def _filter_site(
             # Re-check criteria 1 after criteria 2 drops
             continue
 
-        t = False
+        break
 
     filtered_df = df.drop(index=drop_dates, errors="ignore")
     return filtered_df, drop_dates
@@ -183,31 +183,40 @@ def _plot_site(
     plt.close("all")
 
 
-def process_site(site: str, snow_fraction: float = 0.0) -> dict:
-    """Process a single site. Returns dict with status, kept, dropped."""
-    flow_path    = RAW_USGS_DIR / f"{site}.csv"
-    climate_path = CLIMATE_DIR  / f"climate_{site}.csv"
+def process_site(
+    site: str,
+    snow_fraction: float = 0.0,
+    climate_df: pd.DataFrame | None = None,
+) -> dict:
+    """Process a single site. Returns dict with status, kept, dropped.
+
+    ``climate_df`` is the per-basin climate DataFrame indexed by date with
+    columns ``precip_mm``, ``tmax_c``, ``tmin_c`` (loaded once from zarr by
+    the caller).
+    """
+    flow_path    = _raw_flow_path(site)
     out_clean    = FLOW_CLEANED_DIR / f"{site}_cleaned.csv"
     out_dropped  = FLOW_DROPPED_DIR / f"{site}_dropped.csv"
     out_fig      = FIGURES_DIR / f"{site}_filter.png"
 
     if not flow_path.exists():
         return {"status": f"[SKIP] no raw flow: {flow_path.name}"}
-    if not climate_path.exists():
-        return {"status": f"[SKIP] no climate: {climate_path.name}"}
+    if climate_df is None or climate_df.empty:
+        return {"status": f"[SKIP] no climate for {site}"}
 
-    # ── Load & merge ───────────────────────────────────────────────────────
+    # ── Load & merge ───────────────────────────────────────────────────
     flow_df = pd.read_csv(flow_path)
     flow_df["date"] = pd.to_datetime(flow_df["datetime"].str.split(" ", expand=True)[0])
 
-    climate_df = pd.read_csv(climate_path, parse_dates=["date"])
-    climate_df = climate_df[["date", "precip_mm", "tmax_c", "tmin_c"]]
+    climate_df = (
+        climate_df[["precip_mm", "tmax_c", "tmin_c"]].dropna(how="all").reset_index()
+    )
 
     merged = (pd.merge(flow_df, climate_df, on="date", how="inner")
                 .sort_values("date").reset_index(drop=True)
                 .set_index("date", drop=False))
 
-    flow_col = _detect_flow_col(merged.columns)
+    flow_col = detect_flow_col(merged.columns)
     if flow_col is None:
         return {"status": "[SKIP] no discharge column"}
 
@@ -278,21 +287,28 @@ def main() -> None:
             zip(clim_df["PourPtID"].astype(str), clim_df["snow_fraction"])
         )
 
-    sites = sorted(p.stem for p in RAW_USGS_DIR.glob("*.csv"))
-    print(f"Found {len(sites)} sites.")
+    usgs_sites = {p.stem for p in RAW_USGS_DIR.glob("*.csv") if not p.stem.startswith("990000")}
+    cdec_sites = {p.stem for p in CDEC_DAILY_FNF_DIR.glob("990000*.csv")}
+    sites = sorted(usgs_sites | cdec_sites)
+    print(f"Found {len(sites)} sites ({len(usgs_sites)} USGS, {len(cdec_sites)} CDEC).")
+
+    print(f"Loading climate from {CLIMATE_WATERSHEDS_ZARR.name} ...")
+    climate_dfs_raw = load_climate_dataframes(CLIMATE_WATERSHEDS_ZARR)
+    climate_dfs = {str(b): df for b, df in climate_dfs_raw.items()}
+    print(f"  loaded {len(climate_dfs)} basins")
 
     metrics = []
     for i, site in enumerate(sites, 1):
         sf = snow_map.get(site, 0.0)
         print(f"[{i}/{len(sites)}] {site} (snow_frac={sf:.2f}) ... ", end="", flush=True)
-        result = process_site(site, snow_fraction=sf)
+        result = process_site(site, snow_fraction=sf, climate_df=climate_dfs.get(site))
         # detect which flow column was used for site_metrics.csv
-        flow_path = RAW_USGS_DIR / f"{site}.csv"
+        flow_path = _raw_flow_path(site)
         flow_col = None
         if flow_path.exists():
             try:
                 cols = pd.read_csv(flow_path, nrows=0).columns.tolist()
-                flow_col = _detect_flow_col(cols) or "unknown"
+                flow_col = detect_flow_col(cols) or "unknown"
             except Exception:
                 pass
         metrics.append({

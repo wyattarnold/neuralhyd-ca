@@ -3,16 +3,16 @@
 Usage
 -----
 Compute evaluation metrics (CSVs written to data/eval/); matching VIC basins are included automatically:
-    python post_process.py --eval dual_lstm_kfold single_lstm_kfold
+    python post_process.py --eval dual_lstm single_lstm
 
 Plot CDF for all metrics (NSE, KGE, FHV, FLV) + VIC calibrated/regionalized KGE comparison:
-    python post_process.py --cdf --runs  single_lstm_kfold dual_lstm_kfold --barplot
+    python post_process.py --cdf --runs single_lstm dual_lstm --barplot
 
 Simulate trained models over historical climate inputs:
-    python post_process.py --simulate dual_lstm_kfold --target training_watersheds
+    python post_process.py --simulate dual_lstm --target training_watersheds
 
 All commands can be combined:
-    python post_process.py --eval dual_lstm_kfold --simulate dual_lstm_kfold --cdf
+    python post_process.py --eval dual_lstm --simulate dual_lstm --cdf
 """
 
 from __future__ import annotations
@@ -32,6 +32,7 @@ sys.path.insert(0, str(REPO_ROOT))
 import numpy as np
 import pandas as pd
 
+from src.eval.cdec import run_cdec_barplot
 from src.eval.metrics import (
     compute_vic_metrics,
     load_lstm_fold_results,
@@ -217,7 +218,7 @@ def run_cdf_vic_kge() -> None:
 
     # Load LSTM eval metrics
     lstm_dfs: dict[str, pd.DataFrame] = {}
-    for name in ("dual_lstm_kfold", "single_lstm_kfold"):
+    for name in ("dual_lstm", "single_lstm"):
         csv_path = EVAL_DIR / f"{name}.csv"
         if not csv_path.exists():
             print(f"  WARNING: {csv_path} not found. Run --eval first for {name}.")
@@ -315,19 +316,20 @@ def run_barplot(run_names: list[str]) -> None:
 def _find_config(run_name: str) -> Path:
     """Locate the TOML config for a run name.
 
-    Checks (in order):
-      1. scripts/config_<run_name>.toml
-      2. data/training/output/<run_name>/config.toml  (copy saved at train time)
+        Checks scripts/cfg_<run_name>.toml, or scripts/<run_name>.toml when the
+        caller already includes the cfg_ prefix.
     """
-    candidate = SCRIPTS_DIR / f"config_{run_name}.toml"
-    if candidate.exists():
-        return candidate
-    candidate = TRAINING_OUTPUT_DIR / run_name / "config.toml"
-    if candidate.exists():
-        return candidate
+    script_candidates = []
+    if run_name.startswith("cfg_"):
+        script_candidates.append(SCRIPTS_DIR / f"{run_name}.toml")
+    else:
+        script_candidates.append(SCRIPTS_DIR / f"cfg_{run_name}.toml")
+    for candidate in script_candidates:
+        if candidate.exists():
+            return candidate
     raise FileNotFoundError(
         f"Cannot find config for '{run_name}'. "
-        f"Looked in {SCRIPTS_DIR} and {TRAINING_OUTPUT_DIR / run_name}."
+        f"Looked in {SCRIPTS_DIR}."
     )
 
 
@@ -389,6 +391,24 @@ def main() -> None:
              "If omitted, falls back to --eval run names.",
     )
     parser.add_argument(
+        "--cdec-barplot",
+        nargs="+",
+        metavar="RUN",
+        dest="cdec_barplot",
+        help="CDEC comparison barplot (conventional SAC-SMA vs neural models). "
+             "Provide run names from data/training/output/ in order: "
+             "e.g. single_lstm dual_lstm moe_lstm. "
+             "Labels can be set via --cdec-labels.",
+    )
+    parser.add_argument(
+        "--cdec-labels",
+        nargs="+",
+        metavar="LABEL",
+        dest="cdec_labels",
+        help="Display labels for --cdec-barplot runs (same order). "
+             "Default: Single Dual MoE",
+    )
+    parser.add_argument(
         "--simulate",
         nargs="+",
         metavar="RUN",
@@ -405,7 +425,8 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    if (args.eval is None and not args.cdf and not args.barplot and args.simulate is None):
+    if (args.eval is None and not args.cdf and not args.barplot
+            and args.simulate is None and args.cdec_barplot is None):
         parser.print_help()
         sys.exit(1)
 
@@ -427,6 +448,17 @@ def main() -> None:
             print("ERROR: Provide run names via --runs or --eval.")
             sys.exit(1)
         run_barplot(runs)
+
+    if args.cdec_barplot is not None:
+        default_labels = ["Single", "Dual", "MoE"]
+        labels = args.cdec_labels if args.cdec_labels else default_labels[: len(args.cdec_barplot)]
+        if len(labels) != len(args.cdec_barplot):
+            print(
+                f"ERROR: --cdec-labels ({len(labels)}) must match "
+                f"--cdec-barplot run count ({len(args.cdec_barplot)})."
+            )
+            sys.exit(1)
+        run_cdec_barplot(args.cdec_barplot, labels)
 
     if args.simulate is not None:
         run_simulate(args.simulate, target=args.target)

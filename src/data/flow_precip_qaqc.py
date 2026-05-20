@@ -7,20 +7,20 @@ cleaned flow files into tier subdirectories under data/training/flow/.
 from __future__ import annotations
 
 import csv
-import os
-import shutil
 from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
+from src.data.io import load_climate_dataframes, write_flow_zarr, water_year
 from src.paths import (
     BASIN_ATLAS_OUTPUT,
-    CLIMATE_DIR,
+    CLIMATE_WATERSHEDS_ZARR,
     FLOW_CLEANED_STRICT_DIR,
+    FLOW_ZARR,
     STEP_8_OUTPUT_DIR,
-    FLOW_DIR,
+    WATERSHED_GEOMETRY,
 )
 
 # Conversion factor: CFS -> mm/day over km2
@@ -30,13 +30,6 @@ CFS_TO_MM_FACTOR = 0.028316847 * 86400.0 / 1000.0  # = 2.44657...
 LT_RATIO_HIGH = 0.8
 LT_RATIO_LOW  = 0.1
 MAX_FLOW_MM   = 500.0
-
-
-def water_year(date_str: str) -> int:
-    """Return water year (Oct-Sep) for a date string YYYY-MM-DD."""
-    parts = date_str.split("-")
-    y, m = int(parts[0]), int(parts[1])
-    return y + 1 if m >= 10 else y
 
 
 def load_areas(path: str | Path) -> dict[str, float]:
@@ -65,19 +58,21 @@ def load_flow(path: str | Path) -> list[dict]:
     return rows
 
 
-def load_climate(path: str | Path, date_set: set | None = None) -> dict:
-    """Load climate file -> dict date -> {precip_mm, tmean_c}."""
-    clim = {}
-    with open(path, newline="", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            d = row["date"]
-            if date_set is None or d in date_set:
-                clim[d] = {
-                    "precip_mm": float(row["precip_mm"]),
-                    "tmean_c": (float(row["tmax_c"]) + float(row["tmin_c"])) / 2.0,
-                }
-    return clim
+def load_climate_from_zarr(zarr_path: Path) -> dict[str, dict[str, dict]]:
+    """Load all climate from zarr cube into ``{pid: {date: {precip_mm, tmean_c}}}``."""
+    dfs = load_climate_dataframes(zarr_path)
+    out: dict[str, dict[str, dict]] = {}
+    for bid, df in dfs.items():
+        # df index is daily DatetimeIndex; convert once.
+        precip = df["precip_mm"].to_numpy()
+        tmean = ((df["tmax_c"].to_numpy() + df["tmin_c"].to_numpy()) / 2.0)
+        date_strs = df.index.strftime("%Y-%m-%d").to_numpy()
+        out[str(bid)] = {
+            d: {"precip_mm": float(p), "tmean_c": float(t)}
+            for d, p, t in zip(date_strs, precip, tmean)
+            if not (np.isnan(p) or np.isnan(t))
+        }
+    return out
 
 
 def monthly_regression_metrics(merged_data: list[dict]) -> dict:
@@ -139,14 +134,24 @@ def monthly_regression_metrics(merged_data: list[dict]) -> dict:
         return nan_result
 
 
-def main() -> None:
+def main(include_cdec: bool = False) -> None:
     STEP_8_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     areas = load_areas(BASIN_ATLAS_OUTPUT)
+    if include_cdec and WATERSHED_GEOMETRY.exists():
+        ws = pd.read_csv(WATERSHED_GEOMETRY, dtype={"Pour Point ID": str})
+        for _, row in ws.iterrows():
+            pid = str(row["Pour Point ID"]).strip()
+            if pid not in areas and pid.startswith("990000"):
+                areas[pid] = float(row["Area Square Kilometers"])
     print(f"Loaded {len(areas)} watershed areas.")
 
     flow_files = sorted(FLOW_CLEANED_STRICT_DIR.glob("*_cleaned.csv"))
     print(f"Found {len(flow_files)} flow files.\n")
+
+    print(f"Loading climate from {CLIMATE_WATERSHEDS_ZARR.name} ...")
+    climate_by_pid = load_climate_from_zarr(CLIMATE_WATERSHEDS_ZARR)
+    print(f"  loaded {len(climate_by_pid)} basins from zarr")
 
     summary_rows = []
     flag_rows = []
@@ -171,12 +176,12 @@ def main() -> None:
             flag_rows.append({"PourPtID": pid, "Flag": "EMPTY_FLOW", "Detail": "No valid flow records"})
             continue
 
-        clim_path = CLIMATE_DIR / f"climate_{pid}.csv"
-        if not clim_path.exists():
-            flag_rows.append({"PourPtID": pid, "Flag": "NO_CLIMATE", "Detail": "Missing climate file"})
+        clim_data_full = climate_by_pid.get(pid)
+        if clim_data_full is None:
+            flag_rows.append({"PourPtID": pid, "Flag": "NO_CLIMATE", "Detail": "Missing climate in zarr"})
             continue
         flow_dates = set(r["date"] for r in flow_data)
-        clim_data = load_climate(clim_path, flow_dates)
+        clim_data = {d: v for d, v in clim_data_full.items() if d in flow_dates}
 
         merged = []
         for r in flow_data:
@@ -219,9 +224,9 @@ def main() -> None:
                     "PourPtID": pid,
                     "water_year": wy,
                     "n_days": wy_days[wy],
-                    "total_flow_mm": f"{wy_flow[wy]:.2f}",
-                    "total_precip_mm": f"{wy_precip[wy]:.2f}",
-                    "runoff_ratio": f"{ratio:.4f}" if ratio == ratio else "NaN",
+                    "total_flow_mm": round(wy_flow[wy], 2),
+                    "total_precip_mm": round(wy_precip[wy], 2),
+                    "runoff_ratio": round(ratio, 4) if not np.isnan(ratio) else np.nan,
                 })
 
         lt_ratio = total_flow_mm / total_precip_mm if total_precip_mm > 0 else float("nan")
@@ -241,8 +246,6 @@ def main() -> None:
         mean_precip_mm = sum(precip_vals) / len(precip_vals)
         max_precip_mm = max(precip_vals) if precip_vals else 0
 
-        n_flow_gt_precip = sum(1 for r in flow_data if r["flow_mm"] > r["precip_mm"])
-
         n_zero = sum(1 for v in flow_mm_vals if v == 0)
         zero_frac = n_zero / len(flow_mm_vals) if flow_mm_vals else 0
 
@@ -255,7 +258,7 @@ def main() -> None:
         # --- Compile flags ---
         flags = []
 
-        if lt_ratio != lt_ratio:
+        if np.isnan(lt_ratio):
             flags.append("LT_RATIO_NAN")
         elif lt_ratio > LT_RATIO_HIGH:
             flags.append(f"LT_RATIO_HIGH({lt_ratio:.3f})")
@@ -275,24 +278,24 @@ def main() -> None:
 
         summary_rows.append({
             "PourPtID": pid,
-            "area_km2": f"{area_km2:.4f}",
+            "area_km2": round(area_km2, 4),
             "n_days": len(flow_data),
             "n_water_years": len(annual_ratios),
-            "mean_flow_cfs": f"{mean_flow_cfs:.3f}",
-            "mean_flow_mm": f"{mean_flow_mm:.4f}",
-            "mean_precip_mm": f"{mean_precip_mm:.4f}",
-            "lt_runoff_ratio": f"{lt_ratio:.4f}" if lt_ratio == lt_ratio else "NaN",
-            "min_annual_ratio": f"{min_ratio:.4f}" if min_ratio == min_ratio else "NaN",
-            "mean_annual_ratio": f"{mean_ratio:.4f}" if mean_ratio == mean_ratio else "NaN",
-            "max_annual_ratio": f"{max_ratio:.4f}" if max_ratio == max_ratio else "NaN",
-            "max_flow_mm": f"{max_flow_mm:.2f}",
-            "max_precip_mm": f"{max_precip_mm:.2f}",
-            "zero_flow_frac": f"{zero_frac:.4f}",
-            "monthly_regression_r2": f"{r2:.4f}" if r2 == r2 else "NaN",
-            "monthly_regression_rsr": f"{rsr:.4f}" if rsr == rsr else "NaN",
-            "monthly_regression_pbias": f"{pbias:.2f}" if pbias == pbias else "NaN",
-            "monthly_regression_pearson_r": f"{pearson_r:.4f}" if pearson_r == pearson_r else "NaN",
-            "monthly_regression_mkge": f"{mkge:.4f}" if mkge == mkge else "NaN",
+            "mean_flow_cfs": round(mean_flow_cfs, 3),
+            "mean_flow_mm": round(mean_flow_mm, 4),
+            "mean_precip_mm": round(mean_precip_mm, 4),
+            "lt_runoff_ratio": round(lt_ratio, 4) if not np.isnan(lt_ratio) else np.nan,
+            "min_annual_ratio": round(min_ratio, 4) if not np.isnan(min_ratio) else np.nan,
+            "mean_annual_ratio": round(mean_ratio, 4) if not np.isnan(mean_ratio) else np.nan,
+            "max_annual_ratio": round(max_ratio, 4) if not np.isnan(max_ratio) else np.nan,
+            "max_flow_mm": round(max_flow_mm, 2),
+            "max_precip_mm": round(max_precip_mm, 2),
+            "zero_flow_frac": round(zero_frac, 4),
+            "monthly_regression_r2": round(r2, 4) if not np.isnan(r2) else np.nan,
+            "monthly_regression_rsr": round(rsr, 4) if not np.isnan(rsr) else np.nan,
+            "monthly_regression_pbias": round(pbias, 2) if not np.isnan(pbias) else np.nan,
+            "monthly_regression_pearson_r": round(pearson_r, 4) if not np.isnan(pearson_r) else np.nan,
+            "monthly_regression_mkge": round(mkge, 4) if not np.isnan(mkge) else np.nan,
             "flags": flag_str,
         })
 
@@ -300,72 +303,65 @@ def main() -> None:
             for fl in flags:
                 flag_rows.append({"PourPtID": pid, "Flag": fl.split("(")[0], "Detail": fl})
 
-        r2_str = f"{r2:.3f}" if r2 == r2 else "NaN"
-        rsr_str = f"{rsr:.3f}" if rsr == rsr else "NaN"
-        pbias_str = f"{pbias:.1f}" if pbias == pbias else "NaN"
-        mkge_str = f"{mkge:.3f}" if mkge == mkge else "NaN"
+        r2_str = f"{r2:.3f}" if not np.isnan(r2) else "NaN"
+        rsr_str = f"{rsr:.3f}" if not np.isnan(rsr) else "NaN"
+        pbias_str = f"{pbias:.1f}" if not np.isnan(pbias) else "NaN"
+        mkge_str = f"{mkge:.3f}" if not np.isnan(mkge) else "NaN"
         print(f"  {pid}: lt_ratio={lt_ratio:.4f}, r2={r2_str}, rsr={rsr_str}, pbias={pbias_str}%, mkge={mkge_str}, flags={flag_str}")
 
     # --- Write outputs ---
     if summary_rows:
         sum_path = STEP_8_OUTPUT_DIR / "qaqc_flow_vs_precip_summary.csv"
-        with open(sum_path, "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=list(summary_rows[0].keys()))
-            writer.writeheader()
-            writer.writerows(summary_rows)
+        pd.DataFrame(summary_rows).to_csv(sum_path, index=False)
         print(f"\nSummary: {sum_path} ({len(summary_rows)} watersheds)")
 
     flag_path = STEP_8_OUTPUT_DIR / "qaqc_flow_vs_precip_flags.csv"
-    with open(flag_path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=["PourPtID", "Flag", "Detail"])
-        writer.writeheader()
-        writer.writerows(flag_rows)
+    pd.DataFrame(flag_rows, columns=["PourPtID", "Flag", "Detail"]).to_csv(flag_path, index=False)
     print(f"Flags:   {flag_path} ({len(flag_rows)} flags)")
 
     if annual_detail_rows:
         ann_path = STEP_8_OUTPUT_DIR / "qaqc_annual_runoff_ratios.csv"
-        with open(ann_path, "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=list(annual_detail_rows[0].keys()))
-            writer.writeheader()
-            writer.writerows(annual_detail_rows)
+        pd.DataFrame(annual_detail_rows).to_csv(ann_path, index=False)
         print(f"Annual:  {ann_path} ({len(annual_detail_rows)} water-year rows)")
 
-    # --- Sort flow files into tier subfolders under data/training/flow/ ---
-    tier_dirs = {
-        "tier_1": FLOW_DIR / "tier_1",
-        "tier_2": FLOW_DIR / "tier_2",
-        "tier_3": FLOW_DIR / "tier_3",
-    }
-    # Remove stale files so excluded basins don't persist from prior runs
-    for d in tier_dirs.values():
-        if d.exists():
-            for old in d.glob("*_cleaned.csv"):
-                old.unlink()
-        d.mkdir(parents=True, exist_ok=True)
-
-    n_tiers = {"tier_1": 0, "tier_2": 0, "tier_3": 0, "unclassified": 0}
+    # --- Build flow.zarr from tier classification ---
+    tier_map: dict[int, int] = {}
+    flow_data_map: dict[int, pd.DataFrame] = {}
+    n_tiers = {1: 0, 2: 0, 3: 0, "unclassified": 0}
     for fpath_str, r2 in tier_rows:
         fpath = Path(fpath_str)
-        if r2 != r2:  # NaN
+        pid = fpath.stem.replace("_cleaned", "")
+        try:
+            bid = int(pid)
+        except ValueError:
+            continue
+        if np.isnan(r2):  # NaN
             n_tiers["unclassified"] += 1
             continue
         if r2 > 0.6:
-            tier = "tier_1"
+            tier = 1
         elif r2 >= 0.2:
-            tier = "tier_2"
+            tier = 2
         else:
-            tier = "tier_3"
-        shutil.copy2  # noqa: keep import for potential future use
-        df_tier = pd.read_csv(fpath, usecols=["date", "flow"])
-        df_tier.to_csv(tier_dirs[tier] / fpath.name, index=False)
+            tier = 3
+        df = pd.read_csv(
+            fpath, usecols=["date", "flow"], parse_dates=["date"]
+        ).set_index("date")
+        df["flow"] = df["flow"].astype("float32")
+        flow_data_map[bid] = df
+        tier_map[bid] = tier
         n_tiers[tier] += 1
 
-    print(f"\nTier sorting (copied to {FLOW_DIR}/):")
-    print(f"  tier_1 (R2 > 0.6):         {n_tiers['tier_1']} files")
-    print(f"  tier_2 (0.2 <= R2 <= 0.6): {n_tiers['tier_2']} files")
-    print(f"  tier_3 (R2 < 0.2):         {n_tiers['tier_3']} files")
+    print(f"\nTier classification:")
+    print(f"  tier_1 (R2 > 0.6):         {n_tiers[1]} basins")
+    print(f"  tier_2 (0.2 <= R2 <= 0.6): {n_tiers[2]} basins")
+    print(f"  tier_3 (R2 < 0.2):         {n_tiers[3]} basins")
     if n_tiers["unclassified"]:
-        print(f"  unclassified (NaN R2):     {n_tiers['unclassified']} files")
+        print(f"  unclassified (NaN R2):     {n_tiers['unclassified']} basins")
+
+    if flow_data_map:
+        print(f"\nWriting {FLOW_ZARR}  ({len(flow_data_map)} basins)")
+        write_flow_zarr(FLOW_ZARR, flow_data_map, tier_map=tier_map, overwrite=True)
 
     # --- Print overall summary ---
     n_pass = sum(1 for r in summary_rows if r["flags"] == "PASS")
