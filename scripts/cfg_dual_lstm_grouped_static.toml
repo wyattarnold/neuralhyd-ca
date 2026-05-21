@@ -11,7 +11,7 @@ static_basin_atlas   = "../data/training/static/watersheds/Physical_Attributes_W
 static_climate       = "../data/training/static/watersheds/Climate_Statistics_Watersheds.csv"
 
 [basins]
-training_manifest    = "huc12_intersect"
+training_manifest    = "gages"
 include_cdec_basins  = true
 
 [sequence]

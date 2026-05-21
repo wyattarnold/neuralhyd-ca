@@ -554,6 +554,11 @@ class MoELSTM(nn.Module):
         # Store batch-mean gate weights for diagnostics
         self._last_pi = pi.detach().mean(dim=0)                # (K,)
 
+        # Per-expert predictions for diagnostics (B, K)
+        scale = torch.exp(self.scale_head(e_s)).unsqueeze(-1)  # (B, 1)
+        q_per_expert = self.head(h_experts).squeeze(-1) * scale  # (B, K)
+        self._last_q_experts = q_per_expert.detach()
+
         # Mixture of expert hidden states
         m = (pi.unsqueeze(-1) * h_experts).sum(dim=1)          # (B, D_h)
         m = self.dropout(m)

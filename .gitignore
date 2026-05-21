@@ -1,5 +1,6 @@
 # repo specific
 .github/scripts/
+.claude/
 CLAUDE.md
 _archive/
 .vscode/
@@ -15,7 +16,7 @@ data/prepare/qa_qc_tier_sort/
 data/eval/sim/
 *.nc
 *cache*
-*.sublime-
+*.sublime-*
 
 # OS generated files
 .DS_Store

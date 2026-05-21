@@ -1,0 +1,115 @@
+# =============================================================================
+# neuralhyd-ca - deterministic dual-pathway LSTM
+# Run with: python scripts/train_kfold.py scripts/cfg_dual_lstm.toml
+#
+# This file keeps only settings used by the deterministic dual LSTM path.
+# Single-LSTM, MoE, CMAL-only, and regime-gate knobs are intentionally absent.
+# =============================================================================
+
+[paths]
+# Paths are resolved relative to this TOML file.  The run output directory is
+# derived from the filename: cfg_dual_lstm.toml -> data/training/output/dual_lstm/.
+data_dir             = "../data"
+climate_zarr          = "../data/training/climate/watersheds.zarr"
+flow_zarr             = "../data/training/flow.zarr"
+static_basin_atlas   = "../data/training/static/watersheds/Physical_Attributes_Watersheds.csv"
+static_climate       = "../data/training/static/watersheds/Climate_Statistics_Watersheds.csv"
+
+[basins]
+# "gages" uses the gauge watershed domain.  CDEC full-natural-flow basins are
+# included when their flow, climate, and static rows are available.
+training_manifest    = "gages"
+include_cdec_basins  = true
+
+[sequence]
+# The slow pathway sees the full year.  The fast pathway sees only the most
+# recent storm-response window.  info_gap=false lets the slow pathway see the
+# recent days too; setting true enforces a strict information gap.
+seq_len              = 365
+fast_window          = 28
+info_gap             = false
+
+[model]
+# model_type="dual" builds DualPathwayLSTM: q_total = q_slow * (1 + q_fast_ratio).
+# Hidden sizes apply only to the two dual pathways.  The ScaleHead is always on
+# in code, so it is not repeated as a config switch.
+model_type           = "dual"
+fast_hidden_size     = 64
+slow_hidden_size     = 108
+static_embedding_dim = 10
+static_hidden_size   = 32
+dropout              = 0.15
+static_dropout       = 0.10
+
+# Per-basin gradient balancing: 0 disables it, 0.5 is sqrt inverse-variance,
+# and 1.0 is full inverse-variance.  This run uses a lighter 0.25 correction.
+basin_loss_weight_exponent = 0.25
+
+[aux_loss]
+# Dual-pathway-only supervision from Lyne-Hollick baseflow separation.
+# The auxiliary fast-path loss receives the extreme-flow boost below.
+aux_loss_weight      = 0.40
+baseflow_alpha       = 0.925
+
+[blended_loss]
+# Primary deterministic objective: (1 - lambda) * MSE + lambda * log-MSE.
+log_loss_lambda      = 0.05
+log_loss_epsilon     = 0.001
+
+[extreme_loss]
+# Per-basin quantile thresholds are computed on flow / precip_mean at fold init.
+# The auxiliary fast-path loss ramps from q_start to q_top for each basin.
+extreme_start_quantile = 0.98
+extreme_top_quantile   = 0.995
+extreme_peak_boost     = 30.0
+
+[training]
+# AdamW schedule: warmup, cosine annealing, early stopping, then optional SWA.
+batch_size           = 512
+learning_rate        = 4e-4
+weight_decay         = 1e-4
+input_noise_std      = 0.1
+warmup_epochs        = 3
+num_epochs           = 80
+patience             = 8
+min_delta            = 0.002
+num_workers          = 0
+grad_clip            = 1.0
+use_swa              = true
+swa_lr               = 2e-4
+swa_patience         = 10
+
+[validation]
+# Spatial k-fold validation splits basins, not timesteps.
+n_folds              = 5
+seed                 = 42
+
+[features]
+# Dynamic features are daily forcings.  Static features are grouped here only
+# by comments; the flat StaticEncoder consumes them in the listed order.
+dynamic_features = ["precip_mm", "tmax_c", "tmin_c"]
+static_features  = [
+    # topography - Physical CSV
+    "total_Shape_Area_km2",
+    "ele_mt_uav",
+    "slp_dg_uav",
+    # river network - Physical CSV
+    "ria_ha_usu",
+    "riv_tc_usu",
+    "sgr_dk_sav",
+    # soil and surface - Physical CSV
+    "for_pc_use",
+    "cly_pc_uav",
+    "snd_pc_uav",
+    "clz_cl_smj",
+    "lit_cl_top1",
+    # climate normals - Climate CSV
+    "aridity_index",
+    "snow_fraction",
+    "pet_mean",
+    "high_precip_freq",
+    "precip_mean",
+    "low_precip_dur",
+    "high_precip_dur",
+]
+log_transform_static = ["total_Shape_Area_km2", "ria_ha_usu"]

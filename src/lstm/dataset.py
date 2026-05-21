@@ -147,30 +147,6 @@ def load_all_data(config: Config):
     flow_data, tier_map = load_flow_dataframes(config.flow_zarr)
     basin_ids = sorted(tier_map.keys())
 
-    # Optionally align gauge-mode experiments to the HUC12-intersect domain:
-    # keep only basins present in the HUC12 manifest used by dPL.
-    if getattr(config, "training_manifest", "gages") == "huc12_intersect":
-        manifest_path = getattr(config, "training_manifest_csv", None)
-        if manifest_path is None:
-            raise ValueError(
-                "training_manifest='huc12_intersect' requires training_manifest_csv"
-            )
-        manifest_df = pd.read_csv(manifest_path)
-        if "PourPtID" not in manifest_df.columns:
-            raise KeyError(
-                f"dPL manifest missing required 'PourPtID' column: {manifest_path}"
-            )
-        manifest_ids = set(manifest_df["PourPtID"].astype(int).tolist())
-        n_before = len(basin_ids)
-        basin_ids = [b for b in basin_ids if b in manifest_ids]
-        tier_map = {b: tier_map[b] for b in basin_ids}
-        flow_data = {b: flow_data[b] for b in basin_ids}
-        print(
-            "  training_manifest='huc12_intersect': "
-            f"kept {len(basin_ids)} / {n_before} basins present in "
-            f"{Path(manifest_path).name}"
-        )
-
     # Optionally exclude CDEC full-natural-flow basins (IDs >= 990_000_000).
     if not getattr(config, "include_cdec_basins", True):
         n_before = len(basin_ids)

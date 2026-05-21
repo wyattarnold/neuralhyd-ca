@@ -1,13 +1,15 @@
 Architecture
 ============
 
-Two model variants are the focus of this documentation, selected via
-``model_type`` in the experiment TOML: a **dual-pathway LSTM** and a
-**single-LSTM baseline**. A third variant, a mixture-of-experts LSTM
-(``model_type="moe"``), also exists in the code but is not covered here.
+Four LSTM model variants are documented here, selected via ``model_type``
+in the experiment TOML: a **single-LSTM baseline**, a **dual-pathway
+LSTM**, the same dual-pathway model with a **CMAL probabilistic head**,
+and an **unsupervised mixture-of-experts LSTM** (``model_type="moe"``).
 All hyperparameters (hidden sizes, window lengths, feature lists, etc.)
-are configurable — see ``scripts/config_dual_lstm_kfold.toml`` and
-``scripts/config_single_lstm_kfold.toml`` for current values.
+are configurable — see ``scripts/cfg_single_lstm.toml``,
+``scripts/cfg_dual_lstm.toml``, ``scripts/cfg_dual_lstm_cmal.toml``, and
+``scripts/cfg_moe_lstm.toml`` for current values. See
+``docs/models/lstm.md`` for the implementation-level reference.
 
 Both variants return the 3-tuple ``(q_total, q_fast, q_slow)`` from
 ``forward()``. For the single-LSTM, ``q_fast`` and ``q_slow`` are zeros

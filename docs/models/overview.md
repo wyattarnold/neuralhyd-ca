@@ -13,6 +13,21 @@ Run-specific metrics are not repeated here because they change as experiments ar
 | [cfg_dual_lstm_cmal.toml](./../../scripts/cfg_dual_lstm_cmal.toml) | [Dual-pathway LSTM with CMAL](lstm.md#dual-pathway-lstm-with-cmal) | `python scripts/train_kfold.py scripts/cfg_dual_lstm_cmal.toml` |
 | [cfg_moe_lstm.toml](./../../scripts/cfg_moe_lstm.toml) | [Unsupervised MoE-tau](lstm.md#unsupervised-moe-tau) | `python scripts/train_kfold.py scripts/cfg_moe_lstm.toml` |
 
+### Grouped Static Encoder Variants
+
+Two additional configs swap the default flat static-attribute MLP for a
+**grouped** encoder (`static_attribute_mode = "grouped"`) that gives each
+semantic group of watershed attributes (topography, routing, soil,
+land_cover, hydroclimate) its own small sub-encoder before a fusion
+layer. Group membership is declared in the config's
+`[static_feature_groups]` table; `static_group_dropout` randomly drops
+whole groups during training as a regularizer.
+
+| Config | Base architecture |
+| --- | --- |
+| [cfg_single_lstm_grouped_static.toml](./../../scripts/cfg_single_lstm_grouped_static.toml) | Single LSTM with grouped static encoder |
+| [cfg_dual_lstm_grouped_static.toml](./../../scripts/cfg_dual_lstm_grouped_static.toml) | Dual-pathway LSTM with grouped static encoder |
+
 ## Modeling Goal
 
 The project predicts daily streamflow for California watersheds from observed daily climate forcing and static watershed attributes. The models are hindcast simulators: they use the observed precipitation and temperature context for the target day, not weather forecasts. The practical question is: given the historical climate record and the basin attributes, what streamflow should this watershed produce today?

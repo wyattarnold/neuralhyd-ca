@@ -24,6 +24,7 @@ Outputs (written to ``config.output_dir``):
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -78,6 +79,9 @@ def main() -> None:
 
     config = load_config(config_path)
     config.output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Preserve the exact config used for this run alongside its outputs.
+    shutil.copy2(config_path, config.output_dir / config_path.name)
 
     # ---- tee stdout to log.txt ----
     tee = _Tee(sys.stdout, config.output_dir / "log.txt")

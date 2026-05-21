@@ -18,6 +18,7 @@ Output (written to ``config.output_dir``):
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -45,10 +46,14 @@ def main() -> None:
         help="Path to an LSTM TOML config file, e.g. scripts/cfg_dual_lstm.toml",
     )
     args = parser.parse_args()
+    config_path = Path(args.config).resolve()
 
-    config = load_config(args.config)
-    config.output_dir = config.output_dir / "dual_lstm_final"
+    config = load_config(config_path)
+    config.output_dir = config.output_dir.parent / f"{config.output_dir.name}_final"
     config.output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Preserve the exact config used for this run alongside its outputs.
+    shutil.copy2(config_path, config.output_dir / config_path.name)
 
     seed_everything(config.seed)
 

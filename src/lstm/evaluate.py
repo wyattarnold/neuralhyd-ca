@@ -61,8 +61,7 @@ def evaluate_basin(
         return None
 
     all_pred, all_obs, all_fast, all_slow = [], [], [], []
-    all_pi, all_q_experts, all_fast_experts, all_fast_ratios = [], [], [], []
-    all_attention_lag, all_attention_entropy = [], []
+    all_q_experts: list = []
     # CMAL distribution params (collected per batch for quantile computation)
     cmal_pi, cmal_mu, cmal_bl, cmal_br = [], [], [], []
     use_cmal = config.output_type == "cmal"
@@ -74,9 +73,6 @@ def evaluate_basin(
         x_s = static.unsqueeze(0).expand(len(batch_idx), -1).to(device)
 
         m = _unwrap_model(model)
-        set_fast_ramp = getattr(m, "set_fast_ramp", None)
-        if set_fast_ramp is not None:
-            set_fast_ramp(1.0)
         q_tot, q_f, q_sl = model(x_d, x_s)
 
         # denormalise
@@ -86,18 +82,8 @@ def evaluate_basin(
         all_slow.append(q_sl.cpu().numpy() * scale)
         all_obs.append(flow[batch_idx])
 
-        if hasattr(m, "_last_pi_full"):
-            all_pi.append(m._last_pi_full.cpu().numpy())
         if hasattr(m, "_last_q_experts"):
             all_q_experts.append(m._last_q_experts.cpu().numpy() * scale)
-        if hasattr(m, "_last_fast_experts"):
-            all_fast_experts.append(m._last_fast_experts.cpu().numpy() * scale)
-        if hasattr(m, "_last_fast_ratios"):
-            all_fast_ratios.append(m._last_fast_ratios.cpu().numpy())
-        if hasattr(m, "_last_attention_lag"):
-            all_attention_lag.append(m._last_attention_lag.cpu().numpy())
-        if hasattr(m, "_last_attention_entropy"):
-            all_attention_entropy.append(m._last_attention_entropy.cpu().numpy())
 
         # Collect CMAL params (in normalised space — denormalise later)
         if use_cmal:
@@ -111,12 +97,7 @@ def evaluate_basin(
     obs = np.concatenate(all_obs)
     fast = np.concatenate(all_fast)
     slow = np.concatenate(all_slow)
-    pi_series = np.concatenate(all_pi) if all_pi else None
     q_experts = np.concatenate(all_q_experts) if all_q_experts else None
-    fast_experts = np.concatenate(all_fast_experts) if all_fast_experts else None
-    fast_ratios = np.concatenate(all_fast_ratios) if all_fast_ratios else None
-    attention_lag = np.concatenate(all_attention_lag) if all_attention_lag else None
-    attention_entropy = np.concatenate(all_attention_entropy) if all_attention_entropy else None
 
     result = {
         "nse": compute_nse(obs, pred),
@@ -151,18 +132,11 @@ def evaluate_basin(
         covered = np.sum((obs >= q05) & (obs <= q95))
         result["picp_90"] = float(covered / len(obs)) if len(obs) > 0 else float("nan")
 
-    # Capture MoE gate weights.
+    # Capture MoE gate weights and per-expert predictions.
     m = _unwrap_model(model)
     gate_names = getattr(m, "gate_output_names", None)
     expert_names = getattr(m, "expert_output_names", gate_names)
-    fast_expert_names = getattr(m, "fast_expert_output_names", gate_names)
-    fast_ratio_names = getattr(m, "fast_ratio_output_names", gate_names)
-    if pi_series is not None:
-        result["pi_series"] = pi_series
-        for i in range(pi_series.shape[1]):
-            key = f"pi_{gate_names[i]}" if gate_names is not None else f"pi_{i}"
-            result[key] = float(pi_series[:, i].mean())
-    elif hasattr(m, "_last_pi"):
+    if hasattr(m, "_last_pi"):
         pi = m._last_pi.cpu().numpy()
         for i, v in enumerate(pi):
             key = f"pi_{gate_names[i]}" if gate_names is not None else f"pi_{i}"
@@ -170,18 +144,6 @@ def evaluate_basin(
     if q_experts is not None:
         result["q_experts"] = q_experts
         result["expert_names"] = expert_names
-    if fast_experts is not None:
-        result["fast_experts"] = fast_experts
-        result["fast_expert_names"] = fast_expert_names
-    if fast_ratios is not None:
-        result["fast_ratios"] = fast_ratios
-        result["fast_ratio_names"] = fast_ratio_names
-    if attention_lag is not None:
-        result["attention_lag"] = attention_lag
-        result["attention_lag_mean"] = float(np.mean(attention_lag))
-    if attention_entropy is not None:
-        result["attention_entropy"] = attention_entropy
-        result["attention_entropy_mean"] = float(np.mean(attention_entropy))
 
     return result
 
@@ -221,9 +183,6 @@ def evaluate_fold(
         for k, v in res.items():
             if k.startswith("pi_") and np.isscalar(v):
                 row[k] = v
-        for k in ("attention_lag_mean", "attention_entropy_mean"):
-            if k in res:
-                row[k] = res[k]
         rows.append(row)
 
         # Save per-basin timeseries (obs, pred, pathway components, quantiles)
@@ -240,30 +199,11 @@ def evaluate_fold(
                 col = f"q{int(q_level*100):02d}"
                 if col in res:
                     ts_data[col] = res[col]
-        if "pi_series" in res:
-            pi_series = res["pi_series"]
-            names = res.get("expert_names") or [str(i) for i in range(pi_series.shape[1])]
-            for i, name in enumerate(names):
-                ts_data[f"pi_{name}"] = pi_series[:, i]
         if "q_experts" in res:
             q_experts = res["q_experts"]
             names = res.get("expert_names") or [str(i) for i in range(q_experts.shape[1])]
             for i, name in enumerate(names):
                 ts_data[f"q_{name}"] = q_experts[:, i]
-        if "fast_experts" in res:
-            fast_experts = res["fast_experts"]
-            names = res.get("fast_expert_names") or [str(i) for i in range(fast_experts.shape[1])]
-            for i, name in enumerate(names):
-                ts_data[f"q_fast_{name}"] = fast_experts[:, i]
-        if "fast_ratios" in res:
-            fast_ratios = res["fast_ratios"]
-            names = res.get("fast_ratio_names") or [str(i) for i in range(fast_ratios.shape[1])]
-            for i, name in enumerate(names):
-                ts_data[f"fast_ratio_{name}"] = fast_ratios[:, i]
-        if "attention_lag" in res:
-            ts_data["attention_lag"] = res["attention_lag"]
-        if "attention_entropy" in res:
-            ts_data["attention_entropy"] = res["attention_entropy"]
         ts = pd.DataFrame(ts_data)
         ts.to_csv(ts_dir / f"{bid}.csv", index=False)
 
