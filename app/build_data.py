@@ -40,6 +40,7 @@ GIS_DIR = REPO / "data" / "raw" / "gis"
 HUC8_GPKG = GIS_DIR / "WBDHU8.gpkg"
 HUC10_GPKG = GIS_DIR / "WBDHU10.gpkg"
 WATERSHEDS_GPKG = GIS_DIR / "USGS_Training_Watersheds.gpkg"
+CDEC_FNF_GPKG   = GIS_DIR / "cdec_fnf.gpkg"
 AGG = REPO / "data" / "external" / "cec" / "VIC-Sim" / "aggregated"
 
 FLOW_ZARR = REPO / "data" / "training" / "flow.zarr"
@@ -158,12 +159,16 @@ def build_training_watersheds_geojson(tol: float) -> None:
                 valid.index[-1].strftime("%Y-%m-%d"),
             )
 
-    # --- Load and simplify geometry ---
-    gdf = gpd.read_file(WATERSHEDS_GPKG).to_crs("EPSG:4326")
+    # --- Load and simplify geometry (USGS + CDEC FNF basins) ---
+    gdf = gpd.read_file(WATERSHEDS_GPKG).to_crs("EPSG:4326")[["PourPtID", "geometry"]]
+    if CDEC_FNF_GPKG.exists():
+        cdec_gdf = gpd.read_file(CDEC_FNF_GPKG).to_crs("EPSG:4326")[["PourPtID", "FNF", "geometry"]]
+        cdec_gdf = cdec_gdf.rename(columns={"FNF": "name"})
+        gdf = pd.concat([gdf, cdec_gdf], ignore_index=True)
     gdf["geometry"] = gdf.geometry.simplify(tol, preserve_topology=True)
     gdf = gdf.rename(columns={"PourPtID": "Pour Point ID"})
     gdf["Pour Point ID"] = gdf["Pour Point ID"].astype(str)
-    keep = ["Pour Point ID", "geometry"]
+    keep = ["Pour Point ID", "name", "geometry"]
     gdf = gdf[[c for c in keep if c in gdf.columns]].copy()
 
     # Attach metadata
@@ -407,6 +412,45 @@ def build_vic_component_parquets() -> None:
 
 
 # ---------------------------------------------------------------------------
+# SAC-SMA conventional model builder (CDEC FNF basins only)
+# ---------------------------------------------------------------------------
+
+def build_sacsma_parquet() -> None:
+    """Build the SAC-SMA comparison Parquet for the 14 CDEC FNF basins.
+
+    SAC-SMA simulations are mm/day; convert to CFS with the same factor and
+    untransformed basin area the LSTM sims use, so the series is comparable.
+    """
+    from src.eval.cdec import CDEC_MAP, _read_sacsma
+    from src.eval.simulate import _MM_DAY_TO_CFS_FACTOR
+
+    out_path = TS_DIR / "sacsma_training_watersheds.parquet"
+    print("  sacsma_training_watersheds … ", end="", flush=True)
+
+    area = pd.read_csv(STATIC_CSV, usecols=["PourPtID", "total_Shape_Area_km2"])
+    area["PourPtID"] = area["PourPtID"].astype(str)
+    area_km2 = area.set_index("PourPtID")["total_Shape_Area_km2"].to_dict()
+
+    series: dict[str, pd.Series] = {}
+    for code, pourpt_id in CDEC_MAP:
+        a = area_km2.get(pourpt_id)
+        if a is None:
+            continue
+        s_mm = _read_sacsma(code)
+        series[pourpt_id] = (s_mm * a * _MM_DAY_TO_CFS_FACTOR).round(1)
+
+    if not series:
+        print("skipped (no SAC-SMA data)")
+        return
+
+    wide = pd.DataFrame(series)
+    wide.index.name = "date"
+    wide.to_parquet(out_path, engine="pyarrow", compression="zstd")
+    size_mb = out_path.stat().st_size / 1e6
+    print(f"{wide.shape[0]} days × {wide.shape[1]} basins → {size_mb:.2f} MB")
+
+
+# ---------------------------------------------------------------------------
 # California outline builder (dissolve HUC-8 polygons)
 # ---------------------------------------------------------------------------
 
@@ -516,6 +560,9 @@ def main() -> None:
 
     print("\nBuilding VIC component Parquets …")
     build_vic_component_parquets()
+
+    print("\nBuilding SAC-SMA Parquet (CDEC basins) …")
+    build_sacsma_parquet()
 
     print("\nDone. Output:")
     for f in sorted((OUT).rglob("*")):

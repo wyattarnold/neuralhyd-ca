@@ -4,6 +4,7 @@ export const CHART_SERIES = {
   vic:              { label: "VIC-Sim",     color: "#668bdc", width: 1.2 },
   lstm_pred:        { label: "LSTM Dual",   color: "#e89c0f", width: 1.2 },
   lstm_single_pred: { label: "LSTM Single", color: "#9b59b6", width: 1.2 },
+  sacsma:           { label: "SAC-SMA",     color: "#16a085", width: 1.2 },
 };
 
 /** Series that are hidden by default on the Qdaily chart (legend click toggles). */
@@ -148,7 +149,7 @@ export function tooltipValFmt(v, logScale = false) {
 // Monthly aggregation — CFS daily → AF monthly
 // ---------------------------------------------------------------------------
 const _ALL_SERIES = ["obs", "vic", "lstm_pred", "lstm_fast", "lstm_slow",
-                     "lstm_single_pred", "obs_baseflow", "vic_baseflow", "vic_surface"];
+                     "lstm_single_pred", "sacsma", "obs_baseflow", "vic_baseflow", "vic_surface"];
 
 export function aggregateMonthly(data) {
   if (!data?.dates?.length) return data;

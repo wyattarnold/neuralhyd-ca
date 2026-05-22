@@ -81,6 +81,8 @@ class Layer:
         self.lstm_fast = _lazy(f"lstm_fast_{key}.parquet")
         self.lstm_slow = _lazy(f"lstm_slow_{key}.parquet")
         self.lstm_single_pred = _lazy(f"lstm_single_pred_{key}.parquet")
+        # SAC-SMA conventional model — CDEC FNF basins only (training_watersheds)
+        self.sacsma = _lazy("sacsma_training_watersheds.parquet") if key == "training_watersheds" else None
 
     @property
     def geojson(self) -> dict:
@@ -101,7 +103,7 @@ class Layer:
     def available_series(self) -> list[str]:
         out = []
         for attr in ("vic", "vic_baseflow", "vic_surface", "obs", "obs_baseflow",
-                     "lstm_pred", "lstm_fast", "lstm_slow", "lstm_single_pred"):
+                     "lstm_pred", "lstm_fast", "lstm_slow", "lstm_single_pred", "sacsma"):
             if getattr(self, attr) is not None:
                 out.append(attr)
         return out

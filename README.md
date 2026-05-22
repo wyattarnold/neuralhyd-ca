@@ -65,7 +65,22 @@ docs/        Sphinx docs and model-family documentation
 
 ## Web App
 
-Serve the Streamflow Explorer locally with:
+Build it with:
+
+```bash
+python -c "import app.build_data as b; 
+			b.build_training_watersheds_geojson(0.0001); 
+			b.build_static_attrs();
+			b.build_obs_parquet();
+			b.build_obs_baseflow_parquet();  
+			b.build_lstm_parquets();
+			b.build_lstm_single_parquets();
+			b.build_sacsma_parquet()"
+
+cd app\frontend; npm run build
+```
+
+Serve the Streamflow Explorer app locally with:
 
 ```bash
 python -m app serve

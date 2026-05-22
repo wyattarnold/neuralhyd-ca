@@ -300,7 +300,8 @@ export default function SidePanel({ layerKey, polygonId, name, props, onClose, o
   const hasLstm = displayData?.lstm_pred?.some((v) => v != null);
   const hasLstmSingle = displayData?.lstm_single_pred?.some((v) => v != null);
   const hasVic = displayData?.vic?.some((v) => v != null);
-  const showHexTab = hasObs && (hasLstm || hasLstmSingle || hasVic);
+  const hasSacsma = displayData?.sacsma?.some((v) => v != null);
+  const showHexTab = hasObs && (hasLstm || hasLstmSingle || hasVic || hasSacsma);
 
   const hexObs = useMemo(() => {
     if (!displayData?.obs) return [];
@@ -314,6 +315,7 @@ export default function SidePanel({ layerKey, polygonId, name, props, onClose, o
 
   const hexLabel = hexTarget === "lstm_pred" ? "LSTM Dual"
     : hexTarget === "lstm_single_pred" ? "LSTM Single"
+    : hexTarget === "sacsma" ? "SAC-SMA"
     : "VIC-Sim";
 
   const jumpTo = useCallback(
@@ -753,6 +755,16 @@ export default function SidePanel({ layerKey, polygonId, name, props, onClose, o
                     }`}
                   >
                     vs VIC
+                  </button>
+                )}
+                {hasSacsma && (
+                  <button
+                    onClick={() => setHexTarget("sacsma")}
+                    className={`px-2 py-0.5 rounded transition-colors ${
+                      hexTarget === "sacsma" ? "bg-teal-100 text-teal-700 font-medium" : "bg-gray-200 hover:bg-gray-300"
+                    }`}
+                  >
+                    vs SAC-SMA
                   </button>
                 )}
               </div>

@@ -269,6 +269,7 @@ def train_epoch(
         optimizer.step()
         sum_primary += primary.detach()
         sum_total += loss.detach()
+        n += 1
     return sum_primary.item() / max(n, 1), sum_total.item() / max(n, 1)
 
 

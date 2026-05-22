@@ -29,3 +29,4 @@ class TimeseriesResponse(BaseModel):
     lstm_fast: list[float | None] | None = None
     lstm_slow: list[float | None] | None = None
     lstm_single_pred: list[float | None] | None = None
+    sacsma: list[float | None] | None = None
