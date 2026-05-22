@@ -178,12 +178,13 @@ def evaluate_cdec(
             except FileNotFoundError:
                 continue
             df = pd.read_csv(path, parse_dates=["date"], index_col="date")
-            if "obs_mm" in df.columns:
-                obs_ref_series = _clip(df["obs_mm"]).dropna()
+            obs_col_ref = next((c for c in ("obs_mm", "obs") if c in df.columns), None)
+            if obs_col_ref:
+                obs_ref_series = _clip(df[obs_col_ref]).dropna()
                 break
 
         if obs_ref_series is None:
-            print(f"  WARNING: no dPL obs_mm for {cdec_code} ({pourpt_id}) — skipping")
+            print(f"  WARNING: no observed series for {cdec_code} ({pourpt_id}) — skipping")
             continue
 
         # Conventional SAC-SMA vs dPL obs

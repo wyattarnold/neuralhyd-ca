@@ -232,6 +232,7 @@ Important settings in the active config:
 | --- | --- |
 | `model_type` | `single` |
 | `training_manifest` | `gages` |
+| `include_cdec_basins` | `true` |
 | `seq_len` | `365` |
 | `single_hidden_size` | `128` |
 | `static_embedding_dim` | `10` |
@@ -289,6 +290,7 @@ Important settings in the active config:
 | --- | --- |
 | `model_type` | `dual` |
 | `training_manifest` | `gages` |
+| `include_cdec_basins` | `true` |
 | `seq_len` | `365` |
 | `fast_window` | `28` |
 | `fast_hidden_size` | `64` |
@@ -298,6 +300,10 @@ Important settings in the active config:
 | `extreme_start_quantile` | `0.98` |
 | `extreme_top_quantile` | `0.995` |
 | `extreme_peak_boost` | `30.0` |
+| `log_loss_lambda` | `0.05` |
+| `basin_loss_weight_exponent` | `0.25` |
+| `batch_size` | `512` |
+| `use_swa` | `true` |
 
 ## Dual-Pathway LSTM With CMAL
 
@@ -376,8 +382,8 @@ flowchart TD
     TimeAttn["temporal attention<br/>alpha_t"]:::seq
     Context["gate context c"]:::seq
     Logits["expert logits z"]:::head
-    Tau["tau = sigmoid(log_tau)<br/>tau_eff = max(tau, tau_min)"]:::head
-    Pi["pi = softmax(z / tau_eff)"]:::head
+    Tau["tau = tau_min + (1 - tau_min) * sigmoid(log_tau)"]:::head
+    Pi["pi = softmax(z / tau)"]:::head
     Mix["m = sum_k pi_k h_k"]:::head
     Head["Softplus flow head"]:::head
     Scale["ScaleHead"]:::head
@@ -427,10 +433,22 @@ All LSTM-family configs run through [train_kfold.py](./../../scripts/train_kfold
 2. For each fold, compute normalization statistics from training basins only.
 3. Train with AdamW, input noise, gradient clipping, warmup, and cosine annealing.
 4. Select checkpoints by `validation_selection_metric`, usually validation loss.
-5. When `use_swa = true`, start a Stochastic Weight Averaging phase after the raw phase plateaus; promote SWA only when it beats the raw checkpoint under the same selection metric.
+5. When `use_swa = true`, start a Stochastic Weight Averaging phase after the raw phase exhausts its `patience` budget; the raw best is saved as `best_raw_model.pt`. The SWA phase runs up to `swa_patience` additional epochs at the fixed `swa_lr`, with the patience counter reset. SWA weights are saved as `swa_model.pt` and promoted to `best_model.pt` only when they improve on the raw best under the same selection metric; otherwise `best_raw_model.pt` is promoted.
 6. Reload the selected checkpoint and evaluate held-out basins.
 
 Validation loss is batch-averaged, but NSE and KGE are computed per basin in denormalized mm/day and then aggregated by median. The final basin result CSVs also include flow-volume and high/low-flow diagnostics.
+
+## Evaluation Metrics
+
+Five scalar metrics are computed per basin in denormalized mm/day and then aggregated by tier median:
+
+- **NSE** (Nash–Sutcliffe Efficiency): `1 - Σ(obs-sim)² / Σ(obs-mean)²`. Perfect = 1; climatological mean = 0; worse than mean < 0.
+- **KGE** (Kling–Gupta Efficiency): `1 - √[(r-1)² + (β-1)² + (γ-1)²]`. Decomposes error into correlation (*r*), bias ratio (*β*), and variability ratio (*γ*).
+- **FHV** (High-flow volume bias): percent bias over the top 2 % of the flow-duration curve.
+- **FeHV** (Extreme high-flow volume bias): percent bias over the top 1 % of the flow-duration curve.
+- **FLV** (Low-flow volume bias): percent bias over the bottom 30 % of the flow-duration curve.
+
+Tier 2 (transitional mixed rain/snow) median NSE and KGE are the headline cross-validation metrics. All five metrics are written to `fold_<n>/basin_results.csv` and aggregated in `all_fold_results.csv`.
 
 ## Outputs And Diagnostics
 
@@ -448,6 +466,18 @@ Common outputs are:
 - `all_fold_results.csv`: concatenated held-out basin metrics across folds.
 
 Diagnostic interpretation depends on architecture. For single/MoE baselines, `q_fast` and `q_slow` are placeholders. For dual and regime models, pathway outputs are useful diagnostics, but they are not observed physical truth; they are shaped by architecture and Lyne-Hollick-derived supervision.
+
+## CDEC FNF Basin Evaluation
+
+14 CDEC full-natural-flow (FNF) reservoir basins are included in training when `include_cdec_basins = true`. These are pseudo-gauges (IDs ≥ 990 000 000) reconstructed from reservoir inflow records. BND is excluded due to missing static attributes. Station-to-PourPtID mappings are defined in `src/eval/cdec.py:CDEC_MAP`.
+
+A dedicated post-training comparison (`post_process.py --cdec-barplot`) evaluates trained neural models against the conventional **SAC-SMA** model over the post-calibration window **2003-10-01 – 2018-09-30**. SAC-SMA daily simulations (mm/day) are in `data/external/sacsma15cdec/climate_historical/`. The comparison covers NSE, KGE, FHV, FeHV, and FLV across all 14 basins:
+
+```bash
+python scripts/post_process.py --cdec-barplot dual_lstm single_lstm
+```
+
+The SAC-SMA series is also served by the Streamflow Explorer web app on CDEC basin timeseries charts (converted to CFS using the same mm/day → CFS factor applied to LSTM outputs).
 
 ## Main Limitations
 

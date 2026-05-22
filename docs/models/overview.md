@@ -100,7 +100,7 @@ python scripts/train_kfold.py scripts/cfg_single_lstm.toml
 
 Every active model is trained with spatial cross-validation: basins are split, not timesteps. The goal is ungauged-basin generalization, so no basin appears in both train and validation within a fold.
 
-All active configs use `training_manifest = "gages"`, which uses the gauge watershed domain after optional CDEC filtering and source intersection. Normalization statistics are computed from training basins only. Validation basins are held out for statistics, model fitting, and checkpoint selection except for their fixed metadata needed to construct tensors and report metrics.
+All active configs use `training_manifest = "gages"`, which uses the gauge watershed domain after optional CDEC filtering and source intersection. The active trained runs include 210 USGS gauge watersheds plus 14 CDEC FNF pseudo-gauge basins (224 total) after QA/QC filtering and static-attribute intersection. Normalization statistics are computed from training basins only. Validation basins are held out for statistics, model fitting, and checkpoint selection except for their fixed metadata needed to construct tensors and report metrics.
 
 ```mermaid
 flowchart LR
@@ -153,7 +153,16 @@ Typical training outputs are:
 - `data/training/output/<run>/fold_<n>/basin_results.csv`
 - `data/training/output/<run>/fold_<n>/timeseries/<basin_id>.csv`
 
-Post-processing is handled by [post_process.py](./../../scripts/post_process.py). It can compute evaluation products, create CDF/barplot figures, and simulate historical timeseries from trained checkpoints.
+Post-processing is handled by [post_process.py](./../../scripts/post_process.py):
+
+```bash
+python scripts/post_process.py --eval dual_lstm single_lstm          # per-basin metrics → data/eval/*_kfold.csv
+python scripts/post_process.py --cdf --barplot --runs dual_lstm ...  # CDF + median barplot PNGs
+python scripts/post_process.py --simulate dual_lstm --target training_watersheds  # historical sim CSVs
+python scripts/post_process.py --cdec-barplot dual_lstm single_lstm  # SAC-SMA vs neural on 14 CDEC basins
+```
+
+After regenerating sim products, run `python -m app.build_data` to refresh the Streamflow Explorer app's Parquet bundles in `app/data/timeseries/`.
 
 ## Code Map
 

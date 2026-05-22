@@ -2,9 +2,8 @@
 
 Daily streamflow prediction for California watersheds using neural hydrology models.
 
-The project is under active development. Model architectures, configs, and results may change as experiments are retrained.
-
-## What This Project Does
+> [!WARNING]
+> The project is under active development. Model architectures, configs, and results may change as experiments are retrained.
 
 Most models predict today's streamflow from observed daily climate forcing and static watershed attributes. They are hindcast or reconstruction models, not streamflow-forecast systems.
 
@@ -44,13 +43,9 @@ python scripts/post_process.py --cdf --barplot --runs single_lstm
 python scripts/post_process.py --simulate dual_lstm --target training_watersheds
 ```
 
-## Model Families
+## Docs
 
 Architecture details are consolidated by family under [docs/models/overview.md](docs/models/overview.md).
-
-| Family | Main configs | Details |
-| --- | --- | --- |
-| LSTM gauge models | `cfg_single_lstm.toml`, `cfg_dual_lstm.toml`, `cfg_dual_lstm_cmal.toml`, `cfg_moe_lstm.toml` | [docs/models/lstm.md](docs/models/lstm.md) |
 
 ## Repository Layout
 
@@ -64,6 +59,8 @@ docs/        Sphinx docs and model-family documentation
 ```
 
 ## Web App
+
+The backend is FastAPI and the frontend is React + Leaflet. The app serves prepared GeoJSON layers and timeseries data from `app/data/` and `data/eval/` products.
 
 Build it with:
 
@@ -86,9 +83,3 @@ Serve the Streamflow Explorer app locally with:
 python -m app serve
 python -m app serve --port 9000
 ```
-
-The backend is FastAPI and the frontend is React + Leaflet. The app serves prepared GeoJSON layers and timeseries data from `app/data/` and `data/eval/` products.
-
-## Notes For Contributors
-
-Use the `neuralhyd` environment for scripts. All cross-validation model families run through `scripts/train_kfold.py` with an explicit TOML config. Named configs use the `cfg_<model>.toml` convention and derive stable output directories from their filenames. Keep architecture documentation in the model-family pages when model behavior, inputs, losses, or training schedules change.
