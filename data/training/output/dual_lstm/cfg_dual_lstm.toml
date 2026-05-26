@@ -20,6 +20,7 @@ static_climate       = "../data/training/static/watersheds/Climate_Statistics_Wa
 # included when their flow, climate, and static rows are available.
 training_manifest    = "gages"
 include_cdec_basins  = true
+normalize_by_precip  = true
 
 [sequence]
 # The slow pathway sees the full year.  The fast pathway sees only the most

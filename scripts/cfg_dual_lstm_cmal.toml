@@ -2,9 +2,11 @@
 # neuralhyd-ca - dual-pathway LSTM with CMAL probabilistic output
 # Run with: python scripts/train_kfold.py scripts/cfg_dual_lstm_cmal.toml
 #
-# This is still model_type="dual", so dual pathway sizes and auxiliary pathway
-# supervision remain relevant.  Deterministic blended-loss settings are omitted
-# because CMAL uses CRPS/NLL as the primary objective.
+# Primary objective: CRPS trains the full CMAL distribution.
+# Point prediction: adaptive quantile alpha = sum_k pi_k * b_r,k / (b_l,k + b_r,k).
+# Correction is smooth and self-consistent -- right-skewed distribution (high flow)
+# drives alpha > 0.5 and shifts the prediction toward the upper tail.
+# No aux pathway loss: CRPS fully owns the hidden state representations.
 # =============================================================================
 
 [paths]
@@ -15,46 +17,38 @@ static_basin_atlas   = "../data/training/static/watersheds/Physical_Attributes_W
 static_climate       = "../data/training/static/watersheds/Climate_Statistics_Watersheds.csv"
 
 [basins]
-# "gages" uses the gauge watershed domain.  CDEC full-natural-flow basins are
-# included when their flow, climate, and static rows are available.
 training_manifest    = "gages"
 include_cdec_basins  = true
+normalize_by_precip  = false
 
 [sequence]
-# CMAL uses the same dual windows as the deterministic dual model, with a wider
-# fast window here to condition the distributional head on longer event context.
 seq_len              = 365
-fast_window          = 35
+fast_window          = 28
 info_gap             = false
 
 [model]
-# output_type="cmal" swaps the point head for a Countable Mixture of Asymmetric
-# Laplacians.  The saved q_total is the mixture expectation.
 model_type           = "dual"
-fast_hidden_size     = 48
-slow_hidden_size     = 96
+fast_hidden_size     = 64
+slow_hidden_size     = 108
 static_embedding_dim = 10
 static_hidden_size   = 32
 dropout              = 0.15
 static_dropout       = 0.10
-basin_loss_weight_exponent = 0.50
+basin_loss_weight_exponent = 0.25
+aux_loss_weight      = 0.0
 
-output_type          = "cmal"
-cmal_n_components    = 3
-cmal_hidden_size     = 64
-cmal_loss            = "crps"
-cmal_crps_n_samples  = 50
-cmal_entropy_weight  = 0.10
-
-[aux_loss]
-# Pathway heads are retained in CMAL mode so the hidden states remain physically
-# interpretable; this auxiliary loss does not replace the CMAL primary loss.
-aux_loss_weight      = 0.25
-baseflow_alpha       = 0.925
+output_type               = "cmal"
+cmal_n_components         = 3
+cmal_hidden_size          = 64
+cmal_loss                 = "crps"
+cmal_crps_n_samples       = 50
+cmal_entropy_weight       = 0.05
+cmal_adaptive_quantile    = false
+cmal_pinball_weight       = 0.0
 
 [training]
 batch_size           = 512
-learning_rate        = 5e-4
+learning_rate        = 4e-4
 weight_decay         = 1e-4
 input_noise_std      = 0.1
 warmup_epochs        = 3

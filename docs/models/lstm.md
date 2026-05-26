@@ -370,7 +370,7 @@ CMAL intervals should be evaluated with calibration diagnostics; optimizing CRPS
 
 Config: [cfg_moe_lstm.toml](./../../scripts/cfg_moe_lstm.toml)
 
-The unsupervised MoE model runs `K` independent full-lookback LSTM experts. A separate LSTM-attention gate produces mixture weights over expert hidden states. Expert specialization is unlabeled and emerges only through the total-flow objective.
+The unsupervised MoE model runs `K` independent full-lookback LSTM experts. A separate gate LSTM produces mixture weights over expert hidden states from its final hidden state. Expert specialization is unlabeled and emerges only through the total-flow objective.
 
 ```mermaid
 flowchart TD
@@ -379,27 +379,24 @@ flowchart TD
     E2["expert LSTM 2"]:::seq
     E3["expert LSTM K"]:::seq
     GateLSTM["gate LSTM"]:::seq
-    TimeAttn["temporal attention<br/>alpha_t"]:::seq
-    Context["gate context c"]:::seq
+    Context["gate final hidden c"]:::seq
     Logits["expert logits z"]:::head
     Tau["tau = tau_min + (1 - tau_min) * sigmoid(log_tau)"]:::head
     Pi["pi = softmax(z / tau)"]:::head
     Mix["m = sum_k pi_k h_k"]:::head
     Head["Softplus flow head"]:::head
-    Scale["ScaleHead"]:::head
     Q["q_total"]:::output
     Zeros["q_fast = 0<br/>q_slow = 0"]:::output
 
     X --> E1
     X --> E2
     X --> E3
-    X --> GateLSTM --> TimeAttn --> Context --> Logits --> Tau --> Pi
+    X --> GateLSTM --> Context --> Logits --> Tau --> Pi
     E1 --> Mix
     E2 --> Mix
     E3 --> Mix
     Pi --> Mix
     Mix --> Head --> Q
-    Scale --> Q
     Q --> Zeros
 
     classDef input fill:#e3f2fd,stroke:#1976d2,color:#0d47a1
@@ -418,7 +415,6 @@ Important settings in the active config:
 | `moe_n_experts` | `3` |
 | `moe_expert_hidden_size` | `64` |
 | `moe_gate_hidden_size` | `32` |
-| `moe_attention_dim` | `16` |
 | `moe_tau_init` | `0.25` |
 | `moe_tau_min` | `1e-4` |
 | `dropout` | `0.10` |

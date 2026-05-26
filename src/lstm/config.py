@@ -91,11 +91,11 @@ class Config:
     include_cdec_basins: bool = True
 
     # ----- Flow normalisation -----
-    # The model uses a jointly-learned per-basin scale head (ScaleHead on the
-    # static embedding, zero-init so scale = 1.0 at init).  The dataset-side
-    # target normalisation remains y / precip_mean for stable initialisation
-    # and universal applicability to any basin with climate data; the scale
-    # head then absorbs per-basin amplitude end-to-end under the main loss.
+    # When normalize_by_precip=True (default): scale_map[b] = precip_mean[b];
+    # targets are dimensionless runoff ratios (flow / precip_mean).
+    # When normalize_by_precip=False: scale_map[b] = 1.0; targets stay in
+    # mm/day and the model must learn absolute amplitude from static embedding.
+    normalize_by_precip: bool = True
 
     # ----- Optional climate-static handling -----
     exclude_climate_statics: bool = False
@@ -118,9 +118,11 @@ class Config:
     moe_n_experts: int = 2
     moe_expert_hidden_size: int = 128
     moe_gate_hidden_size: int = 64
-    moe_attention_dim: int = 32
     moe_tau_init: float = 0.5
     moe_tau_min: float = 1e-4
+    # Load-balancing: weight on -H(mean_pi) penalty; pushes gate toward uniform routing.
+    # 0.0 = off (default). 0.05 is a reasonable starting value.
+    moe_balance_weight: float = 0.0
 
     # ----- Extreme-flow loss weighting -----
     # Per-basin quantile-based: weight ramps from 1 at quantile
@@ -156,6 +158,10 @@ class Config:
     cmal_entropy_weight: float = 0.1     # weight on mixture-weight entropy reg (0 = off)
     cmal_scale_reg_weight: float = 0.0   # weight on scale-collapse penalty (0 = off)
     cmal_beta_crps: float = 0.0          # beta-CRPS spread penalty (0 = off; 0.5 typical)
+    # Adaptive quantile: alpha = sum_k pi_k * b_r,k / (b_l,k + b_r,k).
+    # Smooth self-consistent: right-skewed distribution -> alpha > 0.5 -> upper tail.
+    cmal_adaptive_quantile: bool = False
+    cmal_pinball_weight: float = 0.0     # pinball loss weight at adaptive alpha (0 = off)
 
     # ----- Grouped static encoder -----
     # Ordered dict of group_name -> list[feature_name].  When set, features

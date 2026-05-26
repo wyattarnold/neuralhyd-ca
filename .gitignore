@@ -231,3 +231,6 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# LaTeX (docs/presentation/)
+docs/presentation/*

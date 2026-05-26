@@ -1,4 +1,4 @@
-﻿"""Training loop, early stopping, LR scheduling, and checkpoint I/O.
+"""Training loop, early stopping, LR scheduling, and checkpoint I/O.
 
 Key exports
 -----------
@@ -7,7 +7,7 @@ train_epoch(model, loader, optimiser, config)
 validate_epoch(model, loader, config)
     Inference-only pass; returns mean validation loss.
 train_model(model, train_loader, val_loader, config, norm_stats)
-    Full training run with warmup â†’ cosine annealing â†’ optional SWA,
+    Full training run with warmup â†' cosine annealing â†' optional SWA,
     using patience-based transitions.  Saves ``best_model.pt`` when the
     configured validation selection metric improves; bundles ``norm_stats``
     into the checkpoint.
@@ -32,13 +32,14 @@ from .config import Config
 from .loss import (
     mse_loss, pathway_auxiliary_loss, extreme_ramp_weight,
     cmal_nll, cmal_crps, cmal_entropy_reg, cmal_scale_reg,
+    pinball_loss,
     compute_nse, compute_kge,
 )
 
 
 
 def pick_device() -> torch.device:
-    """Select the best available torch device: MPS â†’ CUDA â†’ CPU."""
+    """Select the best available torch device: MPS â†' CUDA â†' CPU."""
     if torch.backends.mps.is_available():
         return torch.device("mps")
     if torch.cuda.is_available():
@@ -246,12 +247,18 @@ def train_epoch(
                     loss = loss + cmal_entropy_w * cmal_entropy_reg(pi_c)
                 if cmal_scale_w > 0:
                     loss = loss + cmal_scale_w * cmal_scale_reg(bl_c, br_c)
+            if use_cmal and config.cmal_pinball_weight > 0.0:
+                _m = _unwrap_model(model)
+                if hasattr(_m, '_last_alpha_raw'):
+                    loss = loss + config.cmal_pinball_weight * pinball_loss(
+                        y, q_total, _m._last_alpha_raw, sample_weights=basin_w,
+                    )
             if use_aux:
                 y_comp = _to(y_comp, device)
                 y_fast_lh = y_comp[:, 0]
                 y_slow_lh = y_comp[:, 1]
                 # Per-basin quantile thresholds: [y_q_start, y_q_top]
-                # ramp width = y_q_top âˆ’ y_q_start (floored inside extreme_ramp_weight)
+                # ramp width = y_q_top - y_q_start (floored inside extreme_ramp_weight)
                 q_start_b = extreme_qs[:, 0]
                 q_top_b = extreme_qs[:, 1]
                 ramp_b = (q_top_b - q_start_b)
@@ -264,6 +271,10 @@ def train_epoch(
                     extreme_ramp=ramp_b,
                     sample_weights=basin_w,
                 )
+        if config.moe_balance_weight > 0.0 and hasattr(model, '_last_pi_raw'):
+            # Minimize -H(mean_pi) = sum(p * log(p)) to encourage uniform expert usage.
+            mean_pi = model._last_pi_raw
+            loss = loss + config.moe_balance_weight * (mean_pi * torch.log(mean_pi + 1e-8)).sum()
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=config.grad_clip)
         optimizer.step()
@@ -358,15 +369,22 @@ def _save_checkpoint(
 
 
 def _get_gate_stats(model: torch.nn.Module) -> dict | None:
-    """Extract tau and last-batch mean Ï€/blend from gated/moe models.
+    """Extract tau/pi from MoE models and alpha from adaptive-quantile CMAL models.
 
-    Returns None for models without a gating network.
+    Returns None for models with neither gating network nor adaptive quantile.
     """
     m = _unwrap_model(model)
 
+    has_alpha = hasattr(m, "_last_alpha") and getattr(m, "_adaptive_quantile", False)
     n_out = getattr(m, "n_gate_outputs", 0)
-    if n_out == 0:
+    if n_out == 0 and not has_alpha:
         return None
+
+    stats: dict = {}
+    if has_alpha:
+        stats["alpha_mean"] = float(m._last_alpha.mean().item())
+    if n_out == 0:
+        return stats
     stats: dict = {}
     if hasattr(m, "tau"):
         stats["tau"] = m.tau.item()
@@ -416,13 +434,13 @@ def train_model(
     epoch_callback: callable | None = None,
     norm_stats: dict | None = None,
 ) -> tuple[torch.nn.Module, dict]:
-    """Train with warmup â†’ cosine â†’ optional SWA. Returns (best model, history).
+    """Train with warmup â†' cosine â†' optional SWA. Returns (best model, history).
 
     Two phases controlled by a single patience counter:
       1. Normal training: warmup then cosine LR.  Best checkpoint saved.
-         When patience exhausts â†’ if use_swa, activate SWA; else stop.
+         When patience exhausts â†' if use_swa, activate SWA; else stop.
       2. SWA phase: fixed low LR, weight averaging every epoch.
-         When patience exhausts again â†’ stop.  Final averaged model returned.
+         When patience exhausts again â†' stop.  Final averaged model returned.
 
     If *epoch_callback* is provided, it is called as
     ``epoch_callback(epoch, val_loss)`` after each validation step.
@@ -452,7 +470,7 @@ def train_model(
         param_groups.append({"params": no_decay_params, "weight_decay": 0.0})
     optimizer = torch.optim.Adam(param_groups, lr=config.learning_rate)
 
-    # Warmup â†’ cosine annealing
+    # Warmup â†' cosine annealing
     # When warmup_epochs=0 (e.g. fine-tuning pretrained weights), skip the
     # warmup and use bare cosine to avoid SequentialLR edge cases.
     if config.warmup_epochs > 0:
@@ -534,7 +552,7 @@ def train_model(
         for k in gate_pi_keys:
             history[k] = []
 
-    # Open log file â€” write header, then append each epoch
+    # Open log file -- write header, then append each epoch
     log_fh = open(log_path, "w", encoding="utf-8")
     _log_columns = [
         "epoch", "phase", "lr",
@@ -574,19 +592,23 @@ def train_model(
         gate_str = ""
         if has_gate:
             gs = _get_gate_stats(active_model)
+            if "alpha_mean" in gs:
+                history.setdefault("alpha_mean", []).append(gs["alpha_mean"])
+                gate_str = f" | alpha={gs['alpha_mean']:.3f}"
             if "tau" in gs:
                 history["tau"].append(gs["tau"])
             if "tau_eff" in gs:
                 history["tau_eff"].append(gs["tau_eff"])
             for k in gate_pi_keys:
                 history[k].append(gs.get(k, float("nan")))
-            pi_vals = " ".join(f"{gs.get(k, 0):.3f}" for k in gate_pi_keys)
-            tau_str = ""
-            if "tau" in gs:
-                tau_str = f"Ï„={gs['tau']:.4f} "
-                if "tau_eff" in gs and abs(gs["tau_eff"] - gs["tau"]) > 1e-6:
-                    tau_str = f"Ï„={gs['tau']:.4f}/{gs['tau_eff']:.4f} "
-            gate_str = f" | {tau_str}Ï€=[{pi_vals}]"
+            if gate_pi_keys:
+                pi_vals = " ".join(f"{gs.get(k, 0):.3f}" for k in gate_pi_keys)
+                tau_str = ""
+                if "tau" in gs:
+                    tau_str = f"tau={gs['tau']:.4f} "
+                    if "tau_eff" in gs and abs(gs["tau_eff"] - gs["tau"]) > 1e-6:
+                        tau_str = f"tau={gs['tau']:.4f}/{gs['tau_eff']:.4f} "
+                gate_str = f" | {tau_str}pi=[{pi_vals}]"
 
         # console
         has_train = not (math.isnan(train_mse) or math.isnan(train_total))
@@ -666,7 +688,7 @@ def train_model(
             else:
                 wait += 1
 
-            # Patience exhausted â†’ transition or stop
+            # Patience exhausted â†' transition or stop
             current_patience = config.swa_patience if swa_active else config.patience
             if wait >= current_patience:
                 if not swa_active and config.use_swa:
@@ -685,7 +707,7 @@ def train_model(
                     best_val = _initial_selection_score(config)  # reset for SWA phase
                     swa_best_score = _initial_selection_score(config)
                     wait = 0
-                    print(f"  >> Val plateau at epoch {epoch} â€” activating SWA")
+                    print(f'  >> Val plateau at epoch {epoch} -- activating SWA')
                     log_fh.write(f"# SWA activated at epoch {epoch}\n")
                     log_fh.flush()
                 else:

@@ -1,16 +1,17 @@
-﻿"""LSTM models with static watershed conditioning.
+"""LSTM models with static watershed conditioning.
 
 All architectures share a common forward signature returning
 ``(q_total, q_fast, q_slow)``:
 
-* **DualPathwayLSTM** â€“ two LSTM branches (fast event-scale / slow
+* **DualPathwayLSTM** -- two LSTM branches (fast event-scale / slow
   baseflow) with fixed multiplicative composition.
 
-* **SingleLSTM** â€“ one LSTM processing the full 365-day lookback.
+* **SingleLSTM** -- one LSTM processing the full 365-day lookback.
   Pathway outputs are zero-filled to keep the same 3-tuple interface.
 
-* **MoELSTM** â€“ K independent LSTM experts with LSTM-Attention gating
-    and learnable temperature (MoE-Ï„).  Pathway outputs are zero-filled.
+* **MoELSTM** -- K independent LSTM experts with a gate-LSTM (final
+    hidden state) and learnable temperature (MoE-tau).  Pathway outputs
+    are zero-filled.
 
 Use ``build_model(config)`` to instantiate the model selected by
 ``config.model_type`` ("dual", "single", "moe").
@@ -24,10 +25,11 @@ import torch
 import torch.nn as nn
 
 from .config import Config
+from .loss import extract_mixture_quantile
 
 
 class StaticEncoder(nn.Module):
-    """MLP: n_static â†’ hidden â†’ embedding_dim."""
+    """MLP: n_static â†' hidden â†' embedding_dim."""
 
     def __init__(self, n_features: int, embedding_dim: int,
                  hidden_size: int = 32, dropout: float = 0.2):
@@ -44,34 +46,6 @@ class StaticEncoder(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.net(x)
 
-
-class ScaleHead(nn.Module):
-    """Per-basin multiplicative scale head.
-
-    Produces ``log(s_b)`` from the static embedding; the caller multiplies
-    pathway outputs by ``exp(log s_b)``.  The final layer is zero-initialised
-    so the scale starts at 1.0 for every basin, making training begin
-    identically to the ``precip_mean`` baseline.  The scale then drifts
-    end-to-end under the main loss, absorbing per-basin amplitude so the
-    LSTMs can produce outputs in a compact range.
-    """
-
-    def __init__(self, in_dim: int, hidden: int = 32, max_log_scale: float = 4.0):
-        super().__init__()
-        self.max_log_scale = max_log_scale
-        self.net = nn.Sequential(
-            nn.Linear(in_dim, hidden),
-            nn.GELU(),
-            nn.Linear(hidden, 1),
-        )
-        # Zero-init final layer â†’ log s = 0 â†’ s = 1 at init
-        nn.init.zeros_(self.net[-1].weight)
-        nn.init.zeros_(self.net[-1].bias)
-
-    def forward(self, e_static: torch.Tensor) -> torch.Tensor:
-        log_s = self.net(e_static).squeeze(-1)
-        # Clamp to prevent runaway scale during early training
-        return log_s.clamp(-self.max_log_scale, self.max_log_scale)
 
 
 class GroupedStaticEncoder(nn.Module):
@@ -164,8 +138,8 @@ def _build_static_encoder(config: Config) -> StaticEncoder | GroupedStaticEncode
 class CMALHead(nn.Module):
     """Countable Mixture of Asymmetric Laplacians output head.
 
-    Produces K mixture components, each parameterised by a weight Ï€â‚–,
-    location Î¼â‚–, left scale b_L,k, and right scale b_R,k.  The
+    Produces K mixture components, each parameterised by a weight pi_k,
+    location mu_k, left scale b_L,k, and right scale b_R,k.  The
     asymmetric Laplace naturally handles the skewed, heavy-tailed
     nature of streamflow distributions.
 
@@ -174,7 +148,7 @@ class CMALHead(nn.Module):
     input_size : int
         Dimension of the incoming hidden state.
     n_components : int
-        K â€” number of mixture components (default 3).
+        K -- number of mixture components (default 3).
     hidden_size : int
         Intermediate dense layer width.
     """
@@ -203,7 +177,7 @@ class CMALHead(nn.Module):
 
 
 class DualPathwayLSTM(nn.Module):
-    """Two-branch LSTM for rainfallâ€“runoff simulation (fast + slow).
+    """Two-branch LSTM for rainfall-runoff simulation (fast + slow).
 
     In deterministic mode, uses multiplicative composition:
     ``q_total = q_slow * (1 + fast_ratio)``.  The slow pathway sets the
@@ -213,7 +187,7 @@ class DualPathwayLSTM(nn.Module):
     In CMAL mode, a ``CMALHead`` on concatenated ``[h_slow, h_fast]``
     parameterises the predictive distribution.  The pathway heads are
     retained so that the auxiliary loss can still supervise ``q_slow``
-    and ``q_fast`` against Lyneâ€“Hollick targets, keeping the pathway
+    and ``q_fast`` against Lyne-Hollick targets, keeping the pathway
     representations physically grounded.
     """
 
@@ -223,6 +197,7 @@ class DualPathwayLSTM(nn.Module):
         self.fast_window = config.fast_window
         self.info_gap = config.info_gap
         self._use_cmal = config.output_type == "cmal"
+        self._adaptive_quantile = self._use_cmal and config.cmal_adaptive_quantile
 
         self._grouped = config.static_group_sizes is not None
         if self._grouped:
@@ -242,7 +217,7 @@ class DualPathwayLSTM(nn.Module):
             batch_first=True,
         )
 
-        # Slow LSTM (full window â€” baseflow / seasonal)
+        # Slow LSTM (full window -- baseflow / seasonal)
         self.slow_lstm = nn.LSTM(
             input_size=slow_input_size,
             hidden_size=config.slow_hidden_size,
@@ -258,8 +233,8 @@ class DualPathwayLSTM(nn.Module):
             nn.Linear(32, 1),
             nn.Softplus(),
         )
-        # Fast head: dimensionless storm amplifier (â‰¥ 0)
-        # Multiplied onto q_slow â†’ storm response scales with baseflow
+        # Fast head: dimensionless storm amplifier (>= 0)
+        # Multiplied onto q_slow -> storm response scales with baseflow
         self.fast_head = nn.Sequential(
             nn.Linear(config.fast_hidden_size, 32),
             nn.ReLU(),
@@ -275,12 +250,11 @@ class DualPathwayLSTM(nn.Module):
                 n_components=config.cmal_n_components,
                 hidden_size=config.cmal_hidden_size,
             )
-
-        # Learned per-basin scale head (always on).  Zero-init so scale = 1
-        # at init; absorbs per-basin amplitude end-to-end during training.
-        # In CMAL mode, the scale multiplies mu, b_l, b_r so the full
-        # mixture distribution scales correctly.
-        self.scale_head = ScaleHead(static_out_dim)
+            # Adaptive quantile selector: maps detached hidden states -> alpha in (0,1).
+            # Separate from CMAL params so the pinball gradient doesn't feed back
+            # through (b_l, b_r) and cause alpha -> 1 collapse.
+            if self._adaptive_quantile:
+                self.alpha_selector = nn.Linear(combined_size, 1)
 
     def forward(
         self,
@@ -314,13 +288,10 @@ class DualPathwayLSTM(nn.Module):
         x_slow_full = torch.cat([x_dynamic, slow_full], dim=-1)
         x_event_full = torch.cat([x_dynamic, event_full], dim=-1)
 
-        # Per-basin learned scale (B,); scale = 1 at init
-        s = torch.exp(self.scale_head(e))                     # (B,)
-
         # ----- fast pathway (last fast_window days) -----
         _, (h_fast, _) = self.fast_lstm(x_event_full[:, -self.fast_window :, :])
         h_fast = self.dropout(h_fast.squeeze(0))              # (B, H_fast)
-        fast_ratio = self.fast_head(h_fast)                   # (B, 1) dimensionless â‰¥ 0
+        fast_ratio = self.fast_head(h_fast)                   # (B, 1) dimensionless >= 0
 
         # ----- slow pathway -----
         if self.info_gap:
@@ -337,32 +308,40 @@ class DualPathwayLSTM(nn.Module):
         q_fast_contrib = q_slow * fast_ratio                  # (B, 1) mm/d storm runoff
 
         if self._use_cmal:
-            # CMAL distribution from combined hidden states, scaled per basin
             h_combined = torch.cat([h_slow, h_fast], dim=-1)
             pi, mu, b_l, b_r = self.cmal_head(h_combined)
-            s_unsq = s.unsqueeze(-1)                          # (B, 1) â†’ broadcast over K
-            mu = mu * s_unsq
-            b_l = b_l * s_unsq
-            b_r = b_r * s_unsq
             self._last_cmal_params = (pi, mu, b_l, b_r)
-            # E[Y] = Î£ Ï€â‚– (Î¼â‚– + b_R,k âˆ’ b_L,k)  â€” already scaled
-            q_total = (pi * (mu + b_r - b_l)).sum(dim=-1).clamp(min=0.0)
-            q_fast_out = (q_fast_contrib.squeeze(-1) * s)
-            q_slow_out = (q_slow.squeeze(-1) * s)
+            if self._adaptive_quantile:
+                # Alpha from a separate selector on detached hiddens.
+                # q_total uses stopped distribution tensors so the pinball gradient
+                # flows ONLY to alpha_selector weights -- CRPS fully owns (pi,mu,b_l,b_r).
+                alpha = torch.sigmoid(
+                    self.alpha_selector(h_combined.detach()).squeeze(-1)
+                )                                                   # (B,) in (0, 1)
+                self._last_alpha     = alpha.detach()               # for diagnostics
+                self._last_alpha_raw = alpha                        # for pinball loss
+                q_total = extract_mixture_quantile(
+                    alpha, pi.detach(), mu.detach(), b_l.detach(), b_r.detach(),
+                )
+            else:
+                q_total = (pi * (mu + b_r - b_l)).sum(dim=-1)
+            q_total = q_total.clamp(min=0.0)
+            q_fast_out = q_fast_contrib.squeeze(-1)
+            q_slow_out = q_slow.squeeze(-1)
             return q_total, q_fast_out, q_slow_out
 
         # ----- deterministic multiplicative composition -----
         q_total = q_slow * (1.0 + fast_ratio)                 # (B, 1)
 
-        q_total = q_total.squeeze(-1) * s
-        q_fast_out = q_fast_contrib.squeeze(-1) * s
-        q_slow_out = q_slow.squeeze(-1) * s
+        q_total = q_total.squeeze(-1)
+        q_fast_out = q_fast_contrib.squeeze(-1)
+        q_slow_out = q_slow.squeeze(-1)
 
         return q_total, q_fast_out, q_slow_out
 
 
 class SingleLSTM(nn.Module):
-    """Single-branch LSTM baseline â€” full 365-day lookback."""
+    """Single-branch LSTM baseline -- full 365-day lookback."""
 
     def __init__(self, config: Config):
         super().__init__()
@@ -401,9 +380,6 @@ class SingleLSTM(nn.Module):
                 nn.Softplus(),
             )
 
-        # Learned per-basin scale head (always on)
-        self.scale_head = ScaleHead(static_out_dim)
-
     def forward(
         self,
         x_dynamic: torch.Tensor,
@@ -415,36 +391,29 @@ class SingleLSTM(nn.Module):
             e_s = self.shared_static_enc(x_static)
         else:
             e_s = self.static_encoder(x_static)
-        seq_e = e_s
-        e_full = seq_e.unsqueeze(1).expand(-1, T, -1)
+        e_full = e_s.unsqueeze(1).expand(-1, T, -1)
         x_full = torch.cat([x_dynamic, e_full], dim=-1)
 
         _, (h, _) = self.lstm(x_full)
         h = self.dropout(h.squeeze(0))
 
-        s = torch.exp(self.scale_head(e_s))                       # (B,)
-
         if self._use_cmal:
             pi, mu, b_l, b_r = self.head(h)
-            s_unsq = s.unsqueeze(-1)
-            mu = mu * s_unsq
-            b_l = b_l * s_unsq
-            b_r = b_r * s_unsq
             self._last_cmal_params = (pi, mu, b_l, b_r)
             q_total = (pi * (mu + b_r - b_l)).sum(dim=-1).clamp(min=0.0)
         else:
-            q_total = self.head(h).squeeze(-1) * s                # (B,)
+            q_total = self.head(h).squeeze(-1)                    # (B,)
 
         zeros = torch.zeros_like(q_total)
         return q_total, zeros, zeros
 
 
 class MoELSTM(nn.Module):
-    """Mixture-of-Experts LSTM with learnable temperature (MoE-Ï„).
+    """Mixture-of-Experts LSTM with learnable temperature (MoE-tau).
 
-    K independent LSTM experts process the input sequence.  An
-    LSTM-Attention gating network computes sequence-level expert
-    weights via temperature-scaled softmax. The mixture of experts'
+    K independent LSTM experts process the input sequence.  A gating
+    LSTM computes sequence-level expert weights from its final hidden
+    state via temperature-scaled softmax. The mixture of experts'
     final hidden states is linearly projected to discharge.
 
     Returns ``(q_total, zeros, zeros)`` to match the 3-tuple interface.
@@ -466,7 +435,6 @@ class MoELSTM(nn.Module):
         input_size = n_dynamic + static_out_dim
         D_h = config.moe_expert_hidden_size
         D_g = config.moe_gate_hidden_size
-        D_a = config.moe_attention_dim
         K = config.moe_n_experts
         self.tau_min = config.moe_tau_min
 
@@ -476,19 +444,16 @@ class MoELSTM(nn.Module):
             for _ in range(K)
         ])
 
-        # --- Gating network: LSTM + temporal attention ---
+        # --- Gating network: LSTM (final hidden state -> expert logits) ---
         self.gate_lstm = nn.LSTM(
             input_size=input_size, hidden_size=D_g,
             batch_first=True,
         )
-        # Attention parameters: u_t = v^T tanh(W g_t)
-        self.attn_W = nn.Linear(D_g, D_a, bias=False)
-        self.attn_v = nn.Linear(D_a, 1, bias=False)
         # Expert logits: z = W_p c
         self.gate_proj = nn.Linear(D_g, K, bias=False)
 
-        # Learnable log-temperature (initialised so Ï„ = moe_tau_init)
-        # Ï„ = tau_min + (1 - tau_min) * sigmoid(_log_tau) keeps tau_min â‰¤ Ï„ < 1
+        # Learnable log-temperature (initialised so tau = moe_tau_init)
+        # tau = tau_min + (1 - tau_min) * sigmoid(_log_tau) keeps tau_min <= tau < 1
         # and ensures gradient always flows (no dead-zone from clamping below tau_min).
         _tau_frac_init = (config.moe_tau_init - config.moe_tau_min) / (1.0 - config.moe_tau_min)
         self._log_tau = nn.Parameter(
@@ -500,18 +465,15 @@ class MoELSTM(nn.Module):
         # Number of gate outputs (for diagnostic logging)
         self.n_gate_outputs = K
 
-        # Linear probe: Å· = w^T m + b, with Softplus for non-negative flow
+        # Linear probe: y_hat = w^T m + b, with Softplus for non-negative flow
         self.head = nn.Sequential(
             nn.Linear(D_h, 1),
             nn.Softplus(),
         )
 
-        # Learned per-basin scale head (always on)
-        self.scale_head = ScaleHead(static_out_dim)
-
     @property
     def tau(self) -> torch.Tensor:
-        """Learnable temperature tau_min â‰¤ Ï„ < 1 (bounded sigmoid; gradient always flows)."""
+        """Learnable temperature tau_min <= tau < 1 (bounded sigmoid; gradient always flows)."""
         return self.tau_min + (1.0 - self.tau_min) * torch.sigmoid(self._log_tau)
 
     def forward(
@@ -525,8 +487,7 @@ class MoELSTM(nn.Module):
             e_s = self.shared_static_enc(x_static)
         else:
             e_s = self.static_encoder(x_static)
-        seq_e = e_s
-        e_full = seq_e.unsqueeze(1).expand(-1, T, -1)         # (B, T, E)
+        e_full = e_s.unsqueeze(1).expand(-1, T, -1)            # (B, T, E)
         x = torch.cat([x_dynamic, e_full], dim=-1)            # (B, T, D+E)
 
         # --- Expert forward passes: collect final hidden states ---
@@ -537,13 +498,9 @@ class MoELSTM(nn.Module):
             h_list.append(h_k.squeeze(0))                      # (B, D_h)
         h_experts = torch.stack(h_list, dim=1)                 # (B, K, D_h)
 
-        # --- Gating network ---
-        g, _ = self.gate_lstm(x)                               # (B, T, D_g)
-
-        # Temporal attention: Î±_t = softmax(v^T tanh(W g_t))
-        u = self.attn_v(torch.tanh(self.attn_W(g)))            # (B, T, 1)
-        alpha = torch.softmax(u, dim=1)                        # (B, T, 1)
-        c = (alpha * g).sum(dim=1)                             # (B, D_g)
+        # --- Gating network: final hidden state of the gate LSTM ---
+        _, (h_g, _) = self.gate_lstm(x)                        # h_g: (1, B, D_g)
+        c = h_g.squeeze(0)                                     # (B, D_g)
 
         # Expert logits and temperature-scaled softmax
         z = self.gate_proj(c)                                  # (B, K)
@@ -551,12 +508,12 @@ class MoELSTM(nn.Module):
         pi = torch.softmax(z / tau, dim=-1)                    # (B, K)
         self._last_tau_eff = tau.detach()
 
-        # Store batch-mean gate weights for diagnostics
-        self._last_pi = pi.detach().mean(dim=0)                # (K,)
+        mean_pi = pi.mean(dim=0)                               # (K,)
+        self._last_pi = mean_pi.detach()                       # (K,) detached -- for diagnostics
+        self._last_pi_raw = mean_pi                            # (K,) with grad -- for balance loss
 
         # Per-expert predictions for diagnostics (B, K)
-        scale = torch.exp(self.scale_head(e_s)).unsqueeze(-1)  # (B, 1)
-        q_per_expert = self.head(h_experts).squeeze(-1) * scale  # (B, K)
+        q_per_expert = self.head(h_experts).squeeze(-1)         # (B, K)
         self._last_q_experts = q_per_expert.detach()
 
         # Mixture of expert hidden states
@@ -564,7 +521,6 @@ class MoELSTM(nn.Module):
         m = self.dropout(m)
 
         q_total = self.head(m).squeeze(-1)                     # (B,)
-        q_total = q_total * torch.exp(self.scale_head(e_s))
         zeros = torch.zeros_like(q_total)
         return q_total, zeros, zeros
 

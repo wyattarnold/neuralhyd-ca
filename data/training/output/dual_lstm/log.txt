@@ -1,6 +1,6 @@
-Run started: 2026-05-20T18:11:26
-Config: C:\Users\warnold_la\Local\repos\neuralhyd-ca\scripts\cfg_dual_lstm_v1.toml
-Output: C:\Users\warnold_la\Local\repos\neuralhyd-ca\data\training\output\dual_lstm_v1
+Run started: 2026-05-23T07:08:54
+Config: C:\Users\warnold_la\Local\repos\neuralhyd-ca\scripts\cfg_dual_lstm.toml
+Output: C:\Users\warnold_la\Local\repos\neuralhyd-ca\data\training\output\dual_lstm
 Model type: dual
 
 Device: cuda
@@ -22,99 +22,50 @@ FOLD 1/5  (train 178  / val 46 basins)
     2,005,848 training samples  (batch size 512 -> 3,917 batches/epoch)
   Building validation dataset  (46 held-out basins) ...
     588,056 validation samples
-  Model: dual -- 80,317 parameters  (device: cuda)
+  Model: dual -- 79,932 parameters  (device: cuda)
   Training ...
   init Epoch   0/80 | MSE train    --- | MSE val 2.7373 | NSE -1.013 | KGE -2.475 | LR 0.00e+00
-  Epoch   1/80 | MSE train 3283.9812 | total 11762.9346 | MSE val 0.8443 | NSE 0.461 | KGE 0.506 | LR 1.60e-04
-  Epoch   2/80 | MSE train 2051.8633 | total 7504.8784 | MSE val 0.7265 | NSE 0.618 | KGE 0.607 | LR 2.80e-04
-  Epoch   3/80 | MSE train 1687.0062 | total 6432.4961 | MSE val 0.6905 | NSE 0.656 | KGE 0.597 | LR 4.00e-04
-  Epoch   4/80 | MSE train 1496.9563 | total 5852.3643 | MSE val 0.6692 | NSE 0.666 | KGE 0.640 | LR 4.00e-04
-  Epoch   5/80 | MSE train 1348.9108 | total 5386.7676 | MSE val 0.6475 | NSE 0.636 | KGE 0.654 | LR 3.99e-04
-  Epoch   6/80 | MSE train 1282.0706 | total 5175.3237 | MSE val 0.6268 | NSE 0.660 | KGE 0.693 | LR 3.99e-04
-  Epoch   7/80 | MSE train 1241.4928 | total 5063.9160 | MSE val 0.6441 | NSE 0.652 | KGE 0.640 | LR 3.97e-04
-  Epoch   8/80 | MSE train 1194.5869 | total 4931.7217 | MSE val 0.6481 | NSE 0.675 | KGE 0.645 | LR 3.96e-04
-  Epoch   9/80 | MSE train 1170.0862 | total 4814.0781 | MSE val 0.6725 | NSE 0.676 | KGE 0.649 | LR 3.94e-04
-  Epoch  10/80 | MSE train 1147.8091 | total 4733.4502 | MSE val 0.6371 | NSE 0.703 | KGE 0.711 | LR 3.92e-04
-  Epoch  11/80 | MSE train 1131.3728 | total 4688.5137 | MSE val 0.6537 | NSE 0.686 | KGE 0.638 | LR 3.90e-04
-  Epoch  12/80 | MSE train 1109.6721 | total 4613.7715 | MSE val 0.6289 | NSE 0.674 | KGE 0.658 | LR 3.87e-04
-  Epoch  13/80 | MSE train 1096.1167 | total 4589.0786 | MSE val 0.6383 | NSE 0.654 | KGE 0.678 | LR 3.84e-04
-  Epoch  14/80 | MSE train 1073.8093 | total 4467.9058 | MSE val 0.6607 | NSE 0.697 | KGE 0.660 | LR 3.81e-04
+  Epoch   1/80 | MSE train 0.8436 | total 3.0076 | MSE val 0.8139 | NSE 0.519 | KGE 0.502 | LR 1.60e-04
+  Epoch   2/80 | MSE train 0.5173 | total 1.9031 | MSE val 0.7341 | NSE 0.592 | KGE 0.575 | LR 2.80e-04
+  Epoch   3/80 | MSE train 0.4270 | total 1.6320 | MSE val 0.6798 | NSE 0.664 | KGE 0.681 | LR 4.00e-04
+  Epoch   4/80 | MSE train 0.3760 | total 1.4958 | MSE val 0.6387 | NSE 0.697 | KGE 0.625 | LR 4.00e-04
+  Epoch   5/80 | MSE train 0.3422 | total 1.3871 | MSE val 0.6425 | NSE 0.676 | KGE 0.607 | LR 3.99e-04
+  Epoch   6/80 | MSE train 0.3250 | total 1.3244 | MSE val 0.6040 | NSE 0.716 | KGE 0.681 | LR 3.99e-04
+  Epoch   7/80 | MSE train 0.3124 | total 1.2864 | MSE val 0.6278 | NSE 0.653 | KGE 0.654 | LR 3.97e-04
+  Epoch   8/80 | MSE train 0.3035 | total 1.2542 | MSE val 0.6545 | NSE 0.675 | KGE 0.587 | LR 3.96e-04
+  Epoch   9/80 | MSE train 0.2954 | total 1.2183 | MSE val 0.6189 | NSE 0.709 | KGE 0.660 | LR 3.94e-04
+  Epoch  10/80 | MSE train 0.2907 | total 1.2060 | MSE val 0.6248 | NSE 0.685 | KGE 0.651 | LR 3.92e-04
+  Epoch  11/80 | MSE train 0.2844 | total 1.1910 | MSE val 0.6712 | NSE 0.645 | KGE 0.628 | LR 3.90e-04
+  Epoch  12/80 | MSE train 0.2821 | total 1.1788 | MSE val 0.6221 | NSE 0.683 | KGE 0.643 | LR 3.87e-04
+  Epoch  13/80 | MSE train 0.2744 | total 1.1330 | MSE val 0.6134 | NSE 0.682 | KGE 0.633 | LR 3.84e-04
+  Epoch  14/80 | MSE train 0.2732 | total 1.1404 | MSE val 0.6366 | NSE 0.684 | KGE 0.616 | LR 3.81e-04
   >> Val plateau at epoch 14 â€” activating SWA
-  Epoch  15/80 | MSE train 1184.9138 | total 4876.1035 | MSE val 0.6687 | NSE 0.635 | KGE 0.668 | LR 2.00e-04 [SWA n=1]
-  Epoch  16/80 | MSE train 1161.0703 | total 4800.4902 | MSE val 0.6483 | NSE 0.664 | KGE 0.668 | LR 2.00e-04 [SWA n=2]
-  Epoch  17/80 | MSE train 1144.1257 | total 4750.5820 | MSE val 0.6512 | NSE 0.679 | KGE 0.658 | LR 2.00e-04 [SWA n=3]
-  Epoch  18/80 | MSE train 1138.9678 | total 4784.0840 | MSE val 0.6391 | NSE 0.679 | KGE 0.671 | LR 2.00e-04 [SWA n=4]
-  Epoch  19/80 | MSE train 1118.0211 | total 4653.5151 | MSE val 0.6371 | NSE 0.677 | KGE 0.665 | LR 2.00e-04 [SWA n=5]
-  Epoch  20/80 | MSE train 1100.3762 | total 4545.9224 | MSE val 0.6345 | NSE 0.686 | KGE 0.674 | LR 2.00e-04 [SWA n=6]
-  Epoch  21/80 | MSE train 1098.3235 | total 4584.6021 | MSE val 0.6324 | NSE 0.683 | KGE 0.675 | LR 2.00e-04 [SWA n=7]
-  Epoch  22/80 | MSE train 1076.9387 | total 4486.5352 | MSE val 0.6300 | NSE 0.681 | KGE 0.668 | LR 2.00e-04 [SWA n=8]
-  Epoch  23/80 | MSE train 1083.5774 | total 4553.9517 | MSE val 0.6304 | NSE 0.683 | KGE 0.673 | LR 2.00e-04 [SWA n=9]
-  Epoch  24/80 | MSE train 1060.7170 | total 4437.1743 | MSE val 0.6274 | NSE 0.683 | KGE 0.674 | LR 2.00e-04 [SWA n=10]
-  Epoch  25/80 | MSE train 1056.0433 | total 4428.1162 | MSE val 0.6274 | NSE 0.681 | KGE 0.679 | LR 2.00e-04 [SWA n=11]
-  Epoch  26/80 | MSE train 1053.2734 | total 4443.2480 | MSE val 0.6279 | NSE 0.677 | KGE 0.667 | LR 2.00e-04 [SWA n=12]
-  Epoch  27/80 | MSE train 1043.6954 | total 4395.2388 | MSE val 0.6272 | NSE 0.679 | KGE 0.669 | LR 2.00e-04 [SWA n=13]
-  Epoch  28/80 | MSE train 1029.4458 | total 4320.5605 | MSE val 0.6266 | NSE 0.679 | KGE 0.667 | LR 2.00e-04 [SWA n=14]
-  Epoch  29/80 | MSE train 1036.5321 | total 4386.5190 | MSE val 0.6289 | NSE 0.670 | KGE 0.655 | LR 2.00e-04 [SWA n=15]
-  Epoch  30/80 | MSE train 1027.3599 | total 4339.5688 | MSE val 0.6284 | NSE 0.673 | KGE 0.654 | LR 2.00e-04 [SWA n=16]
-  Epoch  31/80 | MSE train 1016.8317 | total 4299.7261 | MSE val 0.6271 | NSE 0.682 | KGE 0.661 | LR 2.00e-04 [SWA n=17]
-  Epoch  32/80 | MSE train 1012.0013 | total 4281.6538 | MSE val 0.6261 | NSE 0.686 | KGE 0.660 | LR 2.00e-04 [SWA n=18]
-  Epoch  33/80 | MSE train 1012.9297 | total 4302.7012 | MSE val 0.6252 | NSE 0.686 | KGE 0.655 | LR 2.00e-04 [SWA n=19]
-  Epoch  34/80 | MSE train 1008.5005 | total 4264.0156 | MSE val 0.6238 | NSE 0.681 | KGE 0.655 | LR 2.00e-04 [SWA n=20]
-  Epoch  35/80 | MSE train 990.7236 | total 4181.8418 | MSE val 0.6220 | NSE 0.682 | KGE 0.657 | LR 2.00e-04 [SWA n=21]
-  Epoch  36/80 | MSE train 997.9368 | total 4232.7319 | MSE val 0.6209 | NSE 0.685 | KGE 0.663 | LR 2.00e-04 [SWA n=22]
-  Epoch  37/80 | MSE train 985.5400 | total 4196.7036 | MSE val 0.6230 | NSE 0.683 | KGE 0.658 | LR 2.00e-04 [SWA n=23]
-  Epoch  38/80 | MSE train 984.2784 | total 4159.5229 | MSE val 0.6234 | NSE 0.685 | KGE 0.660 | LR 2.00e-04 [SWA n=24]
-  Epoch  39/80 | MSE train 981.2711 | total 4159.3462 | MSE val 0.6218 | NSE 0.686 | KGE 0.662 | LR 2.00e-04 [SWA n=25]
-  Epoch  40/80 | MSE train 980.5466 | total 4174.2656 | MSE val 0.6206 | NSE 0.686 | KGE 0.659 | LR 2.00e-04 [SWA n=26]
-  Epoch  41/80 | MSE train 973.7756 | total 4121.3696 | MSE val 0.6207 | NSE 0.686 | KGE 0.656 | LR 2.00e-04 [SWA n=27]
-  Epoch  42/80 | MSE train 960.2869 | total 4052.0347 | MSE val 0.6202 | NSE 0.688 | KGE 0.657 | LR 2.00e-04 [SWA n=28]
-  Epoch  43/80 | MSE train 955.8183 | total 4036.5376 | MSE val 0.6204 | NSE 0.690 | KGE 0.662 | LR 2.00e-04 [SWA n=29]
-  Epoch  44/80 | MSE train 966.3344 | total 4097.4575 | MSE val 0.6195 | NSE 0.691 | KGE 0.658 | LR 2.00e-04 [SWA n=30]
-  Epoch  45/80 | MSE train 966.7238 | total 4090.0989 | MSE val 0.6192 | NSE 0.691 | KGE 0.658 | LR 2.00e-04 [SWA n=31]
-  Epoch  46/80 | MSE train 959.8624 | total 4071.9705 | MSE val 0.6184 | NSE 0.693 | KGE 0.658 | LR 2.00e-04 [SWA n=32]
-  Epoch  47/80 | MSE train 953.5415 | total 4028.0459 | MSE val 0.6184 | NSE 0.693 | KGE 0.654 | LR 2.00e-04 [SWA n=33]
-  Epoch  48/80 | MSE train 954.9267 | total 4045.7573 | MSE val 0.6175 | NSE 0.694 | KGE 0.656 | LR 2.00e-04 [SWA n=34]
-  Epoch  49/80 | MSE train 953.9286 | total 4067.3293 | MSE val 0.6164 | NSE 0.695 | KGE 0.658 | LR 2.00e-04 [SWA n=35]
-  Epoch  50/80 | MSE train 942.6837 | total 3988.1794 | MSE val 0.6157 | NSE 0.695 | KGE 0.656 | LR 2.00e-04 [SWA n=36]
-  Epoch  51/80 | MSE train 944.6033 | total 4005.6152 | MSE val 0.6158 | NSE 0.694 | KGE 0.658 | LR 2.00e-04 [SWA n=37]
-  Epoch  52/80 | MSE train 941.8143 | total 3993.2307 | MSE val 0.6159 | NSE 0.694 | KGE 0.659 | LR 2.00e-04 [SWA n=38]
-  Epoch  53/80 | MSE train 940.7585 | total 4007.1055 | MSE val 0.6160 | NSE 0.694 | KGE 0.656 | LR 2.00e-04 [SWA n=39]
-  Epoch  54/80 | MSE train 940.5727 | total 4005.0811 | MSE val 0.6159 | NSE 0.694 | KGE 0.653 | LR 2.00e-04 [SWA n=40]
-  Epoch  55/80 | MSE train 932.1202 | total 3952.8748 | MSE val 0.6149 | NSE 0.693 | KGE 0.646 | LR 2.00e-04 [SWA n=41]
-  Epoch  56/80 | MSE train 929.4905 | total 3938.8032 | MSE val 0.6139 | NSE 0.692 | KGE 0.641 | LR 2.00e-04 [SWA n=42]
-  Epoch  57/80 | MSE train 931.6835 | total 3939.1729 | MSE val 0.6146 | NSE 0.692 | KGE 0.640 | LR 2.00e-04 [SWA n=43]
-  Epoch  58/80 | MSE train 933.1021 | total 3985.7354 | MSE val 0.6136 | NSE 0.692 | KGE 0.634 | LR 2.00e-04 [SWA n=44]
-  Epoch  59/80 | MSE train 918.2895 | total 3890.3574 | MSE val 0.6129 | NSE 0.693 | KGE 0.636 | LR 2.00e-04 [SWA n=45]
-  Epoch  60/80 | MSE train 928.1394 | total 3959.5542 | MSE val 0.6126 | NSE 0.691 | KGE 0.638 | LR 2.00e-04 [SWA n=46]
-  Epoch  61/80 | MSE train 919.4178 | total 3900.7083 | MSE val 0.6118 | NSE 0.692 | KGE 0.639 | LR 2.00e-04 [SWA n=47]
-  Epoch  62/80 | MSE train 917.9768 | total 3893.5359 | MSE val 0.6116 | NSE 0.692 | KGE 0.634 | LR 2.00e-04 [SWA n=48]
-  Epoch  63/80 | MSE train 915.5021 | total 3877.8391 | MSE val 0.6102 | NSE 0.691 | KGE 0.637 | LR 2.00e-04 [SWA n=49]
-  Epoch  64/80 | MSE train 925.3674 | total 3936.9058 | MSE val 0.6099 | NSE 0.691 | KGE 0.635 | LR 2.00e-04 [SWA n=50]
-  Epoch  65/80 | MSE train 914.2072 | total 3868.3491 | MSE val 0.6096 | NSE 0.691 | KGE 0.636 | LR 2.00e-04 [SWA n=51]
-  Epoch  66/80 | MSE train 918.7192 | total 3934.9753 | MSE val 0.6091 | NSE 0.692 | KGE 0.637 | LR 2.00e-04 [SWA n=52]
-  Epoch  67/80 | MSE train 908.6487 | total 3859.7881 | MSE val 0.6083 | NSE 0.693 | KGE 0.637 | LR 2.00e-04 [SWA n=53]
-  Epoch  68/80 | MSE train 904.9164 | total 3834.3740 | MSE val 0.6086 | NSE 0.692 | KGE 0.635 | LR 2.00e-04 [SWA n=54]
-  Epoch  69/80 | MSE train 908.3042 | total 3866.9697 | MSE val 0.6077 | NSE 0.693 | KGE 0.639 | LR 2.00e-04 [SWA n=55]
-  Epoch  70/80 | MSE train 908.1891 | total 3860.8435 | MSE val 0.6073 | NSE 0.693 | KGE 0.638 | LR 2.00e-04 [SWA n=56]
-  Epoch  71/80 | MSE train 904.5163 | total 3834.5657 | MSE val 0.6073 | NSE 0.692 | KGE 0.638 | LR 2.00e-04 [SWA n=57]
-  Epoch  72/80 | MSE train 900.9979 | total 3819.8191 | MSE val 0.6061 | NSE 0.694 | KGE 0.640 | LR 2.00e-04 [SWA n=58]
-  Epoch  73/80 | MSE train 902.1900 | total 3831.2869 | MSE val 0.6056 | NSE 0.693 | KGE 0.642 | LR 2.00e-04 [SWA n=59]
-  Epoch  74/80 | MSE train 894.0769 | total 3777.7087 | MSE val 0.6055 | NSE 0.693 | KGE 0.639 | LR 2.00e-04 [SWA n=60]
-  Epoch  75/80 | MSE train 897.6011 | total 3800.5776 | MSE val 0.6055 | NSE 0.693 | KGE 0.639 | LR 2.00e-04 [SWA n=61]
-  Epoch  76/80 | MSE train 898.8797 | total 3830.6030 | MSE val 0.6055 | NSE 0.693 | KGE 0.639 | LR 2.00e-04 [SWA n=62]
-  Epoch  77/80 | MSE train 888.4081 | total 3752.0972 | MSE val 0.6049 | NSE 0.693 | KGE 0.642 | LR 2.00e-04 [SWA n=63]
-  Epoch  78/80 | MSE train 894.0630 | total 3784.3162 | MSE val 0.6045 | NSE 0.694 | KGE 0.644 | LR 2.00e-04 [SWA n=64]
-  Epoch  79/80 | MSE train 874.0635 | total 3682.8613 | MSE val 0.6040 | NSE 0.693 | KGE 0.645 | LR 2.00e-04 [SWA n=65]
-  Epoch  80/80 | MSE train 883.9753 | total 3734.2971 | MSE val 0.6041 | NSE 0.694 | KGE 0.644 | LR 2.00e-04 [SWA n=66]
-  SWA model promoted over raw best (loss=0.6049; averaged over 66 snapshots)
+  Epoch  15/80 | MSE train 0.2997 | total 1.2441 | MSE val 0.6103 | NSE 0.687 | KGE 0.648 | LR 2.00e-04 [SWA n=1]
+  Epoch  16/80 | MSE train 0.2915 | total 1.2132 | MSE val 0.6050 | NSE 0.689 | KGE 0.634 | LR 2.00e-04 [SWA n=2]
+  Epoch  17/80 | MSE train 0.2907 | total 1.2109 | MSE val 0.6064 | NSE 0.689 | KGE 0.615 | LR 2.00e-04 [SWA n=3]
+  Epoch  18/80 | MSE train 0.2866 | total 1.1957 | MSE val 0.6024 | NSE 0.677 | KGE 0.633 | LR 2.00e-04 [SWA n=4]
+  Epoch  19/80 | MSE train 0.2806 | total 1.1703 | MSE val 0.6023 | NSE 0.683 | KGE 0.629 | LR 2.00e-04 [SWA n=5]
+  Epoch  20/80 | MSE train 0.2789 | total 1.1691 | MSE val 0.6011 | NSE 0.679 | KGE 0.633 | LR 2.00e-04 [SWA n=6]
+  Epoch  21/80 | MSE train 0.2781 | total 1.1666 | MSE val 0.6024 | NSE 0.676 | KGE 0.619 | LR 2.00e-04 [SWA n=7]
+  Epoch  22/80 | MSE train 0.2740 | total 1.1559 | MSE val 0.6027 | NSE 0.680 | KGE 0.619 | LR 2.00e-04 [SWA n=8]
+  Epoch  23/80 | MSE train 0.2723 | total 1.1422 | MSE val 0.6039 | NSE 0.676 | KGE 0.619 | LR 2.00e-04 [SWA n=9]
+  Epoch  24/80 | MSE train 0.2705 | total 1.1408 | MSE val 0.6054 | NSE 0.676 | KGE 0.625 | LR 2.00e-04 [SWA n=10]
+  Epoch  25/80 | MSE train 0.2689 | total 1.1443 | MSE val 0.6037 | NSE 0.678 | KGE 0.623 | LR 2.00e-04 [SWA n=11]
+  Epoch  26/80 | MSE train 0.2650 | total 1.1181 | MSE val 0.6036 | NSE 0.679 | KGE 0.624 | LR 2.00e-04 [SWA n=12]
+  Epoch  27/80 | MSE train 0.2643 | total 1.1157 | MSE val 0.6019 | NSE 0.684 | KGE 0.620 | LR 2.00e-04 [SWA n=13]
+  Epoch  28/80 | MSE train 0.2647 | total 1.1231 | MSE val 0.6025 | NSE 0.685 | KGE 0.623 | LR 2.00e-04 [SWA n=14]
+  Epoch  29/80 | MSE train 0.2618 | total 1.1096 | MSE val 0.6027 | NSE 0.683 | KGE 0.620 | LR 2.00e-04 [SWA n=15]
+  Epoch  30/80 | MSE train 0.2618 | total 1.1131 | MSE val 0.6008 | NSE 0.684 | KGE 0.619 | LR 2.00e-04 [SWA n=16]
+  SWA converged at epoch 30
+  SWA model promoted over raw best (loss=0.6011; averaged over 16 snapshots)
 
   Fold 1 Validation Results
   Tier    N        NSE med   KGE med   FHV med  FEHV med   FLV med
   ----------------------------------------------------------------
-  1       19         0.767     0.644     -20.1     -38.8      69.1
-  2       21         0.630     0.635     -11.4     -30.5      60.6
-  3       6          0.790     0.702     -23.4     -24.9      48.8
-  All     46         0.693     0.640     -17.2     -31.3      64.0
+  1       19         0.756     0.630     -22.9     -43.7      72.4
+  2       21         0.650     0.634     -18.1     -35.0      32.5
+  3       6          0.752     0.657     -22.9     -24.3      85.8
+  All     46         0.680     0.632     -21.9     -37.1      72.2
 
 ============================================================
 FOLD 2/5  (train 179  / val 45 basins)
@@ -123,51 +74,63 @@ FOLD 2/5  (train 179  / val 45 basins)
     2,065,370 training samples  (batch size 512 -> 4,033 batches/epoch)
   Building validation dataset  (45 held-out basins) ...
     528,534 validation samples
-  Model: dual -- 80,317 parameters  (device: cuda)
+  Model: dual -- 79,932 parameters  (device: cuda)
   Training ...
-  init Epoch   0/80 | MSE train    --- | MSE val 2.1837 | NSE -0.866 | KGE -1.390 | LR 0.00e+00
-  Epoch   1/80 | MSE train 3612.1177 | total 14105.9385 | MSE val 0.6218 | NSE 0.526 | KGE 0.508 | LR 1.60e-04
-  Epoch   2/80 | MSE train 2272.7891 | total 9083.4141 | MSE val 0.5375 | NSE 0.620 | KGE 0.646 | LR 2.80e-04
-  Epoch   3/80 | MSE train 1891.8152 | total 7824.8960 | MSE val 0.4884 | NSE 0.678 | KGE 0.710 | LR 4.00e-04
-  Epoch   4/80 | MSE train 1708.5413 | total 7182.5952 | MSE val 0.4673 | NSE 0.673 | KGE 0.667 | LR 4.00e-04
-  Epoch   5/80 | MSE train 1553.0385 | total 6683.1938 | MSE val 0.4521 | NSE 0.683 | KGE 0.639 | LR 3.99e-04
-  Epoch   6/80 | MSE train 1495.3456 | total 6523.4707 | MSE val 0.4381 | NSE 0.653 | KGE 0.670 | LR 3.99e-04
-  Epoch   7/80 | MSE train 1432.1058 | total 6291.8555 | MSE val 0.4331 | NSE 0.668 | KGE 0.678 | LR 3.97e-04
-  Epoch   8/80 | MSE train 1396.4513 | total 6131.6079 | MSE val 0.4231 | NSE 0.668 | KGE 0.670 | LR 3.96e-04
-  Epoch   9/80 | MSE train 1359.1730 | total 6020.8584 | MSE val 0.4138 | NSE 0.695 | KGE 0.704 | LR 3.94e-04
-  Epoch  10/80 | MSE train 1342.1041 | total 5975.7017 | MSE val 0.4111 | NSE 0.682 | KGE 0.695 | LR 3.92e-04
-  Epoch  11/80 | MSE train 1317.1122 | total 5875.0015 | MSE val 0.4264 | NSE 0.672 | KGE 0.654 | LR 3.90e-04
-  Epoch  12/80 | MSE train 1299.3438 | total 5799.2788 | MSE val 0.3995 | NSE 0.697 | KGE 0.699 | LR 3.87e-04
-  Epoch  13/80 | MSE train 1286.1949 | total 5774.8374 | MSE val 0.4339 | NSE 0.703 | KGE 0.651 | LR 3.84e-04
-  Epoch  14/80 | MSE train 1274.2626 | total 5753.9531 | MSE val 0.4241 | NSE 0.685 | KGE 0.623 | LR 3.81e-04
-  Epoch  15/80 | MSE train 1228.9932 | total 5481.8701 | MSE val 0.4235 | NSE 0.685 | KGE 0.679 | LR 3.77e-04
-  Epoch  16/80 | MSE train 1234.0411 | total 5515.4380 | MSE val 0.4531 | NSE 0.658 | KGE 0.637 | LR 3.73e-04
-  Epoch  17/80 | MSE train 1227.4451 | total 5491.5190 | MSE val 0.4461 | NSE 0.684 | KGE 0.640 | LR 3.69e-04
-  Epoch  18/80 | MSE train 1209.6263 | total 5449.8696 | MSE val 0.4389 | NSE 0.685 | KGE 0.675 | LR 3.65e-04
-  Epoch  19/80 | MSE train 1189.6383 | total 5315.3530 | MSE val 0.4687 | NSE 0.685 | KGE 0.638 | LR 3.60e-04
-  Epoch  20/80 | MSE train 1177.5195 | total 5300.8018 | MSE val 0.4344 | NSE 0.680 | KGE 0.684 | LR 3.55e-04
-  >> Val plateau at epoch 20 â€” activating SWA
-  Epoch  21/80 | MSE train 1221.7388 | total 5517.0410 | MSE val 0.4103 | NSE 0.704 | KGE 0.660 | LR 2.00e-04 [SWA n=1]
-  Epoch  22/80 | MSE train 1205.9718 | total 5479.6675 | MSE val 0.4105 | NSE 0.714 | KGE 0.684 | LR 2.00e-04 [SWA n=2]
-  Epoch  23/80 | MSE train 1200.8851 | total 5453.7944 | MSE val 0.4111 | NSE 0.706 | KGE 0.676 | LR 2.00e-04 [SWA n=3]
-  Epoch  24/80 | MSE train 1190.7144 | total 5415.6523 | MSE val 0.4128 | NSE 0.702 | KGE 0.678 | LR 2.00e-04 [SWA n=4]
-  Epoch  25/80 | MSE train 1195.3328 | total 5435.1377 | MSE val 0.4159 | NSE 0.708 | KGE 0.683 | LR 2.00e-04 [SWA n=5]
-  Epoch  26/80 | MSE train 1170.0275 | total 5290.3359 | MSE val 0.4155 | NSE 0.698 | KGE 0.678 | LR 2.00e-04 [SWA n=6]
-  Epoch  27/80 | MSE train 1158.3462 | total 5230.2295 | MSE val 0.4157 | NSE 0.703 | KGE 0.676 | LR 2.00e-04 [SWA n=7]
-  Epoch  28/80 | MSE train 1153.7642 | total 5205.4824 | MSE val 0.4156 | NSE 0.707 | KGE 0.674 | LR 2.00e-04 [SWA n=8]
-  Epoch  29/80 | MSE train 1150.7455 | total 5188.5640 | MSE val 0.4159 | NSE 0.707 | KGE 0.670 | LR 2.00e-04 [SWA n=9]
-  Epoch  30/80 | MSE train 1156.7207 | total 5262.1577 | MSE val 0.4170 | NSE 0.699 | KGE 0.666 | LR 2.00e-04 [SWA n=10]
-  Epoch  31/80 | MSE train 1132.0564 | total 5105.9565 | MSE val 0.4180 | NSE 0.696 | KGE 0.660 | LR 2.00e-04 [SWA n=11]
-  SWA converged at epoch 31
-  Raw best retained over SWA (loss raw=0.3995, swa=0.4103; averaged over 11 snapshots)
+  init Epoch   0/80 | MSE train    --- | MSE val 1.7998 | NSE -0.511 | KGE -1.219 | LR 0.00e+00
+  Epoch   1/80 | MSE train 0.8934 | total 3.5763 | MSE val 0.6042 | NSE 0.511 | KGE 0.537 | LR 1.60e-04
+  Epoch   2/80 | MSE train 0.5631 | total 2.2376 | MSE val 0.5165 | NSE 0.666 | KGE 0.664 | LR 2.80e-04
+  Epoch   3/80 | MSE train 0.4839 | total 1.9683 | MSE val 0.4668 | NSE 0.649 | KGE 0.642 | LR 4.00e-04
+  Epoch   4/80 | MSE train 0.4351 | total 1.8107 | MSE val 0.5036 | NSE 0.570 | KGE 0.668 | LR 4.00e-04
+  Epoch   5/80 | MSE train 0.4019 | total 1.7234 | MSE val 0.4547 | NSE 0.664 | KGE 0.693 | LR 3.99e-04
+  Epoch   6/80 | MSE train 0.3740 | total 1.6314 | MSE val 0.4324 | NSE 0.722 | KGE 0.748 | LR 3.99e-04
+  Epoch   7/80 | MSE train 0.3602 | total 1.5805 | MSE val 0.4288 | NSE 0.698 | KGE 0.698 | LR 3.97e-04
+  Epoch   8/80 | MSE train 0.3480 | total 1.5483 | MSE val 0.4583 | NSE 0.644 | KGE 0.667 | LR 3.96e-04
+  Epoch   9/80 | MSE train 0.3373 | total 1.5049 | MSE val 0.4154 | NSE 0.691 | KGE 0.688 | LR 3.94e-04
+  Epoch  10/80 | MSE train 0.3315 | total 1.4812 | MSE val 0.4459 | NSE 0.695 | KGE 0.697 | LR 3.92e-04
+  Epoch  11/80 | MSE train 0.3270 | total 1.4663 | MSE val 0.4269 | NSE 0.699 | KGE 0.681 | LR 3.90e-04
+  Epoch  12/80 | MSE train 0.3209 | total 1.4400 | MSE val 0.4448 | NSE 0.705 | KGE 0.695 | LR 3.87e-04
+  Epoch  13/80 | MSE train 0.3133 | total 1.4056 | MSE val 0.4459 | NSE 0.714 | KGE 0.689 | LR 3.84e-04
+  Epoch  14/80 | MSE train 0.3114 | total 1.3984 | MSE val 0.4171 | NSE 0.700 | KGE 0.737 | LR 3.81e-04
+  Epoch  15/80 | MSE train 0.3095 | total 1.3990 | MSE val 0.4188 | NSE 0.705 | KGE 0.688 | LR 3.77e-04
+  Epoch  16/80 | MSE train 0.3072 | total 1.3866 | MSE val 0.4125 | NSE 0.714 | KGE 0.695 | LR 3.73e-04
+  Epoch  17/80 | MSE train 0.3014 | total 1.3581 | MSE val 0.4405 | NSE 0.703 | KGE 0.676 | LR 3.69e-04
+  Epoch  18/80 | MSE train 0.2976 | total 1.3278 | MSE val 0.4395 | NSE 0.688 | KGE 0.657 | LR 3.65e-04
+  Epoch  19/80 | MSE train 0.2953 | total 1.3265 | MSE val 0.4288 | NSE 0.708 | KGE 0.671 | LR 3.60e-04
+  Epoch  20/80 | MSE train 0.2938 | total 1.3302 | MSE val 0.4192 | NSE 0.711 | KGE 0.716 | LR 3.55e-04
+  Epoch  21/80 | MSE train 0.2916 | total 1.3156 | MSE val 0.4274 | NSE 0.719 | KGE 0.691 | LR 3.50e-04
+  Epoch  22/80 | MSE train 0.2867 | total 1.2867 | MSE val 0.4420 | NSE 0.718 | KGE 0.681 | LR 3.44e-04
+  Epoch  23/80 | MSE train 0.2883 | total 1.2980 | MSE val 0.4058 | NSE 0.727 | KGE 0.666 | LR 3.39e-04
+  Epoch  24/80 | MSE train 0.2865 | total 1.3003 | MSE val 0.4265 | NSE 0.718 | KGE 0.683 | LR 3.33e-04
+  Epoch  25/80 | MSE train 0.2810 | total 1.2634 | MSE val 0.4158 | NSE 0.716 | KGE 0.689 | LR 3.27e-04
+  Epoch  26/80 | MSE train 0.2781 | total 1.2515 | MSE val 0.4172 | NSE 0.707 | KGE 0.678 | LR 3.20e-04
+  Epoch  27/80 | MSE train 0.2767 | total 1.2421 | MSE val 0.4680 | NSE 0.700 | KGE 0.629 | LR 3.14e-04
+  Epoch  28/80 | MSE train 0.2765 | total 1.2475 | MSE val 0.4444 | NSE 0.713 | KGE 0.690 | LR 3.07e-04
+  Epoch  29/80 | MSE train 0.2734 | total 1.2299 | MSE val 0.4266 | NSE 0.727 | KGE 0.684 | LR 3.00e-04
+  Epoch  30/80 | MSE train 0.2705 | total 1.2169 | MSE val 0.4325 | NSE 0.714 | KGE 0.678 | LR 2.93e-04
+  Epoch  31/80 | MSE train 0.2682 | total 1.2057 | MSE val 0.4412 | NSE 0.720 | KGE 0.694 | LR 2.86e-04
+  >> Val plateau at epoch 31 â€” activating SWA
+  Epoch  32/80 | MSE train 0.2755 | total 1.2469 | MSE val 0.4277 | NSE 0.723 | KGE 0.696 | LR 2.00e-04 [SWA n=1]
+  Epoch  33/80 | MSE train 0.2694 | total 1.2165 | MSE val 0.4151 | NSE 0.725 | KGE 0.686 | LR 2.00e-04 [SWA n=2]
+  Epoch  34/80 | MSE train 0.2720 | total 1.2386 | MSE val 0.4195 | NSE 0.720 | KGE 0.686 | LR 2.00e-04 [SWA n=3]
+  Epoch  35/80 | MSE train 0.2675 | total 1.2044 | MSE val 0.4223 | NSE 0.720 | KGE 0.686 | LR 2.00e-04 [SWA n=4]
+  Epoch  36/80 | MSE train 0.2647 | total 1.1911 | MSE val 0.4219 | NSE 0.724 | KGE 0.692 | LR 2.00e-04 [SWA n=5]
+  Epoch  37/80 | MSE train 0.2655 | total 1.1964 | MSE val 0.4218 | NSE 0.722 | KGE 0.696 | LR 2.00e-04 [SWA n=6]
+  Epoch  38/80 | MSE train 0.2691 | total 1.2213 | MSE val 0.4222 | NSE 0.726 | KGE 0.697 | LR 2.00e-04 [SWA n=7]
+  Epoch  39/80 | MSE train 0.2642 | total 1.1945 | MSE val 0.4217 | NSE 0.724 | KGE 0.699 | LR 2.00e-04 [SWA n=8]
+  Epoch  40/80 | MSE train 0.2591 | total 1.1593 | MSE val 0.4253 | NSE 0.719 | KGE 0.694 | LR 2.00e-04 [SWA n=9]
+  Epoch  41/80 | MSE train 0.2608 | total 1.1748 | MSE val 0.4256 | NSE 0.719 | KGE 0.694 | LR 2.00e-04 [SWA n=10]
+  Epoch  42/80 | MSE train 0.2615 | total 1.1757 | MSE val 0.4273 | NSE 0.724 | KGE 0.693 | LR 2.00e-04 [SWA n=11]
+  Epoch  43/80 | MSE train 0.2612 | total 1.1734 | MSE val 0.4292 | NSE 0.725 | KGE 0.693 | LR 2.00e-04 [SWA n=12]
+  SWA converged at epoch 43
+  Raw best retained over SWA (loss raw=0.4058, swa=0.4151; averaged over 12 snapshots)
 
   Fold 2 Validation Results
   Tier    N        NSE med   KGE med   FHV med  FEHV med   FLV med
   ----------------------------------------------------------------
-  1       18         0.733     0.668     -25.5     -46.0      58.0
-  2       21         0.639     0.653     -13.7     -24.0      81.1
-  3       6          0.810     0.826     -14.7     -21.9      18.7
-  All     45         0.697     0.698     -18.7     -28.2      58.0
+  1       18         0.730     0.626     -28.1     -47.0      40.9
+  2       21         0.636     0.623      -7.3     -34.5      94.1
+  3       6          0.765     0.746     -11.5     -21.8      77.8
+  All     45         0.727     0.669     -13.5     -36.2      80.2
 
 ============================================================
 FOLD 3/5  (train 179  / val 45 basins)
@@ -176,66 +139,64 @@ FOLD 3/5  (train 179  / val 45 basins)
     2,113,277 training samples  (batch size 512 -> 4,127 batches/epoch)
   Building validation dataset  (45 held-out basins) ...
     480,627 validation samples
-  Model: dual -- 80,317 parameters  (device: cuda)
+  Model: dual -- 79,932 parameters  (device: cuda)
   Training ...
-  init Epoch   0/80 | MSE train    --- | MSE val 2.0706 | NSE -0.347 | KGE -0.982 | LR 0.00e+00
-  Epoch   1/80 | MSE train 3413.0251 | total 13474.5615 | MSE val 0.6323 | NSE 0.565 | KGE 0.518 | LR 1.60e-04
-  Epoch   2/80 | MSE train 2227.8442 | total 8849.9688 | MSE val 0.5267 | NSE 0.637 | KGE 0.610 | LR 2.80e-04
-  Epoch   3/80 | MSE train 1960.0203 | total 7900.1895 | MSE val 0.4803 | NSE 0.709 | KGE 0.682 | LR 4.00e-04
-  Epoch   4/80 | MSE train 1717.3588 | total 7082.2510 | MSE val 0.4449 | NSE 0.711 | KGE 0.678 | LR 4.00e-04
-  Epoch   5/80 | MSE train 1547.2013 | total 6586.2471 | MSE val 0.4130 | NSE 0.732 | KGE 0.714 | LR 3.99e-04
-  Epoch   6/80 | MSE train 1469.8171 | total 6346.7490 | MSE val 0.4350 | NSE 0.724 | KGE 0.703 | LR 3.99e-04
-  Epoch   7/80 | MSE train 1421.8491 | total 6202.7759 | MSE val 0.4749 | NSE 0.696 | KGE 0.622 | LR 3.97e-04
-  Epoch   8/80 | MSE train 1362.6696 | total 6005.5698 | MSE val 0.4087 | NSE 0.744 | KGE 0.721 | LR 3.96e-04
-  Epoch   9/80 | MSE train 1331.0582 | total 5893.7461 | MSE val 0.4892 | NSE 0.700 | KGE 0.661 | LR 3.94e-04
-  Epoch  10/80 | MSE train 1307.3546 | total 5796.3203 | MSE val 0.4385 | NSE 0.742 | KGE 0.705 | LR 3.92e-04
-  Epoch  11/80 | MSE train 1272.6288 | total 5629.7676 | MSE val 0.4085 | NSE 0.739 | KGE 0.706 | LR 3.90e-04
-  Epoch  12/80 | MSE train 1277.6593 | total 5677.1045 | MSE val 0.4028 | NSE 0.744 | KGE 0.701 | LR 3.87e-04
-  Epoch  13/80 | MSE train 1254.9200 | total 5619.8589 | MSE val 0.3923 | NSE 0.741 | KGE 0.694 | LR 3.84e-04
-  Epoch  14/80 | MSE train 1255.8905 | total 5656.9116 | MSE val 0.4036 | NSE 0.740 | KGE 0.652 | LR 3.81e-04
-  Epoch  15/80 | MSE train 1243.2767 | total 5591.2441 | MSE val 0.3910 | NSE 0.754 | KGE 0.755 | LR 3.77e-04
-  Epoch  16/80 | MSE train 1209.5061 | total 5382.7070 | MSE val 0.3903 | NSE 0.745 | KGE 0.688 | LR 3.73e-04
-  Epoch  17/80 | MSE train 1211.6681 | total 5402.3760 | MSE val 0.4017 | NSE 0.746 | KGE 0.701 | LR 3.69e-04
-  Epoch  18/80 | MSE train 1213.9041 | total 5459.3525 | MSE val 0.4108 | NSE 0.733 | KGE 0.694 | LR 3.65e-04
-  Epoch  19/80 | MSE train 1182.3970 | total 5268.3540 | MSE val 0.4158 | NSE 0.740 | KGE 0.615 | LR 3.60e-04
-  Epoch  20/80 | MSE train 1185.9258 | total 5349.5381 | MSE val 0.3742 | NSE 0.751 | KGE 0.712 | LR 3.55e-04
-  Epoch  21/80 | MSE train 1169.5046 | total 5212.7231 | MSE val 0.3869 | NSE 0.753 | KGE 0.766 | LR 3.50e-04
-  Epoch  22/80 | MSE train 1163.2019 | total 5243.4219 | MSE val 0.3714 | NSE 0.740 | KGE 0.741 | LR 3.44e-04
-  Epoch  23/80 | MSE train 1140.6882 | total 5090.2080 | MSE val 0.4015 | NSE 0.732 | KGE 0.707 | LR 3.39e-04
-  Epoch  24/80 | MSE train 1137.3768 | total 5094.2148 | MSE val 0.4136 | NSE 0.747 | KGE 0.720 | LR 3.33e-04
-  Epoch  25/80 | MSE train 1153.1042 | total 5204.6216 | MSE val 0.3846 | NSE 0.736 | KGE 0.738 | LR 3.27e-04
-  Epoch  26/80 | MSE train 1126.8898 | total 5065.4062 | MSE val 0.3915 | NSE 0.747 | KGE 0.744 | LR 3.20e-04
-  Epoch  27/80 | MSE train 1110.0865 | total 4973.4360 | MSE val 0.4016 | NSE 0.730 | KGE 0.674 | LR 3.14e-04
-  Epoch  28/80 | MSE train 1112.4205 | total 5012.9707 | MSE val 0.4065 | NSE 0.743 | KGE 0.716 | LR 3.07e-04
-  Epoch  29/80 | MSE train 1117.3591 | total 5026.7642 | MSE val 0.4069 | NSE 0.730 | KGE 0.715 | LR 3.00e-04
-  Epoch  30/80 | MSE train 1112.4452 | total 5007.5635 | MSE val 0.3829 | NSE 0.751 | KGE 0.721 | LR 2.93e-04
-  >> Val plateau at epoch 30 â€” activating SWA
-  Epoch  31/80 | MSE train 1115.7472 | total 5059.9854 | MSE val 0.3816 | NSE 0.748 | KGE 0.710 | LR 2.00e-04 [SWA n=1]
-  Epoch  32/80 | MSE train 1104.8346 | total 5005.9639 | MSE val 0.3754 | NSE 0.739 | KGE 0.723 | LR 2.00e-04 [SWA n=2]
-  Epoch  33/80 | MSE train 1098.3766 | total 4959.0918 | MSE val 0.3723 | NSE 0.742 | KGE 0.734 | LR 2.00e-04 [SWA n=3]
-  Epoch  34/80 | MSE train 1111.4117 | total 5069.1699 | MSE val 0.3719 | NSE 0.747 | KGE 0.744 | LR 2.00e-04 [SWA n=4]
-  Epoch  35/80 | MSE train 1097.3483 | total 4974.2759 | MSE val 0.3723 | NSE 0.745 | KGE 0.741 | LR 2.00e-04 [SWA n=5]
-  Epoch  36/80 | MSE train 1098.9611 | total 4985.5005 | MSE val 0.3715 | NSE 0.750 | KGE 0.742 | LR 2.00e-04 [SWA n=6]
-  Epoch  37/80 | MSE train 1071.5509 | total 4827.1816 | MSE val 0.3738 | NSE 0.751 | KGE 0.736 | LR 2.00e-04 [SWA n=7]
-  Epoch  38/80 | MSE train 1086.2836 | total 4900.7251 | MSE val 0.3738 | NSE 0.748 | KGE 0.738 | LR 2.00e-04 [SWA n=8]
-  Epoch  39/80 | MSE train 1072.4631 | total 4839.9985 | MSE val 0.3751 | NSE 0.745 | KGE 0.734 | LR 2.00e-04 [SWA n=9]
-  Epoch  40/80 | MSE train 1077.5524 | total 4887.4897 | MSE val 0.3752 | NSE 0.744 | KGE 0.735 | LR 2.00e-04 [SWA n=10]
-  Epoch  41/80 | MSE train 1056.7931 | total 4734.9585 | MSE val 0.3751 | NSE 0.747 | KGE 0.742 | LR 2.00e-04 [SWA n=11]
-  Epoch  42/80 | MSE train 1079.8192 | total 4907.9219 | MSE val 0.3765 | NSE 0.747 | KGE 0.740 | LR 2.00e-04 [SWA n=12]
-  Epoch  43/80 | MSE train 1054.3679 | total 4716.8662 | MSE val 0.3778 | NSE 0.746 | KGE 0.738 | LR 2.00e-04 [SWA n=13]
-  Epoch  44/80 | MSE train 1056.4418 | total 4761.9224 | MSE val 0.3773 | NSE 0.746 | KGE 0.740 | LR 2.00e-04 [SWA n=14]
-  Epoch  45/80 | MSE train 1057.5114 | total 4763.5107 | MSE val 0.3765 | NSE 0.747 | KGE 0.739 | LR 2.00e-04 [SWA n=15]
-  Epoch  46/80 | MSE train 1055.0959 | total 4772.1133 | MSE val 0.3779 | NSE 0.747 | KGE 0.735 | LR 2.00e-04 [SWA n=16]
-  SWA converged at epoch 46
-  Raw best retained over SWA (loss raw=0.3714, swa=0.3715; averaged over 16 snapshots)
+  init Epoch   0/80 | MSE train    --- | MSE val 2.4467 | NSE -0.644 | KGE -1.276 | LR 0.00e+00
+  Epoch   1/80 | MSE train 0.8731 | total 3.3421 | MSE val 0.6145 | NSE 0.595 | KGE 0.591 | LR 1.60e-04
+  Epoch   2/80 | MSE train 0.5415 | total 2.1620 | MSE val 0.5347 | NSE 0.639 | KGE 0.573 | LR 2.80e-04
+  Epoch   3/80 | MSE train 0.4628 | total 1.8769 | MSE val 0.5564 | NSE 0.676 | KGE 0.607 | LR 4.00e-04
+  Epoch   4/80 | MSE train 0.4169 | total 1.7385 | MSE val 0.4446 | NSE 0.715 | KGE 0.697 | LR 4.00e-04
+  Epoch   5/80 | MSE train 0.3789 | total 1.6139 | MSE val 0.4767 | NSE 0.693 | KGE 0.630 | LR 3.99e-04
+  Epoch   6/80 | MSE train 0.3568 | total 1.5361 | MSE val 0.4366 | NSE 0.732 | KGE 0.686 | LR 3.99e-04
+  Epoch   7/80 | MSE train 0.3487 | total 1.5188 | MSE val 0.4224 | NSE 0.731 | KGE 0.689 | LR 3.97e-04
+  Epoch   8/80 | MSE train 0.3360 | total 1.4543 | MSE val 0.4437 | NSE 0.704 | KGE 0.673 | LR 3.96e-04
+  Epoch   9/80 | MSE train 0.3290 | total 1.4409 | MSE val 0.4079 | NSE 0.764 | KGE 0.750 | LR 3.94e-04
+  Epoch  10/80 | MSE train 0.3252 | total 1.4270 | MSE val 0.4275 | NSE 0.723 | KGE 0.681 | LR 3.92e-04
+  Epoch  11/80 | MSE train 0.3158 | total 1.3861 | MSE val 0.4541 | NSE 0.735 | KGE 0.680 | LR 3.90e-04
+  Epoch  12/80 | MSE train 0.3099 | total 1.3576 | MSE val 0.4132 | NSE 0.748 | KGE 0.716 | LR 3.87e-04
+  Epoch  13/80 | MSE train 0.3099 | total 1.3760 | MSE val 0.4170 | NSE 0.743 | KGE 0.650 | LR 3.84e-04
+  Epoch  14/80 | MSE train 0.3046 | total 1.3603 | MSE val 0.4050 | NSE 0.734 | KGE 0.699 | LR 3.81e-04
+  Epoch  15/80 | MSE train 0.2980 | total 1.3313 | MSE val 0.4346 | NSE 0.763 | KGE 0.679 | LR 3.77e-04
+  Epoch  16/80 | MSE train 0.2989 | total 1.3436 | MSE val 0.4266 | NSE 0.739 | KGE 0.704 | LR 3.73e-04
+  Epoch  17/80 | MSE train 0.2965 | total 1.3327 | MSE val 0.4045 | NSE 0.744 | KGE 0.685 | LR 3.69e-04
+  Epoch  18/80 | MSE train 0.2932 | total 1.3212 | MSE val 0.4503 | NSE 0.758 | KGE 0.707 | LR 3.65e-04
+  Epoch  19/80 | MSE train 0.2914 | total 1.3100 | MSE val 0.4313 | NSE 0.762 | KGE 0.707 | LR 3.60e-04
+  Epoch  20/80 | MSE train 0.2864 | total 1.2863 | MSE val 0.4036 | NSE 0.774 | KGE 0.705 | LR 3.55e-04
+  Epoch  21/80 | MSE train 0.2873 | total 1.2975 | MSE val 0.4263 | NSE 0.768 | KGE 0.676 | LR 3.50e-04
+  Epoch  22/80 | MSE train 0.2880 | total 1.3108 | MSE val 0.4287 | NSE 0.750 | KGE 0.705 | LR 3.44e-04
+  Epoch  23/80 | MSE train 0.2827 | total 1.2750 | MSE val 0.4197 | NSE 0.748 | KGE 0.735 | LR 3.39e-04
+  Epoch  24/80 | MSE train 0.2807 | total 1.2620 | MSE val 0.4279 | NSE 0.738 | KGE 0.704 | LR 3.33e-04
+  Epoch  25/80 | MSE train 0.2762 | total 1.2361 | MSE val 0.4372 | NSE 0.717 | KGE 0.656 | LR 3.27e-04
+  Epoch  26/80 | MSE train 0.2763 | total 1.2472 | MSE val 0.4625 | NSE 0.757 | KGE 0.714 | LR 3.20e-04
+  Epoch  27/80 | MSE train 0.2731 | total 1.2271 | MSE val 0.4367 | NSE 0.763 | KGE 0.666 | LR 3.14e-04
+  Epoch  28/80 | MSE train 0.2707 | total 1.2183 | MSE val 0.4272 | NSE 0.758 | KGE 0.679 | LR 3.07e-04
+  >> Val plateau at epoch 28 â€” activating SWA
+  Epoch  29/80 | MSE train 0.2749 | total 1.2486 | MSE val 0.4174 | NSE 0.765 | KGE 0.708 | LR 2.00e-04 [SWA n=1]
+  Epoch  30/80 | MSE train 0.2716 | total 1.2302 | MSE val 0.4061 | NSE 0.751 | KGE 0.686 | LR 2.00e-04 [SWA n=2]
+  Epoch  31/80 | MSE train 0.2710 | total 1.2267 | MSE val 0.4112 | NSE 0.756 | KGE 0.686 | LR 2.00e-04 [SWA n=3]
+  Epoch  32/80 | MSE train 0.2685 | total 1.2148 | MSE val 0.4083 | NSE 0.766 | KGE 0.692 | LR 2.00e-04 [SWA n=4]
+  Epoch  33/80 | MSE train 0.2686 | total 1.2134 | MSE val 0.4046 | NSE 0.759 | KGE 0.679 | LR 2.00e-04 [SWA n=5]
+  Epoch  34/80 | MSE train 0.2662 | total 1.2019 | MSE val 0.4023 | NSE 0.769 | KGE 0.671 | LR 2.00e-04 [SWA n=6]
+  Epoch  35/80 | MSE train 0.2676 | total 1.2138 | MSE val 0.4021 | NSE 0.769 | KGE 0.676 | LR 2.00e-04 [SWA n=7]
+  Epoch  36/80 | MSE train 0.2680 | total 1.2197 | MSE val 0.4029 | NSE 0.769 | KGE 0.672 | LR 2.00e-04 [SWA n=8]
+  Epoch  37/80 | MSE train 0.2653 | total 1.2020 | MSE val 0.4028 | NSE 0.769 | KGE 0.677 | LR 2.00e-04 [SWA n=9]
+  Epoch  38/80 | MSE train 0.2635 | total 1.1942 | MSE val 0.4037 | NSE 0.771 | KGE 0.683 | LR 2.00e-04 [SWA n=10]
+  Epoch  39/80 | MSE train 0.2626 | total 1.1769 | MSE val 0.4047 | NSE 0.769 | KGE 0.686 | LR 2.00e-04 [SWA n=11]
+  Epoch  40/80 | MSE train 0.2623 | total 1.1837 | MSE val 0.4060 | NSE 0.770 | KGE 0.691 | LR 2.00e-04 [SWA n=12]
+  Epoch  41/80 | MSE train 0.2599 | total 1.1699 | MSE val 0.4069 | NSE 0.771 | KGE 0.692 | LR 2.00e-04 [SWA n=13]
+  Epoch  42/80 | MSE train 0.2596 | total 1.1674 | MSE val 0.4056 | NSE 0.767 | KGE 0.692 | LR 2.00e-04 [SWA n=14]
+  Epoch  43/80 | MSE train 0.2606 | total 1.1819 | MSE val 0.4047 | NSE 0.765 | KGE 0.690 | LR 2.00e-04 [SWA n=15]
+  Epoch  44/80 | MSE train 0.2600 | total 1.1716 | MSE val 0.4049 | NSE 0.765 | KGE 0.693 | LR 2.00e-04 [SWA n=16]
+  SWA converged at epoch 44
+  SWA model promoted over raw best (loss=0.4023; averaged over 16 snapshots)
 
   Fold 3 Validation Results
   Tier    N        NSE med   KGE med   FHV med  FEHV med   FLV med
   ----------------------------------------------------------------
-  1       18         0.814     0.786     -14.1     -26.7      36.2
-  2       21         0.665     0.517     -16.9     -21.6      53.5
-  3       6          0.781     0.816     -16.3     -35.4      81.6
-  All     45         0.740     0.739     -14.7     -26.5      48.6
+  1       18         0.818     0.780     -13.7     -30.1      46.3
+  2       21         0.596     0.531     -19.8     -20.9      68.2
+  3       6          0.803     0.765     -19.2     -43.9      68.2
+  All     45         0.769     0.672     -17.4     -27.1      55.1
 
 ============================================================
 FOLD 4/5  (train 180  / val 44 basins)
@@ -244,46 +205,55 @@ FOLD 4/5  (train 180  / val 44 basins)
     2,057,462 training samples  (batch size 512 -> 4,018 batches/epoch)
   Building validation dataset  (44 held-out basins) ...
     536,442 validation samples
-  Model: dual -- 80,317 parameters  (device: cuda)
+  Model: dual -- 79,932 parameters  (device: cuda)
   Training ...
-  init Epoch   0/80 | MSE train    --- | MSE val 1.7304 | NSE -0.366 | KGE -1.044 | LR 0.00e+00
-  Epoch   1/80 | MSE train 3570.4128 | total 14267.6689 | MSE val 0.5923 | NSE 0.541 | KGE 0.571 | LR 1.60e-04
-  Epoch   2/80 | MSE train 2275.6968 | total 8895.8516 | MSE val 0.5106 | NSE 0.664 | KGE 0.652 | LR 2.80e-04
-  Epoch   3/80 | MSE train 1953.3304 | total 7909.1094 | MSE val 0.4640 | NSE 0.699 | KGE 0.653 | LR 4.00e-04
-  Epoch   4/80 | MSE train 1760.2788 | total 7243.5786 | MSE val 0.4113 | NSE 0.715 | KGE 0.676 | LR 4.00e-04
-  Epoch   5/80 | MSE train 1598.6339 | total 6755.1680 | MSE val 0.5114 | NSE 0.691 | KGE 0.563 | LR 3.99e-04
-  Epoch   6/80 | MSE train 1523.7186 | total 6549.3770 | MSE val 0.4272 | NSE 0.722 | KGE 0.675 | LR 3.99e-04
-  Epoch   7/80 | MSE train 1473.2211 | total 6368.9478 | MSE val 0.3956 | NSE 0.740 | KGE 0.640 | LR 3.97e-04
-  Epoch   8/80 | MSE train 1432.4286 | total 6264.9844 | MSE val 0.4209 | NSE 0.729 | KGE 0.682 | LR 3.96e-04
-  Epoch   9/80 | MSE train 1386.4712 | total 6059.8682 | MSE val 0.4185 | NSE 0.725 | KGE 0.588 | LR 3.94e-04
-  Epoch  10/80 | MSE train 1375.9902 | total 6062.0391 | MSE val 0.4422 | NSE 0.717 | KGE 0.650 | LR 3.92e-04
-  Epoch  11/80 | MSE train 1351.8729 | total 5944.3560 | MSE val 0.4435 | NSE 0.754 | KGE 0.691 | LR 3.90e-04
-  Epoch  12/80 | MSE train 1335.1888 | total 5916.7954 | MSE val 0.4408 | NSE 0.744 | KGE 0.637 | LR 3.87e-04
-  Epoch  13/80 | MSE train 1306.4276 | total 5759.3472 | MSE val 0.4357 | NSE 0.739 | KGE 0.687 | LR 3.84e-04
-  Epoch  14/80 | MSE train 1299.4004 | total 5784.4414 | MSE val 0.4135 | NSE 0.707 | KGE 0.618 | LR 3.81e-04
-  Epoch  15/80 | MSE train 1272.8730 | total 5632.0371 | MSE val 0.4137 | NSE 0.709 | KGE 0.640 | LR 3.77e-04
-  >> Val plateau at epoch 15 â€” activating SWA
-  Epoch  16/80 | MSE train 1369.9332 | total 6030.0840 | MSE val 0.4004 | NSE 0.740 | KGE 0.709 | LR 2.00e-04 [SWA n=1]
-  Epoch  17/80 | MSE train 1350.4509 | total 5948.7100 | MSE val 0.4016 | NSE 0.732 | KGE 0.653 | LR 2.00e-04 [SWA n=2]
-  Epoch  18/80 | MSE train 1328.3643 | total 5874.8721 | MSE val 0.4017 | NSE 0.734 | KGE 0.681 | LR 2.00e-04 [SWA n=3]
-  Epoch  19/80 | MSE train 1319.5447 | total 5861.5806 | MSE val 0.4042 | NSE 0.733 | KGE 0.643 | LR 2.00e-04 [SWA n=4]
-  Epoch  20/80 | MSE train 1301.7913 | total 5745.2593 | MSE val 0.4072 | NSE 0.741 | KGE 0.663 | LR 2.00e-04 [SWA n=5]
-  Epoch  21/80 | MSE train 1301.5327 | total 5810.1929 | MSE val 0.4113 | NSE 0.744 | KGE 0.669 | LR 2.00e-04 [SWA n=6]
-  Epoch  22/80 | MSE train 1291.0063 | total 5725.7642 | MSE val 0.4113 | NSE 0.742 | KGE 0.660 | LR 2.00e-04 [SWA n=7]
-  Epoch  23/80 | MSE train 1276.4285 | total 5699.7891 | MSE val 0.4098 | NSE 0.746 | KGE 0.658 | LR 2.00e-04 [SWA n=8]
-  Epoch  24/80 | MSE train 1239.1196 | total 5458.0576 | MSE val 0.4066 | NSE 0.740 | KGE 0.658 | LR 2.00e-04 [SWA n=9]
-  Epoch  25/80 | MSE train 1253.8311 | total 5575.4458 | MSE val 0.4085 | NSE 0.739 | KGE 0.650 | LR 2.00e-04 [SWA n=10]
-  Epoch  26/80 | MSE train 1254.8008 | total 5590.5664 | MSE val 0.4077 | NSE 0.738 | KGE 0.652 | LR 2.00e-04 [SWA n=11]
-  SWA converged at epoch 26
-  Raw best retained over SWA (loss raw=0.3956, swa=0.4004; averaged over 11 snapshots)
+  init Epoch   0/80 | MSE train    --- | MSE val 1.7664 | NSE -0.404 | KGE -1.176 | LR 0.00e+00
+  Epoch   1/80 | MSE train 0.8995 | total 3.3987 | MSE val 0.5857 | NSE 0.567 | KGE 0.563 | LR 1.60e-04
+  Epoch   2/80 | MSE train 0.5797 | total 2.2830 | MSE val 0.4599 | NSE 0.675 | KGE 0.675 | LR 2.80e-04
+  Epoch   3/80 | MSE train 0.4761 | total 1.9462 | MSE val 0.4328 | NSE 0.685 | KGE 0.551 | LR 4.00e-04
+  Epoch   4/80 | MSE train 0.4273 | total 1.7979 | MSE val 0.4075 | NSE 0.706 | KGE 0.696 | LR 4.00e-04
+  Epoch   5/80 | MSE train 0.3972 | total 1.7046 | MSE val 0.4253 | NSE 0.696 | KGE 0.619 | LR 3.99e-04
+  Epoch   6/80 | MSE train 0.3716 | total 1.6014 | MSE val 0.4028 | NSE 0.746 | KGE 0.685 | LR 3.99e-04
+  Epoch   7/80 | MSE train 0.3532 | total 1.5390 | MSE val 0.4135 | NSE 0.722 | KGE 0.690 | LR 3.97e-04
+  Epoch   8/80 | MSE train 0.3456 | total 1.5189 | MSE val 0.4000 | NSE 0.743 | KGE 0.712 | LR 3.96e-04
+  Epoch   9/80 | MSE train 0.3399 | total 1.4966 | MSE val 0.4048 | NSE 0.752 | KGE 0.723 | LR 3.94e-04
+  Epoch  10/80 | MSE train 0.3299 | total 1.4624 | MSE val 0.4233 | NSE 0.752 | KGE 0.691 | LR 3.92e-04
+  Epoch  11/80 | MSE train 0.3315 | total 1.4793 | MSE val 0.4212 | NSE 0.748 | KGE 0.725 | LR 3.90e-04
+  Epoch  12/80 | MSE train 0.3227 | total 1.4319 | MSE val 0.3965 | NSE 0.753 | KGE 0.687 | LR 3.87e-04
+  Epoch  13/80 | MSE train 0.3167 | total 1.3951 | MSE val 0.4128 | NSE 0.727 | KGE 0.686 | LR 3.84e-04
+  Epoch  14/80 | MSE train 0.3156 | total 1.4045 | MSE val 0.3885 | NSE 0.758 | KGE 0.752 | LR 3.81e-04
+  Epoch  15/80 | MSE train 0.3154 | total 1.4129 | MSE val 0.4060 | NSE 0.737 | KGE 0.707 | LR 3.77e-04
+  Epoch  16/80 | MSE train 0.3101 | total 1.3865 | MSE val 0.3970 | NSE 0.766 | KGE 0.741 | LR 3.73e-04
+  Epoch  17/80 | MSE train 0.3041 | total 1.3531 | MSE val 0.3937 | NSE 0.729 | KGE 0.701 | LR 3.69e-04
+  Epoch  18/80 | MSE train 0.3018 | total 1.3489 | MSE val 0.4180 | NSE 0.743 | KGE 0.727 | LR 3.65e-04
+  Epoch  19/80 | MSE train 0.3009 | total 1.3507 | MSE val 0.3970 | NSE 0.742 | KGE 0.718 | LR 3.60e-04
+  Epoch  20/80 | MSE train 0.2976 | total 1.3324 | MSE val 0.3979 | NSE 0.761 | KGE 0.707 | LR 3.55e-04
+  Epoch  21/80 | MSE train 0.2963 | total 1.3227 | MSE val 0.4157 | NSE 0.764 | KGE 0.708 | LR 3.50e-04
+  Epoch  22/80 | MSE train 0.2931 | total 1.3146 | MSE val 0.4149 | NSE 0.758 | KGE 0.710 | LR 3.44e-04
+  >> Val plateau at epoch 22 â€” activating SWA
+  Epoch  23/80 | MSE train 0.3028 | total 1.3679 | MSE val 0.4044 | NSE 0.732 | KGE 0.718 | LR 2.00e-04 [SWA n=1]
+  Epoch  24/80 | MSE train 0.2991 | total 1.3385 | MSE val 0.4009 | NSE 0.742 | KGE 0.720 | LR 2.00e-04 [SWA n=2]
+  Epoch  25/80 | MSE train 0.2946 | total 1.3149 | MSE val 0.3986 | NSE 0.740 | KGE 0.716 | LR 2.00e-04 [SWA n=3]
+  Epoch  26/80 | MSE train 0.2886 | total 1.2874 | MSE val 0.4017 | NSE 0.748 | KGE 0.718 | LR 2.00e-04 [SWA n=4]
+  Epoch  27/80 | MSE train 0.2891 | total 1.2898 | MSE val 0.4005 | NSE 0.744 | KGE 0.712 | LR 2.00e-04 [SWA n=5]
+  Epoch  28/80 | MSE train 0.2900 | total 1.2935 | MSE val 0.4001 | NSE 0.745 | KGE 0.715 | LR 2.00e-04 [SWA n=6]
+  Epoch  29/80 | MSE train 0.2875 | total 1.2824 | MSE val 0.4005 | NSE 0.746 | KGE 0.717 | LR 2.00e-04 [SWA n=7]
+  Epoch  30/80 | MSE train 0.2862 | total 1.2928 | MSE val 0.3997 | NSE 0.750 | KGE 0.713 | LR 2.00e-04 [SWA n=8]
+  Epoch  31/80 | MSE train 0.2817 | total 1.2573 | MSE val 0.4000 | NSE 0.750 | KGE 0.720 | LR 2.00e-04 [SWA n=9]
+  Epoch  32/80 | MSE train 0.2827 | total 1.2717 | MSE val 0.4010 | NSE 0.754 | KGE 0.721 | LR 2.00e-04 [SWA n=10]
+  Epoch  33/80 | MSE train 0.2815 | total 1.2672 | MSE val 0.4032 | NSE 0.755 | KGE 0.724 | LR 2.00e-04 [SWA n=11]
+  Epoch  34/80 | MSE train 0.2782 | total 1.2453 | MSE val 0.4040 | NSE 0.759 | KGE 0.717 | LR 2.00e-04 [SWA n=12]
+  Epoch  35/80 | MSE train 0.2781 | total 1.2483 | MSE val 0.4050 | NSE 0.758 | KGE 0.717 | LR 2.00e-04 [SWA n=13]
+  SWA converged at epoch 35
+  Raw best retained over SWA (loss raw=0.3885, swa=0.3986; averaged over 13 snapshots)
 
   Fold 4 Validation Results
   Tier    N        NSE med   KGE med   FHV med  FEHV med   FLV med
   ----------------------------------------------------------------
-  1       18         0.770     0.741     -24.9     -42.6      39.3
-  2       20         0.575     0.530      -1.4     -15.1      71.0
-  3       6          0.803     0.814     -24.6     -31.7      98.1
-  All     44         0.741     0.640     -21.0     -33.4      54.8
+  1       18         0.790     0.784     -20.6     -43.8      42.1
+  2       20         0.662     0.684      -6.7     -22.7      60.3
+  3       6          0.811     0.797     -26.5     -33.1      74.1
+  All     44         0.758     0.753     -19.6     -33.1      53.3
 
 ============================================================
 FOLD 5/5  (train 180  / val 44 basins)
@@ -292,69 +262,68 @@ FOLD 5/5  (train 180  / val 44 basins)
     2,133,659 training samples  (batch size 512 -> 4,167 batches/epoch)
   Building validation dataset  (44 held-out basins) ...
     460,245 validation samples
-  Model: dual -- 80,317 parameters  (device: cuda)
+  Model: dual -- 79,932 parameters  (device: cuda)
   Training ...
-  init Epoch   0/80 | MSE train    --- | MSE val 2.0471 | NSE -0.847 | KGE -1.560 | LR 0.00e+00
-  Epoch   1/80 | MSE train 3624.9001 | total 13836.6240 | MSE val 0.6135 | NSE 0.507 | KGE 0.466 | LR 1.60e-04
-  Epoch   2/80 | MSE train 2339.9312 | total 9215.2754 | MSE val 0.5392 | NSE 0.600 | KGE 0.541 | LR 2.80e-04
-  Epoch   3/80 | MSE train 1968.0958 | total 8010.5347 | MSE val 0.4994 | NSE 0.643 | KGE 0.606 | LR 4.00e-04
-  Epoch   4/80 | MSE train 1755.3151 | total 7316.8745 | MSE val 0.4801 | NSE 0.651 | KGE 0.600 | LR 4.00e-04
-  Epoch   5/80 | MSE train 1587.0253 | total 6737.5190 | MSE val 0.4921 | NSE 0.662 | KGE 0.619 | LR 3.99e-04
-  Epoch   6/80 | MSE train 1494.1302 | total 6498.4424 | MSE val 0.4748 | NSE 0.647 | KGE 0.605 | LR 3.99e-04
-  Epoch   7/80 | MSE train 1434.2148 | total 6236.5415 | MSE val 0.4991 | NSE 0.646 | KGE 0.630 | LR 3.97e-04
-  Epoch   8/80 | MSE train 1406.8635 | total 6152.7671 | MSE val 0.4619 | NSE 0.651 | KGE 0.615 | LR 3.96e-04
-  Epoch   9/80 | MSE train 1393.9779 | total 6181.7153 | MSE val 0.4691 | NSE 0.640 | KGE 0.619 | LR 3.94e-04
-  Epoch  10/80 | MSE train 1370.5735 | total 6024.8579 | MSE val 0.4489 | NSE 0.674 | KGE 0.612 | LR 3.92e-04
-  Epoch  11/80 | MSE train 1331.4286 | total 5844.9810 | MSE val 0.4666 | NSE 0.674 | KGE 0.621 | LR 3.90e-04
-  Epoch  12/80 | MSE train 1331.0834 | total 5889.3335 | MSE val 0.4579 | NSE 0.638 | KGE 0.621 | LR 3.87e-04
-  Epoch  13/80 | MSE train 1297.5592 | total 5676.3970 | MSE val 0.4503 | NSE 0.678 | KGE 0.620 | LR 3.84e-04
-  Epoch  14/80 | MSE train 1284.9960 | total 5728.2178 | MSE val 0.4571 | NSE 0.656 | KGE 0.651 | LR 3.81e-04
-  Epoch  15/80 | MSE train 1273.4371 | total 5652.4292 | MSE val 0.4699 | NSE 0.633 | KGE 0.636 | LR 3.77e-04
-  Epoch  16/80 | MSE train 1257.4410 | total 5572.0781 | MSE val 0.4460 | NSE 0.684 | KGE 0.640 | LR 3.73e-04
-  Epoch  17/80 | MSE train 1278.0776 | total 5736.7959 | MSE val 0.4655 | NSE 0.679 | KGE 0.623 | LR 3.69e-04
-  Epoch  18/80 | MSE train 1255.8572 | total 5582.4102 | MSE val 0.4631 | NSE 0.676 | KGE 0.617 | LR 3.65e-04
-  Epoch  19/80 | MSE train 1245.4943 | total 5534.5522 | MSE val 0.4670 | NSE 0.675 | KGE 0.621 | LR 3.60e-04
-  Epoch  20/80 | MSE train 1232.0662 | total 5492.1597 | MSE val 0.4571 | NSE 0.688 | KGE 0.578 | LR 3.55e-04
-  Epoch  21/80 | MSE train 1228.9005 | total 5495.8853 | MSE val 0.4957 | NSE 0.661 | KGE 0.655 | LR 3.50e-04
-  Epoch  22/80 | MSE train 1217.1753 | total 5443.7520 | MSE val 0.4717 | NSE 0.682 | KGE 0.618 | LR 3.44e-04
-  Epoch  23/80 | MSE train 1202.3507 | total 5325.9868 | MSE val 0.4525 | NSE 0.689 | KGE 0.631 | LR 3.39e-04
-  Epoch  24/80 | MSE train 1207.3607 | total 5406.7803 | MSE val 0.4603 | NSE 0.689 | KGE 0.635 | LR 3.33e-04
-  >> Val plateau at epoch 24 â€” activating SWA
-  Epoch  25/80 | MSE train 1209.9835 | total 5454.5498 | MSE val 0.4835 | NSE 0.654 | KGE 0.610 | LR 2.00e-04 [SWA n=1]
-  Epoch  26/80 | MSE train 1208.2623 | total 5430.9849 | MSE val 0.4743 | NSE 0.678 | KGE 0.596 | LR 2.00e-04 [SWA n=2]
-  Epoch  27/80 | MSE train 1204.4004 | total 5430.5205 | MSE val 0.4685 | NSE 0.688 | KGE 0.594 | LR 2.00e-04 [SWA n=3]
-  Epoch  28/80 | MSE train 1202.2080 | total 5402.7549 | MSE val 0.4722 | NSE 0.692 | KGE 0.592 | LR 2.00e-04 [SWA n=4]
-  Epoch  29/80 | MSE train 1180.4498 | total 5297.4702 | MSE val 0.4662 | NSE 0.696 | KGE 0.606 | LR 2.00e-04 [SWA n=5]
-  Epoch  30/80 | MSE train 1183.3959 | total 5316.9673 | MSE val 0.4712 | NSE 0.692 | KGE 0.609 | LR 2.00e-04 [SWA n=6]
-  Epoch  31/80 | MSE train 1180.1909 | total 5325.1553 | MSE val 0.4732 | NSE 0.681 | KGE 0.606 | LR 2.00e-04 [SWA n=7]
-  Epoch  32/80 | MSE train 1171.2017 | total 5246.3989 | MSE val 0.4755 | NSE 0.672 | KGE 0.597 | LR 2.00e-04 [SWA n=8]
-  Epoch  33/80 | MSE train 1167.4972 | total 5247.7153 | MSE val 0.4741 | NSE 0.672 | KGE 0.591 | LR 2.00e-04 [SWA n=9]
-  Epoch  34/80 | MSE train 1152.4202 | total 5132.2598 | MSE val 0.4748 | NSE 0.676 | KGE 0.601 | LR 2.00e-04 [SWA n=10]
-  Epoch  35/80 | MSE train 1146.0956 | total 5124.3301 | MSE val 0.4726 | NSE 0.680 | KGE 0.604 | LR 2.00e-04 [SWA n=11]
-  Epoch  36/80 | MSE train 1146.8220 | total 5140.7700 | MSE val 0.4731 | NSE 0.680 | KGE 0.605 | LR 2.00e-04 [SWA n=12]
-  Epoch  37/80 | MSE train 1129.7042 | total 4982.8008 | MSE val 0.4728 | NSE 0.684 | KGE 0.611 | LR 2.00e-04 [SWA n=13]
-  Epoch  38/80 | MSE train 1131.7164 | total 5035.0908 | MSE val 0.4729 | NSE 0.684 | KGE 0.613 | LR 2.00e-04 [SWA n=14]
-  Epoch  39/80 | MSE train 1143.7948 | total 5151.0815 | MSE val 0.4731 | NSE 0.684 | KGE 0.616 | LR 2.00e-04 [SWA n=15]
-  SWA converged at epoch 39
-  Raw best retained over SWA (loss raw=0.4460, swa=0.4662; averaged over 15 snapshots)
+  init Epoch   0/80 | MSE train    --- | MSE val 2.0221 | NSE -0.823 | KGE -1.789 | LR 0.00e+00
+  Epoch   1/80 | MSE train 0.8935 | total 3.3817 | MSE val 0.6180 | NSE 0.474 | KGE 0.501 | LR 1.60e-04
+  Epoch   2/80 | MSE train 0.5737 | total 2.2314 | MSE val 0.5290 | NSE 0.624 | KGE 0.586 | LR 2.80e-04
+  Epoch   3/80 | MSE train 0.4769 | total 1.8963 | MSE val 0.4903 | NSE 0.655 | KGE 0.580 | LR 4.00e-04
+  Epoch   4/80 | MSE train 0.4122 | total 1.7168 | MSE val 0.4831 | NSE 0.666 | KGE 0.590 | LR 4.00e-04
+  Epoch   5/80 | MSE train 0.3755 | total 1.5996 | MSE val 0.4598 | NSE 0.665 | KGE 0.571 | LR 3.99e-04
+  Epoch   6/80 | MSE train 0.3581 | total 1.5480 | MSE val 0.5023 | NSE 0.670 | KGE 0.524 | LR 3.99e-04
+  Epoch   7/80 | MSE train 0.3428 | total 1.4894 | MSE val 0.4970 | NSE 0.654 | KGE 0.551 | LR 3.97e-04
+  Epoch   8/80 | MSE train 0.3378 | total 1.4865 | MSE val 0.4891 | NSE 0.674 | KGE 0.563 | LR 3.96e-04
+  Epoch   9/80 | MSE train 0.3266 | total 1.4341 | MSE val 0.4541 | NSE 0.690 | KGE 0.607 | LR 3.94e-04
+  Epoch  10/80 | MSE train 0.3257 | total 1.4463 | MSE val 0.4542 | NSE 0.690 | KGE 0.610 | LR 3.92e-04
+  Epoch  11/80 | MSE train 0.3158 | total 1.3883 | MSE val 0.4544 | NSE 0.680 | KGE 0.573 | LR 3.90e-04
+  Epoch  12/80 | MSE train 0.3117 | total 1.3733 | MSE val 0.5013 | NSE 0.668 | KGE 0.652 | LR 3.87e-04
+  Epoch  13/80 | MSE train 0.3058 | total 1.3556 | MSE val 0.4536 | NSE 0.687 | KGE 0.652 | LR 3.84e-04
+  Epoch  14/80 | MSE train 0.3011 | total 1.3329 | MSE val 0.4414 | NSE 0.708 | KGE 0.554 | LR 3.81e-04
+  Epoch  15/80 | MSE train 0.2993 | total 1.3319 | MSE val 0.4471 | NSE 0.699 | KGE 0.622 | LR 3.77e-04
+  Epoch  16/80 | MSE train 0.2974 | total 1.3165 | MSE val 0.4606 | NSE 0.688 | KGE 0.595 | LR 3.73e-04
+  Epoch  17/80 | MSE train 0.2939 | total 1.3080 | MSE val 0.4827 | NSE 0.691 | KGE 0.598 | LR 3.69e-04
+  Epoch  18/80 | MSE train 0.2940 | total 1.3175 | MSE val 0.4641 | NSE 0.692 | KGE 0.628 | LR 3.65e-04
+  Epoch  19/80 | MSE train 0.2925 | total 1.3055 | MSE val 0.4563 | NSE 0.704 | KGE 0.611 | LR 3.60e-04
+  Epoch  20/80 | MSE train 0.2902 | total 1.3004 | MSE val 0.4544 | NSE 0.698 | KGE 0.621 | LR 3.55e-04
+  Epoch  21/80 | MSE train 0.2836 | total 1.2523 | MSE val 0.4799 | NSE 0.697 | KGE 0.596 | LR 3.50e-04
+  Epoch  22/80 | MSE train 0.2852 | total 1.2756 | MSE val 0.4953 | NSE 0.674 | KGE 0.563 | LR 3.44e-04
+  >> Val plateau at epoch 22 â€” activating SWA
+  Epoch  23/80 | MSE train 0.2897 | total 1.3001 | MSE val 0.4529 | NSE 0.682 | KGE 0.623 | LR 2.00e-04 [SWA n=1]
+  Epoch  24/80 | MSE train 0.2863 | total 1.2812 | MSE val 0.4456 | NSE 0.685 | KGE 0.619 | LR 2.00e-04 [SWA n=2]
+  Epoch  25/80 | MSE train 0.2851 | total 1.2807 | MSE val 0.4460 | NSE 0.703 | KGE 0.618 | LR 2.00e-04 [SWA n=3]
+  Epoch  26/80 | MSE train 0.2808 | total 1.2488 | MSE val 0.4480 | NSE 0.698 | KGE 0.604 | LR 2.00e-04 [SWA n=4]
+  Epoch  27/80 | MSE train 0.2794 | total 1.2438 | MSE val 0.4458 | NSE 0.698 | KGE 0.620 | LR 2.00e-04 [SWA n=5]
+  Epoch  28/80 | MSE train 0.2803 | total 1.2503 | MSE val 0.4426 | NSE 0.698 | KGE 0.625 | LR 2.00e-04 [SWA n=6]
+  Epoch  29/80 | MSE train 0.2785 | total 1.2487 | MSE val 0.4436 | NSE 0.701 | KGE 0.618 | LR 2.00e-04 [SWA n=7]
+  Epoch  30/80 | MSE train 0.2762 | total 1.2363 | MSE val 0.4455 | NSE 0.704 | KGE 0.616 | LR 2.00e-04 [SWA n=8]
+  Epoch  31/80 | MSE train 0.2769 | total 1.2396 | MSE val 0.4454 | NSE 0.705 | KGE 0.613 | LR 2.00e-04 [SWA n=9]
+  Epoch  32/80 | MSE train 0.2733 | total 1.2239 | MSE val 0.4437 | NSE 0.702 | KGE 0.620 | LR 2.00e-04 [SWA n=10]
+  Epoch  33/80 | MSE train 0.2751 | total 1.2337 | MSE val 0.4445 | NSE 0.702 | KGE 0.621 | LR 2.00e-04 [SWA n=11]
+  Epoch  34/80 | MSE train 0.2718 | total 1.2153 | MSE val 0.4460 | NSE 0.703 | KGE 0.619 | LR 2.00e-04 [SWA n=12]
+  Epoch  35/80 | MSE train 0.2720 | total 1.2210 | MSE val 0.4453 | NSE 0.701 | KGE 0.622 | LR 2.00e-04 [SWA n=13]
+  Epoch  36/80 | MSE train 0.2716 | total 1.2165 | MSE val 0.4452 | NSE 0.702 | KGE 0.618 | LR 2.00e-04 [SWA n=14]
+  Epoch  37/80 | MSE train 0.2680 | total 1.1912 | MSE val 0.4450 | NSE 0.704 | KGE 0.625 | LR 2.00e-04 [SWA n=15]
+  Epoch  38/80 | MSE train 0.2683 | total 1.1908 | MSE val 0.4444 | NSE 0.702 | KGE 0.621 | LR 2.00e-04 [SWA n=16]
+  SWA converged at epoch 38
+  Raw best retained over SWA (loss raw=0.4414, swa=0.4426; averaged over 16 snapshots)
 
   Fold 5 Validation Results
   Tier    N        NSE med   KGE med   FHV med  FEHV med   FLV med
   ----------------------------------------------------------------
-  1       18         0.688     0.667     -19.4     -30.4      54.2
-  2       20         0.634     0.536      -3.4     -19.7      39.7
-  3       6          0.805     0.690     -23.6     -27.2      85.2
-  All     44         0.685     0.639     -12.9     -26.9      56.9
+  1       18         0.729     0.668     -13.3     -33.8      67.8
+  2       20         0.610     0.417      -6.9     -22.2      54.1
+  3       6          0.763     0.698     -15.0     -29.3      90.9
+  All     44         0.707     0.553     -11.4     -25.4      72.9
 
 ============================================================
 AGGREGATE ACROSS ALL FOLDS
 ============================================================
   Tier    N        NSE med   KGE med   FHV med   FLV med
   ------------------------------------------------------
-  1       91         0.747     0.704     -19.7      48.0
-  2       103        0.627     0.554     -11.8      59.6
-  3       30         0.799     0.778     -21.6      66.8
-  All     224        0.716     0.674     -17.3      54.5
+  1       91         0.751     0.675     -19.2      52.0
+  2       103        0.646     0.579     -13.5      66.0
+  3       30         0.770     0.742     -20.3      81.8
+  All     224        0.723     0.669     -17.8      64.0
 
-Results saved to C:\Users\warnold_la\Local\repos\neuralhyd-ca\data\training\output\dual_lstm_v1/
-Run finished: 2026-05-21T06:41:38
+Results saved to C:\Users\warnold_la\Local\repos\neuralhyd-ca\data\training\output\dual_lstm/
+Run finished: 2026-05-23T17:44:13

@@ -1,0 +1,98 @@
+# =============================================================================
+# neuralhyd-ca - dual-pathway LSTM, no precipitation normalisation
+# Run with: python scripts/train_kfold.py scripts/cfg_dual_lstm_no_precip_norm.toml
+#
+# Ablation: ScaleHead must learn absolute per-basin amplitude (mm/day) entirely
+# from physical/soil/topographic static attributes.  Both the precip_mean
+# target normalisation and all climate-derived static features are removed so
+# the model cannot re-encode the precipitation signal in the scale pathway.
+#
+# Differences from cfg_dual_lstm.toml:
+#   - normalize_by_precip = false  -> targets in mm/day, scale_map = 1.0
+#   - static_features drops all 7 climate normals (precip_mean, pet_mean,
+#     aridity_index, snow_fraction, high_precip_freq, low/high_precip_dur)
+#   - static_embedding_dim increased to 16 to give ScaleHead more capacity
+#     over the reduced (11-feature) static vector
+# =============================================================================
+
+[paths]
+data_dir             = "../data"
+climate_zarr          = "../data/training/climate/watersheds.zarr"
+flow_zarr             = "../data/training/flow.zarr"
+static_basin_atlas   = "../data/training/static/watersheds/Physical_Attributes_Watersheds.csv"
+static_climate       = "../data/training/static/watersheds/Climate_Statistics_Watersheds.csv"
+
+[basins]
+training_manifest    = "gages"
+include_cdec_basins  = true
+# Ablation flags
+normalize_by_precip  = false
+
+[sequence]
+seq_len              = 365
+fast_window          = 28
+info_gap             = false
+
+[model]
+model_type           = "dual"
+fast_hidden_size     = 64
+slow_hidden_size     = 108
+static_embedding_dim = 16
+static_hidden_size   = 32
+dropout              = 0.15
+static_dropout       = 0.10
+basin_loss_weight_exponent = 0.25
+
+[aux_loss]
+aux_loss_weight      = 0.40
+baseflow_alpha       = 0.925
+
+[blended_loss]
+log_loss_lambda      = 0.05
+log_loss_epsilon     = 0.001
+
+[extreme_loss]
+# Quantile thresholds are computed on raw flow (mm/day) at fold init.
+extreme_start_quantile = 0.98
+extreme_top_quantile   = 0.995
+extreme_peak_boost     = 30.0
+
+[training]
+batch_size           = 512
+learning_rate        = 4e-4
+weight_decay         = 1e-4
+input_noise_std      = 0.1
+warmup_epochs        = 3
+num_epochs           = 80
+patience             = 8
+min_delta            = 0.002
+num_workers          = 0
+grad_clip            = 1.0
+use_swa              = true
+swa_lr               = 2e-4
+swa_patience         = 10
+
+[validation]
+n_folds              = 5
+seed                 = 42
+
+[features]
+dynamic_features = ["precip_mm", "tmax_c", "tmin_c"]
+static_features  = [
+    # topography - Physical CSV
+    "total_Shape_Area_km2",
+    "ele_mt_uav",
+    "slp_dg_uav",
+    # river network - Physical CSV
+    "ria_ha_usu",
+    "riv_tc_usu",
+    "sgr_dk_sav",
+    # soil and surface - Physical CSV
+    "for_pc_use",
+    "cly_pc_uav",
+    "snd_pc_uav",
+    "clz_cl_smj",
+    "lit_cl_top1",
+    # Climate normals intentionally excluded — see ablation purpose above
+]
+log_transform_static = ["total_Shape_Area_km2", "ria_ha_usu"]

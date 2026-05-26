@@ -365,17 +365,21 @@ def compute_norm_stats(
         stat_std[categorical_mask] = 1.0
 
     # --- per-basin scale ---
-    # The scale is the mean daily precipitation (mm/day), computed from each
-    # basin's own climate record.  This is the static denorm factor; the
-    # model's learned ScaleHead multiplies model outputs by an additional
-    # per-basin factor on top, absorbing per-basin amplitude end-to-end.
+    # Default (normalize_by_precip=True): scale = mean daily precipitation so
+    # targets become dimensionless runoff ratios.
+    # When normalize_by_precip=False: scale = 1.0 so targets stay in mm/day
+    # and ScaleHead must learn absolute amplitude from static attributes.
     scale_map: Dict[int, np.float32] = {}
-    precip_idx = config.dynamic_features.index("precip_mm")
-    for bid in all_ids:
-        if bid in climate_data:
-            precip_vals = climate_data[bid].values[:, precip_idx]
-            scale_map[bid] = np.float32(max(float(np.mean(precip_vals)), 0.01))
-        else:
+    if config.normalize_by_precip:
+        precip_idx = config.dynamic_features.index("precip_mm")
+        for bid in all_ids:
+            if bid in climate_data:
+                precip_vals = climate_data[bid].values[:, precip_idx]
+                scale_map[bid] = np.float32(max(float(np.mean(precip_vals)), 0.01))
+            else:
+                scale_map[bid] = np.float32(1.0)
+    else:
+        for bid in all_ids:
             scale_map[bid] = np.float32(1.0)
 
     # --- per-basin loss weight ---

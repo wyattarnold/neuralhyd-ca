@@ -113,6 +113,99 @@ def pathway_auxiliary_loss(
 # ---------------------------------------------------------------------------
 
 
+def ald_quantile(
+    alpha: torch.Tensor,
+    mu: torch.Tensor,
+    b_l: torch.Tensor,
+    b_r: torch.Tensor,
+) -> torch.Tensor:
+    """Analytical quantile function of the Asymmetric Laplace Distribution.
+
+    alpha : (B,)   quantile levels in (0, 1)
+    mu    : (B, K) location parameters
+    b_l   : (B, K) left scale  (positive)
+    b_r   : (B, K) right scale (positive)
+
+    Returns (B, K) -- per-component quantile at each sample's alpha level.
+    """
+    S = b_l + b_r                                              # (B, K)
+    p_l = b_l / S                                              # mass left of mode
+    a = alpha.unsqueeze(-1)                                    # (B, 1)
+
+    # Left branch (alpha < p_l):  q = mu + b_l * log(alpha / p_l)
+    q_left  = mu + b_l * torch.log((a / p_l).clamp(min=1e-8))
+    # Right branch (alpha >= p_l): q = mu - b_r * log((1-alpha) / (1-p_l))
+    q_right = mu - b_r * torch.log(((1.0 - a) / (1.0 - p_l).clamp(min=1e-8)).clamp(min=1e-8))
+
+    return torch.where(a < p_l, q_left, q_right)
+
+
+def mixture_quantile_approx(
+    pi: torch.Tensor,
+    mu: torch.Tensor,
+    b_l: torch.Tensor,
+    b_r: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Adaptive quantile prediction from a CMAL distribution.
+
+    The quantile level alpha is derived from the distribution's own skewness:
+        alpha = sum_k pi_k * b_r,k / (b_l,k + b_r,k)
+    This is the mixture-weighted right-tail mass.  For a right-skewed
+    distribution (high-flow), alpha > 0.5 and the prediction moves toward the
+    upper tail; for a symmetric distribution, alpha = 0.5 (median).  The
+    correction strength is proportional to the asymmetry the model learned --
+    no threshold, no extra parameters.
+
+    The point prediction is a weighted average of per-component quantiles:
+        q_pred = sum_k pi_k * q_k(alpha)
+
+    Returns
+    -------
+    q_pred : (B,)  adaptive quantile prediction.
+    alpha  : (B,)  quantile level used, in (0, 1).
+    """
+    alpha = (pi * b_r / (b_l + b_r)).sum(dim=-1)              # (B,)
+    q_k   = ald_quantile(alpha, mu, b_l, b_r)                 # (B, K)
+    q_pred = (pi * q_k).sum(dim=-1)                           # (B,)
+    return q_pred, alpha
+
+
+def extract_mixture_quantile(
+    alpha: torch.Tensor,
+    pi: torch.Tensor,
+    mu: torch.Tensor,
+    b_l: torch.Tensor,
+    b_r: torch.Tensor,
+) -> torch.Tensor:
+    """Extract q_pred from a CMAL mixture at an externally supplied alpha level.
+
+    alpha  : (B,)   quantile levels in (0, 1) -- supplied by a separate selector
+    pi, mu, b_l, b_r : (B, K) CMAL parameters
+
+    Returns (B,) -- mixture-weighted average of per-component quantiles at alpha.
+    Gradients flow through both alpha and the distribution parameters.
+    """
+    q_k = ald_quantile(alpha, mu, b_l, b_r)    # (B, K)
+    return (pi * q_k).sum(dim=-1)               # (B,)
+
+
+def pinball_loss(
+    target: torch.Tensor,
+    pred: torch.Tensor,
+    alpha: torch.Tensor,
+    sample_weights: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """Pinball (quantile regression) loss at per-sample quantile levels.
+
+    target, pred, alpha : (B,)
+    Minimised when pred equals the alpha-quantile of the target distribution.
+    Gradients flow through both pred and alpha.
+    """
+    diff = target - pred
+    per_sample = torch.where(diff >= 0, alpha * diff, (alpha - 1.0) * diff)
+    return _weighted_mean(per_sample, sample_weights)
+
+
 def cmal_nll(
     target: torch.Tensor,
     pi: torch.Tensor,

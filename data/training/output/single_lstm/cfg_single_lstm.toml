@@ -21,6 +21,7 @@ static_climate       = "../data/training/static/watersheds/Climate_Statistics_Wa
 # included when their flow, climate, and static rows are available.
 training_manifest    = "gages"
 include_cdec_basins  = true
+normalize_by_precip  = true
 
 [sequence]
 # One full-year lookback feeds the single LSTM.  No fast-window settings apply.

@@ -74,10 +74,28 @@ def main() -> None:
         "config",
         help="Path to a TOML config file, e.g. scripts/cfg_dual_lstm.toml",
     )
+    parser.add_argument(
+        "--seed", type=int, default=None,
+        help="Override config.seed for this run (enables multi-seed comparison).",
+    )
+    parser.add_argument(
+        "--tag", default=None,
+        help="Suffix appended to the output dir name (e.g. --tag seed7 -> "
+             "single_lstm__seed7). Defaults to 'seed<N>' when --seed is given.",
+    )
     args = parser.parse_args()
     config_path = Path(args.config).resolve()
 
     config = load_config(config_path)
+
+    # Optional overrides for multi-seed runs: override the seed and route
+    # outputs to a tagged sibling dir so concurrent seeds don't collide.
+    if args.seed is not None:
+        config.seed = args.seed
+    tag = args.tag or (f"seed{args.seed}" if args.seed is not None else None)
+    if tag:
+        config.output_dir = config.output_dir.parent / f"{config.output_dir.name}__{tag}"
+
     config.output_dir.mkdir(parents=True, exist_ok=True)
 
     # Preserve the exact config used for this run alongside its outputs.
