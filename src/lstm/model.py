@@ -179,16 +179,11 @@ class CMALHead(nn.Module):
 class DualPathwayLSTM(nn.Module):
     """Two-branch LSTM for rainfall-runoff simulation (fast + slow).
 
-    In deterministic mode, uses multiplicative composition:
+    Deterministic only.  Uses multiplicative composition:
     ``q_total = q_slow * (1 + fast_ratio)``.  The slow pathway sets the
     baseflow level; the fast pathway is a dimensionless storm amplifier,
-    so storm contribution scales with antecedent wetness.
-
-    In CMAL mode, a ``CMALHead`` on concatenated ``[h_slow, h_fast]``
-    parameterises the predictive distribution.  The pathway heads are
-    retained so that the auxiliary loss can still supervise ``q_slow``
-    and ``q_fast`` against Lyne-Hollick targets, keeping the pathway
-    representations physically grounded.
+    so storm contribution scales with antecedent wetness.  Probabilistic
+    (CMAL) output lives on ``SingleLSTM`` only.
     """
 
     def __init__(self, config: Config):
@@ -196,8 +191,6 @@ class DualPathwayLSTM(nn.Module):
         n_dynamic = len(config.dynamic_features)
         self.fast_window = config.fast_window
         self.info_gap = config.info_gap
-        self._use_cmal = config.output_type == "cmal"
-        self._adaptive_quantile = self._use_cmal and config.cmal_adaptive_quantile
 
         self._grouped = config.static_group_sizes is not None
         if self._grouped:
@@ -242,20 +235,6 @@ class DualPathwayLSTM(nn.Module):
             nn.Softplus(),
         )
 
-        # CMAL probabilistic head (uses both pathway hidden states)
-        if self._use_cmal:
-            combined_size = config.slow_hidden_size + config.fast_hidden_size
-            self.cmal_head = CMALHead(
-                combined_size,
-                n_components=config.cmal_n_components,
-                hidden_size=config.cmal_hidden_size,
-            )
-            # Adaptive quantile selector: maps detached hidden states -> alpha in (0,1).
-            # Separate from CMAL params so the pinball gradient doesn't feed back
-            # through (b_l, b_r) and cause alpha -> 1 collapse.
-            if self._adaptive_quantile:
-                self.alpha_selector = nn.Linear(combined_size, 1)
-
     def forward(
         self,
         x_dynamic: torch.Tensor,
@@ -270,8 +249,7 @@ class DualPathwayLSTM(nn.Module):
         Returns
         -------
         q_total, q_fast, q_slow : each (B,)
-            In CMAL mode, q_total is E[Y] from the mixture distribution.
-            q_fast and q_slow are always the deterministic pathway outputs
+            q_fast and q_slow are the deterministic pathway outputs
             (used by the auxiliary loss).
         """
         B, T, _ = x_dynamic.shape
@@ -307,29 +285,6 @@ class DualPathwayLSTM(nn.Module):
         # q_fast_contrib is the storm amplification above baseflow.
         q_fast_contrib = q_slow * fast_ratio                  # (B, 1) mm/d storm runoff
 
-        if self._use_cmal:
-            h_combined = torch.cat([h_slow, h_fast], dim=-1)
-            pi, mu, b_l, b_r = self.cmal_head(h_combined)
-            self._last_cmal_params = (pi, mu, b_l, b_r)
-            if self._adaptive_quantile:
-                # Alpha from a separate selector on detached hiddens.
-                # q_total uses stopped distribution tensors so the pinball gradient
-                # flows ONLY to alpha_selector weights -- CRPS fully owns (pi,mu,b_l,b_r).
-                alpha = torch.sigmoid(
-                    self.alpha_selector(h_combined.detach()).squeeze(-1)
-                )                                                   # (B,) in (0, 1)
-                self._last_alpha     = alpha.detach()               # for diagnostics
-                self._last_alpha_raw = alpha                        # for pinball loss
-                q_total = extract_mixture_quantile(
-                    alpha, pi.detach(), mu.detach(), b_l.detach(), b_r.detach(),
-                )
-            else:
-                q_total = (pi * (mu + b_r - b_l)).sum(dim=-1)
-            q_total = q_total.clamp(min=0.0)
-            q_fast_out = q_fast_contrib.squeeze(-1)
-            q_slow_out = q_slow.squeeze(-1)
-            return q_total, q_fast_out, q_slow_out
-
         # ----- deterministic multiplicative composition -----
         q_total = q_slow * (1.0 + fast_ratio)                 # (B, 1)
 
@@ -347,6 +302,7 @@ class SingleLSTM(nn.Module):
         super().__init__()
         n_dynamic = len(config.dynamic_features)
         self._use_cmal = config.output_type == "cmal"
+        self._cmal_point_estimate = config.cmal_point_estimate
 
         self._grouped = config.static_group_sizes is not None
         if self._grouped:
@@ -400,7 +356,13 @@ class SingleLSTM(nn.Module):
         if self._use_cmal:
             pi, mu, b_l, b_r = self.head(h)
             self._last_cmal_params = (pi, mu, b_l, b_r)
-            q_total = (pi * (mu + b_r - b_l)).sum(dim=-1).clamp(min=0.0)
+            if self._cmal_point_estimate == "median":
+                # pi-weighted component median (lower than the mean for a
+                # right-skewed mixture; pairs with the log-shaped low tail).
+                alpha = torch.full((h.shape[0],), 0.5, device=h.device, dtype=mu.dtype)
+                q_total = extract_mixture_quantile(alpha, pi, mu, b_l, b_r).clamp(min=0.0)
+            else:
+                q_total = (pi * (mu + b_r - b_l)).sum(dim=-1).clamp(min=0.0)
         else:
             q_total = self.head(h).squeeze(-1)                    # (B,)
 
@@ -532,9 +494,9 @@ def _inv_sigmoid(x: float) -> float:
 
 def build_model(config: Config) -> nn.Module:
     """Instantiate the model selected by ``config.model_type``."""
-    if config.output_type == "cmal" and config.model_type not in ("single", "dual"):
+    if config.output_type == "cmal" and config.model_type != "single":
         raise ValueError(
-            f"CMAL output is only supported for model_type='single' or 'dual', "
+            f"CMAL output is only supported for model_type='single', "
             f"got {config.model_type!r}"
         )
     if config.model_type == "dual":

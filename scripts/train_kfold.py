@@ -50,9 +50,9 @@ from src.lstm.train import pick_device, seed_everything, train_model as train_ls
 class _Tee:
     """Write to both a file and the original stream."""
 
-    def __init__(self, stream, path: Path):
+    def __init__(self, stream, path: Path, mode: str = "w"):
         self._stream = stream
-        self._fh = open(path, "w", encoding="utf-8")
+        self._fh = open(path, mode, encoding="utf-8")
 
     def write(self, data: str) -> int:
         self._stream.write(data)
@@ -83,6 +83,12 @@ def main() -> None:
         help="Suffix appended to the output dir name (e.g. --tag seed7 -> "
              "single_lstm__seed7). Defaults to 'seed<N>' when --seed is given.",
     )
+    parser.add_argument(
+        "--start-fold", type=int, default=0,
+        help="Resume from fold index N (0-based), reusing already-completed "
+             "fold_<i>/basin_results.csv for i < N instead of retraining them. "
+             "Appends to log.txt rather than truncating it.",
+    )
     args = parser.parse_args()
     config_path = Path(args.config).resolve()
 
@@ -102,18 +108,20 @@ def main() -> None:
     shutil.copy2(config_path, config.output_dir / config_path.name)
 
     # ---- tee stdout to log.txt ----
-    tee = _Tee(sys.stdout, config.output_dir / "log.txt")
+    # Resuming appends to the existing log so earlier folds' output survives.
+    log_mode = "a" if args.start_fold > 0 else "w"
+    tee = _Tee(sys.stdout, config.output_dir / "log.txt", mode=log_mode)
     _original_stdout = sys.stdout
     sys.stdout = tee
 
     try:
-        _main_lstm(config, config_path)
+        _main_lstm(config, config_path, start_fold=args.start_fold)
     finally:
         sys.stdout = _original_stdout
         tee.close()
 
 
-def _main_lstm(config, config_path: Path, *, device=None) -> None:  # noqa: D401
+def _main_lstm(config, config_path: Path, *, start_fold: int = 0, device=None) -> None:  # noqa: D401
     print(f"Run started: {datetime.now().isoformat(timespec='seconds')}")
     print(f"Config: {config_path}")
     print(f"Output: {config.output_dir}")
@@ -153,6 +161,20 @@ def _main_lstm(config, config_path: Path, *, device=None) -> None:  # noqa: D401
     all_results: list[pd.DataFrame] = []
 
     for fold_idx, (train_ids, val_ids) in enumerate(folds):
+        # On resume, reuse completed folds' saved metrics instead of retraining.
+        if fold_idx < start_fold:
+            prior = config.output_dir / f"fold_{fold_idx}" / "basin_results.csv"
+            if not prior.exists():
+                raise FileNotFoundError(
+                    f"--start-fold {start_fold} requires {prior}, but it is "
+                    f"missing. Rerun that fold or lower --start-fold."
+                )
+            print(f"\n{'=' * 60}")
+            print(f"FOLD {fold_idx + 1}/{config.n_folds}  -- reusing {prior}")
+            print("=" * 60)
+            all_results.append(pd.read_csv(prior))
+            continue
+
         print(f"\n{'=' * 60}")
         print(f"FOLD {fold_idx + 1}/{config.n_folds}  "
               f"(train {len(train_ids)}  / val {len(val_ids)} basins)")

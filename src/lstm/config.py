@@ -158,10 +158,22 @@ class Config:
     cmal_entropy_weight: float = 0.1     # weight on mixture-weight entropy reg (0 = off)
     cmal_scale_reg_weight: float = 0.0   # weight on scale-collapse penalty (0 = off)
     cmal_beta_crps: float = 0.0          # beta-CRPS spread penalty (0 = off; 0.5 typical)
-    # Adaptive quantile: alpha = sum_k pi_k * b_r,k / (b_l,k + b_r,k).
-    # Smooth self-consistent: right-skewed distribution -> alpha > 0.5 -> upper tail.
-    cmal_adaptive_quantile: bool = False
-    cmal_pinball_weight: float = 0.0     # pinball loss weight at adaptive alpha (0 = off)
+    # ----- CMAL point readout (single LSTM, CMAL only) -----
+    # How q_total (the deployed point prediction) is read off the mixture:
+    #   "mean"   -> sum_k pi_k (mu_k + b_r_k - b_l_k)              (default)
+    #   "median" -> sum_k pi_k * Q_ALD,k(0.5)  (pi-weighted component median;
+    #               lower than the mean for right-skewed mixtures, so it pairs
+    #               better with a log-shaped low tail / FLV).
+    cmal_point_estimate: str = "mean"    # "mean" or "median"
+    # ----- CMAL loss shaping (tune the distribution fit directly) -----
+    # FLV lever: blend a log-space (chained) energy score into CRPS.  Scale-
+    # invariant, so it pulls the low-flow fit down proportionally.  0 = off.
+    cmal_log_crps_lambda: float = 0.0
+    # FHV lever: up-weight extreme high-flow samples in CRPS using the per-basin
+    # extreme_ramp_weight (extreme_start_quantile -> extreme_top_quantile,
+    # extreme_peak_boost).  Makes the mixture fit peaks instead of averaging them
+    # away.  False = off.
+    cmal_extreme_weight: bool = False
 
     # ----- Grouped static encoder -----
     # Ordered dict of group_name -> list[feature_name].  When set, features
@@ -215,6 +227,17 @@ class Config:
             raise ValueError(
                 "validation_selection_metric must be 'loss', 'nse', or 'kge'; "
                 f"got {self.validation_selection_metric!r}"
+            )
+        self.cmal_point_estimate = str(self.cmal_point_estimate).lower()
+        if self.cmal_point_estimate not in {"mean", "median"}:
+            raise ValueError(
+                "cmal_point_estimate must be 'mean' or 'median'; "
+                f"got {self.cmal_point_estimate!r}"
+            )
+        if not (0.0 <= self.cmal_log_crps_lambda < 1.0):
+            raise ValueError(
+                "cmal_log_crps_lambda must be in [0, 1); "
+                f"got {self.cmal_log_crps_lambda}"
             )
         if not (0.0 < self.moe_tau_init < 1.0):
             raise ValueError(f"moe_tau_init must be in (0, 1), got {self.moe_tau_init}")

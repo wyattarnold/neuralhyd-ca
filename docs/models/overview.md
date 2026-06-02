@@ -10,7 +10,7 @@ Run-specific metrics are not repeated here because they change as experiments ar
 | --- | --- | --- |
 | [cfg_single_lstm.toml](./../../scripts/cfg_single_lstm.toml) | [Single LSTM baseline](lstm.md#single-lstm-baseline) | `python scripts/train_kfold.py scripts/cfg_single_lstm.toml` |
 | [cfg_dual_lstm.toml](./../../scripts/cfg_dual_lstm.toml) | [Dual-pathway LSTM](lstm.md#dual-pathway-lstm) | `python scripts/train_kfold.py scripts/cfg_dual_lstm.toml` |
-| [cfg_dual_lstm_cmal.toml](./../../scripts/cfg_dual_lstm_cmal.toml) | [Dual-pathway LSTM with CMAL](lstm.md#dual-pathway-lstm-with-cmal) | `python scripts/train_kfold.py scripts/cfg_dual_lstm_cmal.toml` |
+| [cfg_single_lstm_cmal.toml](./../../scripts/cfg_single_lstm_cmal.toml) | [Single LSTM with CMAL](lstm.md#single-lstm-with-cmal) | `python scripts/train_kfold.py scripts/cfg_single_lstm_cmal.toml` |
 | [cfg_moe_lstm.toml](./../../scripts/cfg_moe_lstm.toml) | [Unsupervised MoE-tau](lstm.md#unsupervised-moe-tau) | `python scripts/train_kfold.py scripts/cfg_moe_lstm.toml` |
 
 ### Grouped Static Encoder Variants
@@ -170,7 +170,7 @@ Important implementation files:
 
 - [config.py](./../../src/lstm/config.py): LSTM config dataclass and TOML loading.
 - [dataset.py](./../../src/lstm/dataset.py): gauge-mode loading, folds, normalization, and datasets.
-- [model.py](./../../src/lstm/model.py): single, dual, CMAL, and MoE LSTM architectures.
+- [model.py](./../../src/lstm/model.py): single (with optional CMAL), dual, and MoE LSTM architectures.
 - [train.py](./../../src/lstm/train.py): LSTM training loop, SWA, and checkpoint I/O.
 - [loss.py](./../../src/lstm/loss.py): LSTM training losses and evaluation metrics.
 - [src/data/](../../src/data): data preparation modules called by [prepare_data.py](./../../scripts/prepare_data.py).

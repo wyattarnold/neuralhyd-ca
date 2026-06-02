@@ -140,36 +140,6 @@ def ald_quantile(
     return torch.where(a < p_l, q_left, q_right)
 
 
-def mixture_quantile_approx(
-    pi: torch.Tensor,
-    mu: torch.Tensor,
-    b_l: torch.Tensor,
-    b_r: torch.Tensor,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """Adaptive quantile prediction from a CMAL distribution.
-
-    The quantile level alpha is derived from the distribution's own skewness:
-        alpha = sum_k pi_k * b_r,k / (b_l,k + b_r,k)
-    This is the mixture-weighted right-tail mass.  For a right-skewed
-    distribution (high-flow), alpha > 0.5 and the prediction moves toward the
-    upper tail; for a symmetric distribution, alpha = 0.5 (median).  The
-    correction strength is proportional to the asymmetry the model learned --
-    no threshold, no extra parameters.
-
-    The point prediction is a weighted average of per-component quantiles:
-        q_pred = sum_k pi_k * q_k(alpha)
-
-    Returns
-    -------
-    q_pred : (B,)  adaptive quantile prediction.
-    alpha  : (B,)  quantile level used, in (0, 1).
-    """
-    alpha = (pi * b_r / (b_l + b_r)).sum(dim=-1)              # (B,)
-    q_k   = ald_quantile(alpha, mu, b_l, b_r)                 # (B, K)
-    q_pred = (pi * q_k).sum(dim=-1)                           # (B,)
-    return q_pred, alpha
-
-
 def extract_mixture_quantile(
     alpha: torch.Tensor,
     pi: torch.Tensor,
@@ -187,23 +157,6 @@ def extract_mixture_quantile(
     """
     q_k = ald_quantile(alpha, mu, b_l, b_r)    # (B, K)
     return (pi * q_k).sum(dim=-1)               # (B,)
-
-
-def pinball_loss(
-    target: torch.Tensor,
-    pred: torch.Tensor,
-    alpha: torch.Tensor,
-    sample_weights: torch.Tensor | None = None,
-) -> torch.Tensor:
-    """Pinball (quantile regression) loss at per-sample quantile levels.
-
-    target, pred, alpha : (B,)
-    Minimised when pred equals the alpha-quantile of the target distribution.
-    Gradients flow through both pred and alpha.
-    """
-    diff = target - pred
-    per_sample = torch.where(diff >= 0, alpha * diff, (alpha - 1.0) * diff)
-    return _weighted_mean(per_sample, sample_weights)
 
 
 def cmal_nll(
@@ -254,6 +207,8 @@ def cmal_crps(
     n_samples: int = 50,
     beta: float = 0.0,
     sample_weights: torch.Tensor | None = None,
+    log_lambda: float = 0.0,
+    log_eps: float = 1e-3,
 ) -> torch.Tensor:
     """Energy-score CRPS for a CMAL distribution.
 
@@ -266,6 +221,14 @@ def cmal_crps(
     where σ is the predicted spread (mean of b_l + b_r).  This
     prevents the model from shrinking intervals to reduce the raw CRPS.
 
+    When *log_lambda* > 0, blends in a **log-space (chained) energy score**
+    computed from the same ALD samples: the per-sample loss becomes
+    ``(1 - log_lambda) * CRPS_abs + log_lambda * CRPS_log`` where CRPS_log is
+    the energy score on ``log(flow)``.  This is the tractable corner of
+    threshold-weighted CRPS (chaining v = log): scale-invariant, so it rewards
+    proportional fidelity at low flows and targets FLV (a log-shape FDC metric)
+    without being drowned by high-flow absolute errors.
+
     CRPS = Term1 − 0.5 · Term2.  Lower is better.
 
     Parameters
@@ -276,6 +239,8 @@ def cmal_crps(
     b_l    : (B, K) left scale (positive).
     b_r    : (B, K) right scale (positive).
     n_samples : samples per component for the spread term.
+    log_lambda : blend weight on the log-space energy score (0 = off).
+    log_eps : floor applied before the log, matching the deterministic blend.
     """
     S = b_l + b_r                                          # (B, K)
 
@@ -318,12 +283,27 @@ def cmal_crps(
     pi_outer = pi.unsqueeze(-1) * pi.unsqueeze(-2)         # (B, K, K)
     term2 = (pi_outer * E_jk).sum(dim=(-1, -2))            # (B,)
 
-    crps_per_sample = term1 - 0.5 * term2                   # (B,)
+    crps_per_sample = term1 - 0.5 * term2                   # (B,) absolute energy score
 
     if beta > 0:
         # Predicted spread: weighted mean of (b_l + b_r) across components
         sigma = (pi * S).sum(dim=-1).clamp(min=1e-6)       # (B,)
         crps_per_sample = crps_per_sample / sigma.pow(beta)
+
+    if log_lambda > 0:
+        # Log-space (chained) energy score from the same ALD samples.  Term1
+        # uses all 2H samples (y is fixed); Term2 uses the independent halves.
+        log_s = torch.log(samples.clamp(min=log_eps))      # (B, K, 2H)
+        log_y = torch.log(y.clamp(min=log_eps))            # (B, 1)
+        e_abs_log = (log_s - log_y.unsqueeze(-1)).abs().mean(dim=-1)   # (B, K)
+        term1_log = (pi * e_abs_log).sum(dim=-1)           # (B,)
+        ls1 = log_s[:, :, :half]                           # (B, K, H)
+        ls2 = log_s[:, :, half:]                           # (B, K, H)
+        ldiff = ls1.unsqueeze(2) - ls2.unsqueeze(1)        # (B, K, K, H)
+        e_jk_log = torch.abs(ldiff).mean(dim=-1)           # (B, K, K)
+        term2_log = (pi_outer * e_jk_log).sum(dim=(-1, -2))  # (B,)
+        crps_log = term1_log - 0.5 * term2_log             # (B,)
+        crps_per_sample = (1.0 - log_lambda) * crps_per_sample + log_lambda * crps_log
 
     if sample_weights is not None:
         return (crps_per_sample * sample_weights).sum() / (sample_weights.sum() + 1e-8)

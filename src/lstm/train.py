@@ -32,7 +32,6 @@ from .config import Config
 from .loss import (
     mse_loss, pathway_auxiliary_loss, extreme_ramp_weight,
     cmal_nll, cmal_crps, cmal_entropy_reg, cmal_scale_reg,
-    pinball_loss,
     compute_nse, compute_kge,
 )
 
@@ -108,12 +107,13 @@ def _blended_primary(
     mse_term: torch.Tensor, config: Config,
 ) -> torch.Tensor:
     """Combine MSE with log-space MSE using per-sample weights."""
-    if config.log_loss_lambda <= 0:
+    lam = config.log_loss_lambda
+    if lam <= 0:
         return mse_term
     log_sq = (torch.log(pred + config.log_loss_epsilon)
               - torch.log(target + config.log_loss_epsilon)) ** 2
     log_term = (log_sq * sample_weights).sum() / (sample_weights.sum() + 1e-8)
-    return (1 - config.log_loss_lambda) * mse_term + config.log_loss_lambda * log_term
+    return (1 - lam) * mse_term + lam * log_term
 
 
 def _weighted_mean_tensor(
@@ -206,6 +206,8 @@ def train_epoch(
     cmal_use_crps = use_cmal and config.cmal_loss == "crps"
     cmal_entropy_w = config.cmal_entropy_weight if use_cmal else 0.0
     cmal_scale_w = config.cmal_scale_reg_weight if use_cmal else 0.0
+    cmal_log_lambda = config.cmal_log_crps_lambda if use_cmal else 0.0
+    cmal_extreme = use_cmal and config.cmal_extreme_weight and config.extreme_peak_boost > 1.0
     for batch in loader:
         x_d, x_s, y, y_comp, _bid, _pmean, basin_w, extreme_qs = batch
         x_d = _to(x_d, device)
@@ -225,15 +227,27 @@ def train_epoch(
             #   - aux pathway extreme_peak_boost (dual only)
             if use_cmal:
                 cmal_params = _get_cmal_params(model)
+                cmal_w = basin_w
+                # FHV lever: up-weight extreme high-flow samples so the mixture
+                # fits peaks instead of averaging them away.
+                if cmal_extreme:
+                    q_start_b = extreme_qs[:, 0]
+                    ramp_b = (extreme_qs[:, 1] - q_start_b)
+                    cmal_w = cmal_w * extreme_ramp_weight(
+                        y, q_start_b, ramp_b, config.extreme_peak_boost,
+                    )
                 if cmal_use_crps:
+                    # FLV lever: blend a log-space (chained) energy score via log_lambda.
                     primary = cmal_crps(
                         y, *cmal_params,
                         n_samples=config.cmal_crps_n_samples,
                         beta=config.cmal_beta_crps,
-                        sample_weights=basin_w,
+                        sample_weights=cmal_w,
+                        log_lambda=cmal_log_lambda,
+                        log_eps=config.log_loss_epsilon,
                     )
                 else:
-                    primary = cmal_nll(y, *cmal_params, sample_weights=basin_w)
+                    primary = cmal_nll(y, *cmal_params, sample_weights=cmal_w)
             else:
                 mse_term = mse_loss(q_total, y, sample_weights=basin_w)
                 primary = _blended_primary(q_total, y, basin_w, mse_term, config)
@@ -247,12 +261,6 @@ def train_epoch(
                     loss = loss + cmal_entropy_w * cmal_entropy_reg(pi_c)
                 if cmal_scale_w > 0:
                     loss = loss + cmal_scale_w * cmal_scale_reg(bl_c, br_c)
-            if use_cmal and config.cmal_pinball_weight > 0.0:
-                _m = _unwrap_model(model)
-                if hasattr(_m, '_last_alpha_raw'):
-                    loss = loss + config.cmal_pinball_weight * pinball_loss(
-                        y, q_total, _m._last_alpha_raw, sample_weights=basin_w,
-                    )
             if use_aux:
                 y_comp = _to(y_comp, device)
                 y_fast_lh = y_comp[:, 0]
@@ -319,6 +327,8 @@ def validate_epoch(
                         n_samples=config.cmal_crps_n_samples,
                         beta=config.cmal_beta_crps,
                         sample_weights=basin_w,
+                        log_lambda=config.cmal_log_crps_lambda,
+                        log_eps=config.log_loss_epsilon,
                     )
                 else:
                     total_loss += cmal_nll(y, *cmal_params, sample_weights=basin_w)
@@ -369,22 +379,16 @@ def _save_checkpoint(
 
 
 def _get_gate_stats(model: torch.nn.Module) -> dict | None:
-    """Extract tau/pi from MoE models and alpha from adaptive-quantile CMAL models.
+    """Extract tau/pi diagnostics from MoE gating models.
 
-    Returns None for models with neither gating network nor adaptive quantile.
+    Returns None for models without a gating network.
     """
     m = _unwrap_model(model)
 
-    has_alpha = hasattr(m, "_last_alpha") and getattr(m, "_adaptive_quantile", False)
     n_out = getattr(m, "n_gate_outputs", 0)
-    if n_out == 0 and not has_alpha:
+    if n_out == 0:
         return None
 
-    stats: dict = {}
-    if has_alpha:
-        stats["alpha_mean"] = float(m._last_alpha.mean().item())
-    if n_out == 0:
-        return stats
     stats: dict = {}
     if hasattr(m, "tau"):
         stats["tau"] = m.tau.item()
@@ -592,9 +596,6 @@ def train_model(
         gate_str = ""
         if has_gate:
             gs = _get_gate_stats(active_model)
-            if "alpha_mean" in gs:
-                history.setdefault("alpha_mean", []).append(gs["alpha_mean"])
-                gate_str = f" | alpha={gs['alpha_mean']:.3f}"
             if "tau" in gs:
                 history["tau"].append(gs["tau"])
             if "tau_eff" in gs:

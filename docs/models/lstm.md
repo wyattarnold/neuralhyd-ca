@@ -1,6 +1,6 @@
 ﻿# LSTM Gauge Models
 
-This page documents the active gauge-mode LSTM configurations in `neuralhyd-ca`: the single-LSTM baseline, deterministic dual-pathway LSTM, dual-pathway CMAL probabilistic variant, and unsupervised MoE-tau model.
+This page documents the active gauge-mode LSTM configurations in `neuralhyd-ca`: the single-LSTM baseline, deterministic dual-pathway LSTM, single-LSTM CMAL probabilistic variant, and unsupervised MoE-tau model.
 
 All models in this family consume watershed-scale daily climate forcing and watershed-scale static attributes. They are hindcast simulators, not operational forecast models: today's streamflow is predicted from observed precipitation and temperature over the lookback window. The models differ in sequence architecture, output head, and regularization, but they share the same data representation, normalization conventions, forward signature, and training entry point.
 
@@ -10,7 +10,7 @@ All models in this family consume watershed-scale daily climate forcing and wate
 | --- | --- | --- |
 | [cfg_single_lstm.toml](./../../scripts/cfg_single_lstm.toml) | `single` | Conventional static-conditioned recurrent baseline. |
 | [cfg_dual_lstm.toml](./../../scripts/cfg_dual_lstm.toml) | `dual` | Main deterministic dual-pathway neural model. |
-| [cfg_dual_lstm_cmal.toml](./../../scripts/cfg_dual_lstm_cmal.toml) | `dual` with `output_type = "cmal"` | Dual hidden representation with a probabilistic CMAL output head. |
+| [cfg_single_lstm_cmal.toml](./../../scripts/cfg_single_lstm_cmal.toml) | `single` with `output_type = "cmal"` | Single hidden state with a probabilistic CMAL head; point read off the mixture, FDC tails shaped through the CRPS. |
 | [cfg_moe_lstm.toml](./../../scripts/cfg_moe_lstm.toml) | `moe` | Unsupervised mixture-of-experts baseline with learnable softmax temperature. |
 
 All active configs use `training_manifest = "gages"`, the standard watershed-gauge domain. `include_cdec_basins = true` includes CDEC full-natural-flow pseudo-gauges when their flow, climate, and static rows are present.
@@ -156,7 +156,7 @@ L_primary = (1 - lambda) * MSE + lambda * LogMSE
 
 The log term improves relative low-flow sensitivity while keeping ordinary daily MSE central. `log_loss_lambda = 0` gives pure MSE.
 
-Dual-pathway deterministic and CMAL-dual models can add Lyne-Hollick auxiliary supervision. For each basin, the dataset computes a three-pass Lyne-Hollick baseflow estimate and quickflow residual on the observed flow series:
+The deterministic dual-pathway model can add Lyne-Hollick auxiliary supervision. For each basin, the dataset computes a three-pass Lyne-Hollick baseflow estimate and quickflow residual on the observed flow series:
 
 ```text
 y_slow_LH = baseflow_LH / precip_mean
@@ -176,13 +176,15 @@ ramp(y) = 1 + (extreme_peak_boost - 1) * clip((y - q_start_b) / (q_top_b - q_sta
 
 ## CMAL Probabilistic Losses
 
-The CMAL head predicts a mixture of asymmetric Laplace components. For component `k`, the head returns weight `pi_k`, location `mu_k`, left scale `b_l,k`, and right scale `b_r,k`. Locations and scales are positive. `ScaleHead` multiplies `mu`, `b_l`, and `b_r`, so the whole distribution scales by basin rather than only the mean.
+The CMAL head predicts a mixture of asymmetric Laplace components. For component `k`, the head returns weight `pi_k`, location `mu_k`, left scale `b_l,k`, and right scale `b_r,k`. Locations and scales are positive. Per-basin amplitude is carried by the static embedding and the runoff-ratio target normalization, not a separate scale head.
 
-The mixture mean used as `q_total` is:
+The point prediction `q_total` is read directly off the mixture. When `cmal_point_estimate = "mean"` it is the mixture mean:
 
 ```text
 E[Y] = sum_k pi_k * (mu_k + b_r,k - b_l,k)
 ```
+
+When `cmal_point_estimate = "median"` it is the pi-weighted component median (`sum_k pi_k * Q_ALD,k(0.5)`), which sits lower than the mean for a right-skewed mixture and pairs better with a log-shaped low tail. The FDC tails are not bent by a separate head; they are shaped by the loss itself (next section).
 
 The negative log-likelihood option is:
 
@@ -199,6 +201,20 @@ CRPS(F, y) = E_F |X - y| - 0.5 * E_F |X - X'|
 ```
 
 Optional regularizers are available: `cmal_entropy_weight` adds negative mixture entropy to discourage component collapse, and `cmal_scale_reg_weight` penalizes scale collapse. The active CMAL config uses entropy regularization and CRPS samples; scale regularization is left at its dataclass default of zero.
+
+### Shaping the FDC tails through the loss
+
+Rather than a separate point head, the peak and recession behavior is tuned by shaping the CRPS itself — the tractable corner of threshold-weighted CRPS (chaining `v`):
+
+```text
+L_CRPS = (1 - lambda) * CRPS_abs[ w_extreme ] + lambda * CRPS_log
+L_total = L_CRPS + cmal_entropy_weight * H_neg(pi)
+```
+
+- **FLV lever (`cmal_log_crps_lambda = lambda`)** blends in a log-space energy score `CRPS_log`, computed from the same ALD samples on `log(flow)` (floor `log_loss_epsilon`). Because log-space is scale-invariant, it rewards proportional fidelity at low flows and pulls the recession fit down — directly targeting FLV, a log-shape FDC metric — without being drowned by high-flow absolute errors. (A pure relative/normalized CRPS was rejected: it only reweights the absolute metric — the same family as an earlier low-flow CRPS reweighting that flattened the tail and worsened FLV.)
+- **FHV lever (`cmal_extreme_weight`)** multiplies each sample's CRPS by the per-basin `extreme_ramp_weight` (ramps 1 → `extreme_peak_boost` between `extreme_start_quantile` and `extreme_top_quantile`), so the mixture fits rare peaks instead of averaging them away.
+
+Both levers default off and are independently toggleable, so each metric (FLV, FHV) can be ablated against the baseline.
 
 ## Single LSTM Baseline
 
@@ -305,41 +321,27 @@ Important settings in the active config:
 | `batch_size` | `512` |
 | `use_swa` | `true` |
 
-## Dual-Pathway LSTM With CMAL
+## Single LSTM With CMAL
 
-Config: [cfg_dual_lstm_cmal.toml](./../../scripts/cfg_dual_lstm_cmal.toml)
+Config: [cfg_single_lstm_cmal.toml](./../../scripts/cfg_single_lstm_cmal.toml)
 
-The CMAL variant keeps the dual hidden representation and deterministic pathway heads, but replaces the total-flow point head with a mixture distribution over normalized flow. The deterministic pathway heads remain available for auxiliary loss and diagnostics.
+The CMAL variant uses the single-LSTM hidden state and adds a mixture distribution over normalized flow. A single shaped CRPS trains the full distribution on one clean hidden state; the point prediction `q_total` is read directly off the mixture (mean or median). FHV/FLV are tuned by shaping that CRPS (extreme sample-weighting + a log-space chained term), not by a separate head. The dual pathway is deterministic-only and does not carry a CMAL head.
 
 ```mermaid
 flowchart TD
     XFull["full sequence"]:::input
-    XFast["recent fast window"]:::input
-    SlowLSTM["slow LSTM"]:::seq
-    FastLSTM["fast LSTM"]:::seq
-    HSlow["h_slow"]:::seq
-    HFast["h_fast"]:::seq
-    AuxSlow["slow pathway head"]:::head
-    AuxFast["fast pathway head"]:::head
-    Cat["concat(h_slow, h_fast)"]:::seq
+    LSTM["single LSTM"]:::seq
+    H["h"]:::seq
     CMAL["CMALHead"]:::head
     Params["pi, mu, b_l, b_r<br/>K mixture components"]:::head
-    Scale["ScaleHead"]:::head
-    Dist["scale mu, b_l, b_r"]:::head
-    Mean["q_total = mixture mean"]:::output
+    Point["q_total = mixture mean / median"]:::output
     Quantiles["optional q05, q50, q95"]:::output
-    AuxLoss["Lyne-Hollick auxiliary loss"]:::loss
+    CRPSLoss["shaped CRPS<br/>+ extreme weight (FHV)<br/>+ log-chain (FLV)"]:::loss
 
-    XFull --> SlowLSTM --> HSlow
-    XFast --> FastLSTM --> HFast
-    HSlow --> AuxSlow --> AuxLoss
-    HFast --> AuxFast --> AuxLoss
-    HSlow --> Cat
-    HFast --> Cat
-    Cat --> CMAL --> Params --> Dist
-    Scale --> Dist
-    Dist --> Mean
-    Dist --> Quantiles
+    XFull --> LSTM --> H
+    H --> CMAL --> Params --> CRPSLoss
+    Params --> Point
+    Params --> Quantiles
 
     classDef input fill:#e3f2fd,stroke:#1976d2,color:#0d47a1
     classDef seq fill:#ede7f6,stroke:#5e35b1,color:#311b92
@@ -352,17 +354,18 @@ Important settings in the active config:
 
 | Setting | Value |
 | --- | --- |
-| `model_type` | `dual` |
+| `model_type` | `single` |
 | `output_type` | `cmal` |
-| `fast_window` | `35` |
-| `fast_hidden_size` | `48` |
-| `slow_hidden_size` | `96` |
+| `single_hidden_size` | `128` |
 | `cmal_n_components` | `3` |
 | `cmal_hidden_size` | `64` |
 | `cmal_loss` | `crps` |
 | `cmal_crps_n_samples` | `50` |
-| `cmal_entropy_weight` | `0.10` |
-| `aux_loss_weight` | `0.25` |
+| `cmal_entropy_weight` | `0.05` |
+| `cmal_point_estimate` | `mean` |
+| `cmal_log_crps_lambda` | `0.3` |
+| `cmal_extreme_weight` | `true` |
+| `extreme_peak_boost` | `5.0` |
 
 CMAL intervals should be evaluated with calibration diagnostics; optimizing CRPS does not guarantee exact coverage in every tier or flow regime.
 
