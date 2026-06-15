@@ -11,6 +11,37 @@ A web viewer for results is available at <https://neuralhyd-ca.onrender.com>.
 
 ## Installation
 
+### 1. Git LFS (required before cloning)
+
+This repository stores all of its data — zarr cubes, CSVs, GeoJSON, and model
+checkpoints — in **Git LFS**. Install Git LFS *before* cloning, otherwise the
+data files are checked out as tiny text pointer stubs instead of real content
+and training fails with confusing zarr / reshape / "missing CDEC" errors.
+
+```bash
+# install Git LFS once per machine, then clone
+git lfs install
+git clone https://github.com/wyattarnold/neuralhyd-ca.git
+cd neuralhyd-ca
+
+# if you cloned BEFORE installing Git LFS, fetch the real data now
+git lfs pull
+```
+
+Sanity check — this must print `"shape": [224]`, **not** a
+`version https://git-lfs.github.com/...` pointer stub:
+
+```bash
+cat data/training/flow.zarr/basin/zarr.json
+```
+
+If it shows a pointer stub, or any other shape, the data did not materialize.
+Run `git lfs pull`, then confirm `git status` is **clean** — a modified file
+under `*.zarr/` or `src/` means a hand-edited / stale metadata file is shadowing
+the real LFS content, and must be reverted (`git restore <file>`).
+
+### 2. Conda environment
+
 Create the conda environment from the included environment file:
 
 ```bash

@@ -4,9 +4,9 @@ The training and evaluation pipelines used to keep one CSV per basin per
 variable group (~5500 small files, ~13.5 GB on disk).  This module
 replaces that layout with a small set of zarr v3 cubes:
 
-    data/training/climate/watersheds.zarr    # 210 USGS gauges
+    data/training/climate/watersheds.zarr    # gauge-domain basins (USGS + CDEC FNF)
     data/training/climate/huc12.zarr         # in-scope HUC12 manifest
-    data/training/flow.zarr                  # 210 USGS gauges + tier coord
+    data/training/flow.zarr                  # 224 basins (210 USGS + 14 CDEC FNF) + tier coord
     data/eval/climate/{huc8,huc10,huc12}.zarr
 
 Each store is a zarr group containing:
