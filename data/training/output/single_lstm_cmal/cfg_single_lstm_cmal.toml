@@ -1,0 +1,113 @@
+# =============================================================================
+# neuralhyd-ca - single-LSTM with CMAL probabilistic output
+# Run with: python scripts/train_kfold.py scripts/cfg_single_lstm_cmal.toml
+#
+# CRPS fits the full CMAL mixture (pi, mu, b_l, b_r) and the point prediction is
+# read directly off the mixture (mean or median).  Rather than a separate point
+# head, the FDC tails are shaped by tuning the CRPS itself (threshold-weighted
+# CRPS by chaining):
+#   * FLV lever -- cmal_log_crps_lambda blends a log-space (chained) energy score
+#     into CRPS.  Scale-invariant, so it pulls the low-flow fit down
+#     proportionally without being drowned by high-flow absolute errors.
+#   * FHV lever -- cmal_extreme_weight up-weights extreme high-flow samples
+#     (per-basin extreme_ramp_weight) so the mixture fits peaks instead of
+#     averaging them away.
+# CMAL is single-LSTM only; the dual pathway stays deterministic.
+# =============================================================================
+
+[paths]
+data_dir             = "../data"
+climate_zarr          = "../data/training/climate/watersheds.zarr"
+flow_zarr             = "../data/training/flow.zarr"
+static_basin_atlas   = "../data/training/static/watersheds/Physical_Attributes_Watersheds.csv"
+static_climate       = "../data/training/static/watersheds/Climate_Statistics_Watersheds.csv"
+
+[basins]
+training_manifest    = "gages"
+include_cdec_basins  = true
+normalize_by_precip  = true
+
+[sequence]
+seq_len              = 365
+
+[model]
+model_type           = "single"
+single_hidden_size   = 128
+static_embedding_dim = 10
+static_hidden_size   = 32
+dropout              = 0.15
+static_dropout       = 0.10
+basin_loss_weight_exponent = 0.50
+
+output_type               = "cmal"
+cmal_n_components         = 3
+cmal_hidden_size          = 64
+cmal_loss                 = "crps"
+cmal_crps_n_samples       = 50
+cmal_entropy_weight       = 0.05
+# Point readout: "mean" (mixture mean) or "median" (lower for a right-skewed
+# mixture, pairs better with the log-shaped low tail / FLV).
+cmal_point_estimate       = "mean"
+# FLV lever: blend weight on the log-space (chained) energy score in CRPS.
+cmal_log_crps_lambda      = 0.05
+# FHV lever: up-weight extreme high-flow samples in CRPS.  The per-basin weight
+# ramps 1 -> extreme_peak_boost as the normalised target rises from its
+# extreme_start_quantile to its extreme_top_quantile (computed per basin).
+cmal_extreme_weight       = true
+extreme_start_quantile    = 0.98
+extreme_top_quantile      = 0.995
+extreme_peak_boost        = 5.0
+
+[blended_loss]
+# Used by the deterministic primary blend; the CMAL primary is CRPS, so
+# log_loss_lambda is inert here, but log_loss_epsilon is the floor reused by
+# the log-space CRPS chain (cmal_log_crps_lambda).
+log_loss_lambda      = 0.00
+log_loss_epsilon     = 0.001
+
+[training]
+batch_size           = 512
+learning_rate        = 2e-4
+weight_decay         = 1e-4
+input_noise_std      = 0.1
+warmup_epochs        = 5
+num_epochs           = 100
+patience             = 15
+min_delta            = 0.002
+num_workers          = 0
+grad_clip            = 1.0
+use_swa              = false
+swa_lr               = 2e-4
+swa_patience         = 10
+
+[validation]
+n_folds              = 5
+seed                 = 42
+
+[features]
+dynamic_features = ["precip_mm", "tmax_c", "tmin_c"]
+static_features  = [
+    # topography - Physical CSV
+    "total_Shape_Area_km2",
+    "ele_mt_uav",
+    "slp_dg_uav",
+    # river network - Physical CSV
+    "ria_ha_usu",
+    "riv_tc_usu",
+    "sgr_dk_sav",
+    # soil and surface - Physical CSV
+    "for_pc_use",
+    "cly_pc_uav",
+    "snd_pc_uav",
+    "clz_cl_smj",
+    "lit_cl_top1",
+    # climate normals - Climate CSV
+    "aridity_index",
+    "snow_fraction",
+    "pet_mean",
+    "high_precip_freq",
+    "precip_mean",
+    "low_precip_dur",
+    "high_precip_dur",
+]
+log_transform_static = ["total_Shape_Area_km2", "ria_ha_usu"]
