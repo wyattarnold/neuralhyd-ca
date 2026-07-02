@@ -28,6 +28,8 @@ class _Style:
 # LSTM models are hero lines (thick, saturated); VIC recedes (thin, dashed).
 _STYLES: dict[str, _Style] = {
     "dual":             _Style("#e89c0f", 2.0, "-",  1.0, 4, "Dual LSTM"),
+    "single_lstm_cmal": _Style("#d6336c", 2.0, "-",  1.0, 5, "Single LSTM CMAL"),
+    "moe":              _Style("#27ae60", 2.0, "-",  1.0, 4, "MoE LSTM"),
     "single":           _Style("#9b59b6", 2.0, "-",  1.0, 3, "Single LSTM"),
     "VIC Simulated":    _Style("#668bdc", 1.2, "--", 0.75, 2, "VIC Regionalized"),
     "VIC Regionalized": _Style("#668bdc", 1.2, "--", 0.55, 1, "VIC Regionalized"),
@@ -172,9 +174,11 @@ def plot_metric_cdf(
 
 # Bar colours keyed by substring in model labels
 _BAR_COLORS: dict[str, str] = {
-    "VIC":    "#668bdc",
-    "single": "#9b59b6",
-    "dual":   "#e89c0f",
+    "VIC":              "#668bdc",
+    "single_lstm_cmal": "#d6336c",
+    "moe":              "#27ae60",
+    "single":           "#9b59b6",
+    "dual":             "#e89c0f",
 }
 
 _BAR_FALLBACK = "#3b3b3d"
@@ -233,8 +237,10 @@ def plot_metric_barplot(
     # Display name mapping for xtick labels
     _DISPLAY_NAMES: dict[str, str] = {
         "VIC":              "VIC",
-        "single_lstm": "Single LSTM",
-        "dual_lstm":   "Dual LSTM",
+        "single_lstm_cmal": "Single LSTM CMAL",
+        "single_lstm":      "Single LSTM",
+        "dual_lstm":        "Dual LSTM",
+        "moe_lstm":         "MoE LSTM",
     }
     tick_labels = [_DISPLAY_NAMES.get(l, l) for l in labels]
 
