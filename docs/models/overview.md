@@ -79,6 +79,8 @@ Important preparation concepts:
 - Step 0 can include or exclude CDEC full-natural-flow basins. Model configs still have `include_cdec_basins` because a run may intentionally exclude them even when prepared data exist.
 - Step 8 assigns hydroclimatic tiers used for fold stratification and reporting.
 
+Statewide 1/16° gridded inputs (daily forcing from the same WGEN store as step 2, but with the x10 precip and tmin/tmax corrections applied, plus the AlphaEarth 2017 embedding and its 2017–2025 multi-year mean) come from a separate entry point, [prepare_gridded.py](./../../scripts/prepare_gridded.py). They sit outside this chart and no model reads them yet; see the [dataset card](./../../data/gridded/README.md).
+
 ## Training Inputs And Storage Layout
 
 Active training consumes these prepared products:
@@ -174,3 +176,4 @@ Important implementation files:
 - [train.py](./../../src/lstm/train.py): LSTM training loop, SWA, and checkpoint I/O.
 - [loss.py](./../../src/lstm/loss.py): LSTM training losses and evaluation metrics.
 - [src/data/](../../src/data): data preparation modules called by [prepare_data.py](./../../scripts/prepare_data.py).
+- [src/data/gridded/](../../src/data/gridded) and [prepare_gridded.py](./../../scripts/prepare_gridded.py): statewide 1/16° gridded inputs in `data/gridded/`. `lattice.py` defines the grid, `ncio.py` holds the NetCDF, checksum and provenance helpers, `forcing.py` builds the daily NetCDFs (one per variable), and `aef.py` runs the AlphaEarth Earth Engine reduction (2017, and each year of the 2017–2025 mean). Dataset card: [data/gridded/README.md](./../../data/gridded/README.md).
