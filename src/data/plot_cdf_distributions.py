@@ -130,8 +130,7 @@ def main() -> None:
     flow_dfs, tier_int_map = load_flow_dataframes(FLOW_ZARR)
     # Map tier int (1/2/3) → tier string label used by this script.
     int_to_tier = {1: "tier_1", 2: "tier_2", 3: "tier_3"}
-    flow_pids = [str(b) for b in flow_dfs.keys()]
-    climate_dfs_raw = load_climate_dataframes(CLIMATE_WATERSHEDS_ZARR, basin_ids=flow_pids)
+    climate_dfs_raw = load_climate_dataframes(CLIMATE_WATERSHEDS_ZARR, basin_ids=list(flow_dfs.keys()))
     climate_dfs = {str(b): df for b, df in climate_dfs_raw.items()}
 
     print("Processing watersheds …")

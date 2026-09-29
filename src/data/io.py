@@ -5,7 +5,6 @@ variable group (~5500 small files, ~13.5 GB on disk).  This module
 replaces that layout with a small set of zarr v3 cubes:
 
     data/training/climate/watersheds.zarr    # gauge-domain basins (USGS + CDEC FNF)
-    data/training/climate/huc12.zarr         # in-scope HUC12 manifest
     data/training/flow.zarr                  # 224 basins (210 USGS + 14 CDEC FNF) + tier coord
     data/eval/climate/{huc8,huc10,huc12}.zarr
 
@@ -16,7 +15,7 @@ Each store is a zarr group containing:
     time    : (T,)        int32 days since 1970-01-01 (np.datetime64[D] view)
     <var>   : (N, T)      float32, NaN where missing
               (climate: precip_mm, tmax_c, tmin_c
-               flow:    flow [mm/day], plus tier coord)
+               flow:    flow [cfs], plus tier coord)
 
 Chunks are ``(64, 4096)`` along ``(basin, time)`` with zstd compression,
 which gives ~10× compression on this data and cheap per-basin slicing.
@@ -31,12 +30,14 @@ sufficient.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, Iterable, List, Mapping, Sequence, Tuple
+from typing import Dict, Iterable, Mapping, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
 
 import zarr
+
+from src.paths import CDEC_DAILY_FNF_DIR, RAW_USGS_DIR
 
 
 # ---------------------------------------------------------------------------
@@ -49,7 +50,6 @@ FLOW_VAR: str = "flow"
 # Chunking for (basin, time).  64 × 4096 ≈ 1 MB at float32 → fast random
 # basin reads while staying friendly to bulk scans.
 _CHUNKS = (64, 4096)
-_CODECS = ("zstd", 3)
 
 # ---------------------------------------------------------------------------
 # Flow column helpers (shared across pipeline steps)
@@ -71,6 +71,14 @@ def detect_flow_col(cols: Iterable[str]) -> str | None:
             return c
     candidates = [c for c in cols if "60" in c and c.endswith("_Mean")]
     return candidates[0] if candidates else None
+
+
+def raw_flow_path(site: str) -> Path:
+    """Return the raw daily-flow CSV for *site* (staged CDEC FNF or USGS)."""
+    cdec_path = CDEC_DAILY_FNF_DIR / f"{site}.csv"
+    if site.startswith("990000") and cdec_path.exists():
+        return cdec_path
+    return RAW_USGS_DIR / f"{site}.csv"
 
 
 def water_year(date: str | pd.Timestamp) -> int:

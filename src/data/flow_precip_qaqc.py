@@ -1,8 +1,8 @@
 """Watershed QA/QC: Flow (mm/day) vs Precipitation (mm/day).
 
 Converts daily CFS to mm/day using watershed area, compares against
-area-weighted precipitation to flag suspect watersheds, and sorts
-cleaned flow files into tier subdirectories under data/training/flow/.
+area-weighted precipitation to flag suspect watersheds, and writes the
+tier-classified cleaned flows (cfs) to data/training/flow.zarr.
 """
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ from src.paths import (
     CLIMATE_WATERSHEDS_ZARR,
     FLOW_CLEANED_STRICT_DIR,
     FLOW_ZARR,
+    QAQC_FLOW_PRECIP_CSV,
     STEP_8_OUTPUT_DIR,
     WATERSHED_GEOMETRY,
 )
@@ -134,7 +135,7 @@ def monthly_regression_metrics(merged_data: list[dict]) -> dict:
         return nan_result
 
 
-def main(include_cdec: bool = False) -> None:
+def main(include_cdec: bool = True) -> None:
     STEP_8_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     areas = load_areas(BASIN_ATLAS_OUTPUT)
@@ -147,6 +148,8 @@ def main(include_cdec: bool = False) -> None:
     print(f"Loaded {len(areas)} watershed areas.")
 
     flow_files = sorted(FLOW_CLEANED_STRICT_DIR.glob("*_cleaned.csv"))
+    if not include_cdec:
+        flow_files = [f for f in flow_files if not f.name.startswith("990000")]
     print(f"Found {len(flow_files)} flow files.\n")
 
     print(f"Loading climate from {CLIMATE_WATERSHEDS_ZARR.name} ...")
@@ -311,9 +314,8 @@ def main(include_cdec: bool = False) -> None:
 
     # --- Write outputs ---
     if summary_rows:
-        sum_path = STEP_8_OUTPUT_DIR / "qaqc_flow_vs_precip_summary.csv"
-        pd.DataFrame(summary_rows).to_csv(sum_path, index=False)
-        print(f"\nSummary: {sum_path} ({len(summary_rows)} watersheds)")
+        pd.DataFrame(summary_rows).to_csv(QAQC_FLOW_PRECIP_CSV, index=False)
+        print(f"\nSummary: {QAQC_FLOW_PRECIP_CSV} ({len(summary_rows)} watersheds)")
 
     flag_path = STEP_8_OUTPUT_DIR / "qaqc_flow_vs_precip_flags.csv"
     pd.DataFrame(flag_rows, columns=["PourPtID", "Flag", "Detail"]).to_csv(flag_path, index=False)

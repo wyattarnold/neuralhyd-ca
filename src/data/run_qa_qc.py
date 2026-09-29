@@ -1,6 +1,6 @@
 """Comprehensive QA/QC for climate and cleaned flow data.
 
-Sections and output files (written to data/prepare/):
+Sections and output files (written to data/prepare/qa_qc_report/):
   1  Climate QA        -> sec1_climate_qa.csv
   2  Flow QA           -> sec2_flow_qa.csv
   3  Cross-dataset     -> sec3_cross_dataset.csv
@@ -20,8 +20,9 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 
-from src.data.io import load_climate_dataframes, detect_flow_col, water_year
+from src.data.io import load_climate_dataframes, detect_flow_col, raw_flow_path, water_year
 from src.paths import (
+    CDEC_DAILY_FNF_DIR,
     CLIMATE_WATERSHEDS_ZARR,
     FLOW_CLEANED_DIR,
     FLOW_DROPPED_DIR,
@@ -284,7 +285,7 @@ def _run_raw_vs_cleaned() -> pd.DataFrame:
     rows = []
     for fp_clean in sorted(FLOW_CLEANED_DIR.glob("*_cleaned.csv")):
         sid        = _sid(fp_clean, suffix="_cleaned")
-        fp_raw     = RAW_USGS_DIR     / f"{sid}.csv"
+        fp_raw     = raw_flow_path(sid)
         fp_dropped = FLOW_DROPPED_DIR / f"{sid}_dropped.csv"
 
         try:
@@ -365,8 +366,10 @@ def _run_raw_vs_cleaned() -> pd.DataFrame:
 def _run_zero_wy_detection() -> pd.DataFrame:
     print("=== Section 5: Zero water year detection ===")
     zero_wy_rows = []
-    for fp_raw in sorted(RAW_USGS_DIR.glob("*.csv")):
-        sid = fp_raw.stem
+    sids = ({p.stem for p in RAW_USGS_DIR.glob("*.csv")}
+            | {p.stem for p in CDEC_DAILY_FNF_DIR.glob("990000*.csv")})
+    for sid in sorted(sids):
+        fp_raw = raw_flow_path(sid)
         try:
             rw = pd.read_csv(fp_raw, parse_dates=["datetime"])
             rw["date"]   = _parse_raw_datetimes(rw["datetime"])
@@ -508,7 +511,7 @@ def _run_excluded_basins() -> pd.DataFrame:
     rows = []
     for sid, reason in sorted(INTENTIONAL_EXCLUSIONS.items()):
         fp_clean = FLOW_CLEANED_DIR / f"{sid}_cleaned.csv"
-        fp_raw   = RAW_USGS_DIR / f"{sid}.csv"
+        fp_raw   = raw_flow_path(sid)
 
         # Try cleaned first, fall back to raw
         df = None
