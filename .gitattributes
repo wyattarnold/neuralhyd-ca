@@ -1,5 +1,7 @@
 *.csv filter=lfs diff=lfs merge=lfs -text
 *.json filter=lfs diff=lfs merge=lfs -text
+# Frontend manifests stay plain text so dependency changes show in diffs.
+app/frontend/package*.json !filter !diff !merge text
 *.geojson filter=lfs diff=lfs merge=lfs -text
 *.parquet filter=lfs diff=lfs merge=lfs -text
 *.zip filter=lfs diff=lfs merge=lfs -text
@@ -10,9 +12,6 @@
 # Chunk files have no extension, so the rule must match .zarr stores anywhere
 # in the repo and recurse beneath them.
 **/*.zarr/** filter=lfs diff=lfs merge=lfs -text
-data/training/climate/watersheds.zarr/** filter=lfs diff=lfs merge=lfs -text
-data/training/climate/huc12.zarr/** filter=lfs diff=lfs merge=lfs -text
-data/training/flow.zarr/** filter=lfs diff=lfs merge=lfs -text
 data/raw/gis/WBDHU12.gpkg filter=lfs diff=lfs merge=lfs -text
 
 # Statewide 1/16° gridded NetCDFs (~3 GB).  Excluded from the default LFS
