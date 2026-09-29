@@ -20,7 +20,7 @@ import WatershedNseTable from "./WatershedNseTable";
 import {
   CHART_SERIES, QDAILY_HIDDEN_DEFAULT, FLOW_SEP_SERIES, TOOLTIP_PROPS,
   GRID_PROPS, XAXIS_PROPS, LEGEND_PROPS,
-  JUMP_YEARS, DEFAULT_WINDOW_DAYS, makeDateTickFormatter, makeYAxisProps,
+  DEFAULT_WINDOW_DAYS, makeDateTickFormatter, makeYAxisProps,
   makeYearTicks, symlog, tooltipValFmt, aggregateMonthly, makeSymlogTicks,
 } from "../chartConfig";
 
@@ -221,8 +221,6 @@ export default function SidePanel({ layerKey, polygonId, name, props, onClose, o
     enabled: layerKey === "training_watersheds",
   });
 
-  const dates = data?.dates ?? [];
-  const totalLen = dates.length;
   const obsStart = props?.obs_start ?? null;
   const obsEnd = props?.obs_end ?? null;
 
@@ -236,7 +234,6 @@ export default function SidePanel({ layerKey, polygonId, name, props, onClose, o
   const displayData = monthly && monthlyData ? monthlyData : data;
   const displayDates = displayData?.dates ?? [];
   const displayLen = displayDates.length;
-  const stepsPerYear = monthly ? 12 : 365;
 
   const effectiveRange = useMemo(() => {
     if (!displayLen) return [0, 0];
@@ -302,6 +299,11 @@ export default function SidePanel({ layerKey, polygonId, name, props, onClose, o
   const hasVic = displayData?.vic?.some((v) => v != null);
   const hasSacsma = displayData?.sacsma?.some((v) => v != null);
   const showHexTab = hasObs && (hasLstm || hasLstmSingle || hasVic || hasSacsma);
+  // hexTarget survives a selection change; fall back to the first series this basin has
+  const hexTargets = [
+    hasLstm && "lstm_pred", hasLstmSingle && "lstm_single_pred", hasVic && "vic", hasSacsma && "sacsma",
+  ].filter(Boolean);
+  const activeHexTarget = hexTargets.includes(hexTarget) ? hexTarget : (hexTargets[0] ?? hexTarget);
 
   const hexObs = useMemo(() => {
     if (!displayData?.obs) return [];
@@ -309,41 +311,33 @@ export default function SidePanel({ layerKey, polygonId, name, props, onClose, o
   }, [displayData]);
 
   const hexSim = useMemo(() => {
-    if (!displayData?.[hexTarget]) return [];
-    return displayData[hexTarget];
-  }, [displayData, hexTarget]);
+    if (!displayData?.[activeHexTarget]) return [];
+    return displayData[activeHexTarget];
+  }, [displayData, activeHexTarget]);
 
-  const hexLabel = hexTarget === "lstm_pred" ? "LSTM Dual"
-    : hexTarget === "lstm_single_pred" ? "LSTM Single"
-    : hexTarget === "sacsma" ? "SAC-SMA"
+  const hexLabel = activeHexTarget === "lstm_pred" ? "LSTM Dual"
+    : activeHexTarget === "lstm_single_pred" ? "LSTM Single"
+    : activeHexTarget === "sacsma" ? "SAC-SMA"
     : "VIC-Sim";
 
-  const jumpTo = useCallback(
-    (years) => {
-      if (!displayLen) return;
-      const end = displayLen - 1;
-      setRange([Math.max(0, end - years * stepsPerYear), end]);
-    },
-    [displayLen, stepsPerYear],
-  );
-
-  // Jump to a water year (called from AnnualMaxTable)
+  // Jump to a water year (called from AnnualMaxTable).  Indices are into
+  // displayDates, which holds "YYYY-MM-15" month stamps in monthly mode.
   const jumpToWaterYear = useCallback(
     (wy) => {
-      if (!dates.length) return;
+      if (!displayDates.length) return;
       // Water year WY starts Oct 1 of WY-1, ends Sep 30 of WY
       const wyStart = `${wy - 1}-10-01`;
       const wyEnd = `${wy}-09-30`;
-      let si = dates.findIndex((d) => d >= wyStart);
-      let ei = dates.findIndex((d) => d > wyEnd);
+      let si = displayDates.findIndex((d) => d >= wyStart);
+      let ei = displayDates.findIndex((d) => d > wyEnd);
       if (si === -1) si = 0;
-      if (ei === -1) ei = dates.length - 1;
+      if (ei === -1) ei = displayDates.length - 1;
       else ei = ei - 1;
-      setRange([si, Math.max(si + 30, ei)]);
+      setRange([si, Math.max(si + (monthly ? 1 : 30), ei)]);
       // Stay on current tab if it's a timeseries view; otherwise switch to qdaily
       setTab((prev) => (prev === "flowsep" || prev === "qdaily") ? prev : "qdaily");
     },
-    [dates],
+    [displayDates, monthly],
   );
 
   const hasData = activeSeries.length > 0;
@@ -394,6 +388,10 @@ export default function SidePanel({ layerKey, polygonId, name, props, onClose, o
   TABS.push({ id: "qstat", label: "Qstat" });
   if (showHexTab) TABS.push({ id: "r2", label: "R²" });
 
+  // Tab state survives a selection change; fall back when the new basin lacks it
+  const activeTab = TABS.some((t) => t.id === tab) ? tab : "qdaily";
+  const activeBottomTab = bottomTab === "nse" && layerKey !== "training_watersheds" ? "peaks" : bottomTab;
+
   return (
     <div className="flex flex-col h-full bg-paper text-gray-900">
       {/* Header */}
@@ -425,7 +423,7 @@ export default function SidePanel({ layerKey, polygonId, name, props, onClose, o
               key={t.id}
               onClick={() => setTab(t.id)}
               className={`px-2 py-0.5 rounded text-xs transition-colors ${
-                tab === t.id
+                activeTab === t.id
                   ? "bg-blue-100 text-blue-700 font-medium"
                   : "bg-gray-200 hover:bg-gray-300 text-gray-600"
               }`}
@@ -435,7 +433,7 @@ export default function SidePanel({ layerKey, polygonId, name, props, onClose, o
           ))}
 
           {/* Time range quick buttons (qdaily only) */}
-          {tab === "qdaily" && hasData && (
+          {activeTab === "qdaily" && hasData && (
             <div className="ml-auto flex gap-1 text-xs">
               <button
                 onClick={() => setRange([0, displayLen - 1])}
@@ -462,7 +460,7 @@ export default function SidePanel({ layerKey, polygonId, name, props, onClose, o
             </div>
           )}
           {/* Monthly toggle for Qstat and R² tabs */}
-          {(tab === "qstat" || tab === "r2") && (
+          {(activeTab === "qstat" || activeTab === "r2") && (
             <div className="ml-auto flex gap-1 text-xs">
               <button
                 onClick={() => setMonthly((m) => !m)}
@@ -475,7 +473,7 @@ export default function SidePanel({ layerKey, polygonId, name, props, onClose, o
             </div>
           )}
           {/* Flow Sep tab controls */}
-          {tab === "flowsep" && hasData && (
+          {activeTab === "flowsep" && hasData && (
             <div className="ml-auto flex gap-1 text-xs">
               <button
                 onClick={() => setRange([0, displayLen - 1])}
@@ -513,7 +511,7 @@ export default function SidePanel({ layerKey, polygonId, name, props, onClose, o
           {error && <p className="text-sm text-red-500 p-4">{error.message}</p>}
 
           {/* Qdaily tab */}
-          {tab === "qdaily" && !isLoading && hasData && (
+          {activeTab === "qdaily" && !isLoading && hasData && (
             <div className="flex flex-col h-full">
               <div className="flex-1 min-h-0 px-1 select-none">
                 <ResponsiveContainer width="100%" height="100%">
@@ -585,7 +583,7 @@ export default function SidePanel({ layerKey, polygonId, name, props, onClose, o
           )}
 
           {/* Flow Separation tab */}
-          {tab === "flowsep" && !isLoading && showFlowSep && (
+          {activeTab === "flowsep" && !isLoading && showFlowSep && (
             <div className="flex flex-col h-full">
               <div className="flex-1 min-h-0 px-1 select-none">
                 <ResponsiveContainer width="100%" height="100%">
@@ -718,12 +716,12 @@ export default function SidePanel({ layerKey, polygonId, name, props, onClose, o
           )}
 
           {/* Qstat tab */}
-          {tab === "qstat" && !isLoading && hasData && (
+          {activeTab === "qstat" && !isLoading && hasData && (
             <QstatPlot data={data} activeSeries={activeSeries} monthly={monthly} unit={unit} />
           )}
 
           {/* R² tab */}
-          {tab === "r2" && !isLoading && showHexTab && (
+          {activeTab === "r2" && !isLoading && showHexTab && (
             <div className="flex flex-col h-full">
               {/* VIC/LSTM toggle */}
               <div className="flex items-center justify-center gap-1 py-1 text-xs bg-gray-50 border-b border-gray-100 shrink-0">
@@ -731,7 +729,7 @@ export default function SidePanel({ layerKey, polygonId, name, props, onClose, o
                   <button
                     onClick={() => setHexTarget("lstm_pred")}
                     className={`px-2 py-0.5 rounded transition-colors ${
-                      hexTarget === "lstm_pred" ? "bg-orange-100 text-orange-700 font-medium" : "bg-gray-200 hover:bg-gray-300"
+                      activeHexTarget === "lstm_pred" ? "bg-orange-100 text-orange-700 font-medium" : "bg-gray-200 hover:bg-gray-300"
                     }`}
                   >
                     vs LSTM Dual
@@ -741,7 +739,7 @@ export default function SidePanel({ layerKey, polygonId, name, props, onClose, o
                   <button
                     onClick={() => setHexTarget("lstm_single_pred")}
                     className={`px-2 py-0.5 rounded transition-colors ${
-                      hexTarget === "lstm_single_pred" ? "bg-purple-100 text-purple-700 font-medium" : "bg-gray-200 hover:bg-gray-300"
+                      activeHexTarget === "lstm_single_pred" ? "bg-purple-100 text-purple-700 font-medium" : "bg-gray-200 hover:bg-gray-300"
                     }`}
                   >
                     vs LSTM Single
@@ -751,7 +749,7 @@ export default function SidePanel({ layerKey, polygonId, name, props, onClose, o
                   <button
                     onClick={() => setHexTarget("vic")}
                     className={`px-2 py-0.5 rounded transition-colors ${
-                      hexTarget === "vic" ? "bg-blue-100 text-blue-700 font-medium" : "bg-gray-200 hover:bg-gray-300"
+                      activeHexTarget === "vic" ? "bg-blue-100 text-blue-700 font-medium" : "bg-gray-200 hover:bg-gray-300"
                     }`}
                   >
                     vs VIC
@@ -761,7 +759,7 @@ export default function SidePanel({ layerKey, polygonId, name, props, onClose, o
                   <button
                     onClick={() => setHexTarget("sacsma")}
                     className={`px-2 py-0.5 rounded transition-colors ${
-                      hexTarget === "sacsma" ? "bg-teal-100 text-teal-700 font-medium" : "bg-gray-200 hover:bg-gray-300"
+                      activeHexTarget === "sacsma" ? "bg-teal-100 text-teal-700 font-medium" : "bg-gray-200 hover:bg-gray-300"
                     }`}
                   >
                     vs SAC-SMA
@@ -786,7 +784,7 @@ export default function SidePanel({ layerKey, polygonId, name, props, onClose, o
           <button
             onClick={() => setBottomTab("peaks")}
             className={`px-2 py-0.5 rounded text-xs transition-colors ${
-              bottomTab === "peaks"
+              activeBottomTab === "peaks"
                 ? "bg-blue-100 text-blue-700 font-medium"
                 : "bg-gray-200 hover:bg-gray-300 text-gray-600"
             }`}
@@ -797,7 +795,7 @@ export default function SidePanel({ layerKey, polygonId, name, props, onClose, o
             <button
               onClick={() => setBottomTab("nse")}
               className={`px-2 py-0.5 rounded text-xs transition-colors ${
-                bottomTab === "nse"
+                activeBottomTab === "nse"
                   ? "bg-blue-100 text-blue-700 font-medium"
                   : "bg-gray-200 hover:bg-gray-300 text-gray-600"
               }`}
@@ -807,10 +805,10 @@ export default function SidePanel({ layerKey, polygonId, name, props, onClose, o
           )}
         </div>
         <div className="flex-1 min-h-0 overflow-hidden">
-          {bottomTab === "peaks" && (
+          {activeBottomTab === "peaks" && (
             <AnnualMaxTable data={data} layerKey={layerKey} onSelectYear={jumpToWaterYear} />
           )}
-          {bottomTab === "nse" && layerKey === "training_watersheds" && (
+          {activeBottomTab === "nse" && layerKey === "training_watersheds" && (
             <WatershedNseTable selectedId={polygonId} onSelectBasin={onSelectBasin} />
           )}
         </div>

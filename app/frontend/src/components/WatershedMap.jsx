@@ -188,7 +188,6 @@ function OverviewMinimap({ mainMap, caOutline }) {
 }
 
 export default function WatershedMap({ layerKey, selectedId, onSelect, colorMode, flyToId }) {
-  const geoRef = useRef(null);
   const mapRef = useRef(null);
   const [mapReady, setMapReady] = useState(false);
 
@@ -252,7 +251,7 @@ export default function WatershedMap({ layerKey, selectedId, onSelect, colorMode
         let inside = false;
         layer.eachLayer((l) => {
           if (l.getBounds && l.getBounds().contains(pt)) {
-            if (l instanceof L.Polygon || l instanceof L.MultiPolygon) {
+            if (l instanceof L.Polygon) {
               inside = inside || pointInPolygonLayers(pt, l.getLatLngs());
             }
           }
@@ -384,7 +383,6 @@ export default function WatershedMap({ layerKey, selectedId, onSelect, colorMode
             data={geojson}
             style={styleFunc}
             onEachFeature={onEachFeature}
-            ref={geoRef}
           />
         )}
         {isLoading && (

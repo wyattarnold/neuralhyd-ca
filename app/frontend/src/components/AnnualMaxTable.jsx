@@ -7,9 +7,10 @@ function annualMaxMap(dates, arr) {
   for (let i = 0; i < dates.length; i++) {
     const v = arr[i];
     if (v == null) continue;
-    const d = new Date(dates[i]);
-    const m = d.getMonth();
-    const wy = m >= 9 ? d.getFullYear() + 1 : d.getFullYear();
+    // Read Y/M straight from the "YYYY-MM-DD" string: new Date() parses it as
+    // UTC midnight, which local getters shift back a day west of Greenwich.
+    const [y, mo] = dates[i].split("-").map(Number);
+    const wy = mo >= 10 ? y + 1 : y;
     const cur = wyMap.get(wy);
     if (!cur || v > cur.max) {
       wyMap.set(wy, { max: v, date: dates[i] });
@@ -21,7 +22,7 @@ function annualMaxMap(dates, arr) {
 /**
  * Table of annual maxima daily flows, sorted largest first.
  * For training_watersheds: obs peak (CFS) + date, single column.
- * For HUC-8/10: LSTM Dual peak (sorted), with LSTM Single and VIC columns.
+ * For HUC-8: LSTM Dual peak (sorted), with LSTM Single and VIC columns.
  * Click a row → calls onSelectYear(waterYear) to jump Qdaily to that water year.
  */
 export default function AnnualMaxTable({ data, layerKey, onSelectYear }) {
@@ -88,7 +89,7 @@ export default function AnnualMaxTable({ data, layerKey, onSelectYear }) {
     );
   }
 
-  // HUC-8/10: LSTM Dual sorted, with Single + VIC columns
+  // HUC-8: LSTM Dual sorted, with Single + VIC columns
   if (!hucRows.length) {
     return <div className="p-3 text-sm text-gray-400 italic">No LSTM data</div>;
   }

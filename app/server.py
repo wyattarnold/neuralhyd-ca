@@ -23,12 +23,8 @@ async def lifespan(app: FastAPI):
     yield
 
 
-def create_app(data_dir: str | None = None) -> FastAPI:
+def create_app() -> FastAPI:
     """Build and return the FastAPI application."""
-    if data_dir is None:
-        # Auto-detect: assume we're inside the lstmhyd-ca repo
-        data_dir = str(Path(__file__).resolve().parents[1])
-
     app = FastAPI(
         title="Streamflow Explorer",
         lifespan=lifespan,

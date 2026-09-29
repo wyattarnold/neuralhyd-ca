@@ -41,11 +41,6 @@ export const SERIES_LABELS = Object.fromEntries(
 );
 
 // ---------------------------------------------------------------------------
-// Quick-jump year options shown above the time-range slider
-// ---------------------------------------------------------------------------
-export const JUMP_YEARS = [1, 5, 10, 20];
-
-// ---------------------------------------------------------------------------
 // Default time-window (days) when no obs bounds are available
 // ---------------------------------------------------------------------------
 export const DEFAULT_WINDOW_DAYS = 365 * 5;

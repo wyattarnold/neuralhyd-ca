@@ -56,10 +56,11 @@ export default function QstatPlot({ data, activeSeries, monthly = false, unit = 
         for (let i = 0; i < data.dates.length; i++) {
           const v = arr[i];
           if (v == null) continue;
-          const d = new Date(data.dates[i]);
-          const m = d.getMonth();
-          const wy = m >= 9 ? d.getFullYear() + 1 : d.getFullYear();
-          const wm = m >= 9 ? m - 9 : m + 3; // Oct=0 ... Sep=11
+          // Parse the "YYYY-MM-DD" string directly (new Date() + local getters
+          // shifts UTC-midnight dates back a day in US time zones)
+          const [y, mo] = data.dates[i].split("-").map(Number);
+          const wy = mo >= 10 ? y + 1 : y;
+          const wm = mo >= 10 ? mo - 10 : mo + 2; // Oct=0 ... Sep=11
           const k2 = `${wy}-${wm}`;
           wyMonthTotals.set(k2, (wyMonthTotals.get(k2) || 0) + v * CFS_TO_AF_DAY);
         }
@@ -83,16 +84,11 @@ export default function QstatPlot({ data, activeSeries, monthly = false, unit = 
         for (let i = 0; i < data.dates.length; i++) {
           const v = arr[i];
           if (v == null) continue;
-          const d = new Date(data.dates[i]);
-          const m = d.getMonth();
-          let doy;
-          if (m >= 9) {
-            const octFirst = new Date(d.getFullYear(), 9, 1);
-            doy = Math.floor((d - octFirst) / 86400000);
-          } else {
-            const octFirst = new Date(d.getFullYear() - 1, 9, 1);
-            doy = Math.floor((d - octFirst) / 86400000);
-          }
+          // All in UTC: Date.parse reads "YYYY-MM-DD" as UTC midnight
+          const s = data.dates[i];
+          const y = +s.slice(0, 4), mo = +s.slice(5, 7);
+          const octFirst = Date.UTC(mo >= 10 ? y : y - 1, 9, 1);
+          const doy = Math.round((Date.parse(s) - octFirst) / 86400000);
           if (doy >= 0 && doy < 366) buckets[doy].push(v);
         }
 
