@@ -7,28 +7,18 @@ Steps:
   3. Verify climate data (monthly averages)
   4. Develop BasinATLAS static attributes (weighted averages)
   5. Develop climate statistics
-  6. Clean raw USGS flows (exceedance/precip filtering) → figures/flow_precip_filter_exceedance/
+  6. Clean raw USGS/CDEC flows (exceedance/precip filtering) → data/prepare/flow_precip_exceedance_filter/
   7. Comprehensive QA/QC report
-  8. Flow vs precipitation QA + tier sorting → data/training/flow/
-  9. Cross-reference QA-passing gauges with already-built HUC subbasin
-      static/climate data and copy the in-scope subset into the training
-      tree.  Assumes steps 2/4/5 have already been run with
-     `--target huc12` (or huc10) so the full-domain outputs exist under
-     data/eval/{climate,static}/<level>/.
-     Auto-included in the default run when --target is huc10 or huc12.
- 10. Build HUC12 → HUC10/HUC8 simulation manifests with target-relative
-     area weights and routing-distance features.
+  8. Flow vs precipitation QA + tier sorting → data/training/flow.zarr
 
 Output routing:
-  --target watersheds       → data/training/{climate,static}/watersheds/
-  --target huc8|huc10|huc12 → data/eval/{climate,static}/<level>/    (full domain)
-                              Step 9 then materialises the in-scope subset
-                              under data/training/{climate,static}/<level>/.
+  --target watersheds       → data/training/climate/watersheds.zarr + data/training/static/watersheds/
+  --target huc8|huc10|huc12 → data/eval/climate/<level>.zarr + data/eval/static/<level>/  (full domain, inference only)
 
-Geo intersect (prerequisite for step 4 — one-time GIS operation):
+Geo intersect (prerequisite for steps 2 and 4 — one-time GIS operation; runs after step 0):
   --geo-intersect                              Run the GIS intersect
   --geo   static|meteo                         Attribute layer (BasinATLAS or VICGrids)
-  --target watersheds|huc8|huc10               Target polygon layer (also used by steps 2, 4, 5)
+  --target watersheds|huc8|huc10|huc12         Target polygon layer (also used by steps 2, 4, 5)
 
 Analysis (run after steps 0-8 are complete):
   --analysis map_watersheds       CA watershed map colored by regression tier
@@ -36,7 +26,7 @@ Analysis (run after steps 0-8 are complete):
   --analysis flow_extremes        Flow distribution analysis for extreme-loss calibration
 
 Usage:
-  python prepare_data.py                                          # run steps 0-8 (+ step 9 if --target huc10/huc12)
+  python prepare_data.py --meteo-dir /path/to/meteo               # run steps 0-8
   python prepare_data.py --step 0 --include-cdec                 # combined watershed catalog + CDEC FNF canonical CSVs
   python prepare_data.py --step 0 --exclude-cdec                 # USGS-only watershed catalog
   python prepare_data.py --step 1                                # single step
@@ -49,7 +39,7 @@ Usage:
   python prepare_data.py --analysis map_watersheds --analysis tier_characteristics
 
 Typical order for a fresh run:
-  0 → --geo-intersect → 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 [→ 9 if --target huc10/huc12]
+  0 → --geo-intersect → 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 """
 from __future__ import annotations
 
@@ -71,12 +61,8 @@ def _banner(label: str) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Data pipeline")
     parser.add_argument(
-        "--step", type=int, action="append", default=None,
-        help=(
-            "Step(s) to run. Omit to run the default set (0-8; step 9 is also "
-            "auto-included when --target is huc10 or huc12). Step 10 always "
-            "requires explicit --step 10."
-        ),
+        "--step", type=int, action="append", default=None, choices=range(9),
+        help="Step(s) to run (0-8). Omit to run all of them.",
     )
     parser.add_argument(
         "--meteo-dir", type=str, default=None,
@@ -101,7 +87,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--geo-intersect", action="store_true", default=False,
-        help="Run the GIS intersect table generator (prerequisite for step 4).",
+        help="Run the GIS intersect table generator after step 0 (prerequisite for steps 2 and 4).",
     )
     parser.add_argument(
         "--geo", type=str, default="static",
@@ -114,58 +100,25 @@ def main() -> None:
         help="Target polygon layer (used by steps 2/4/5 and --geo-intersect).",
     )
     parser.add_argument(
-        "--subbasin-level", type=str, default="huc12",
-        choices=["huc10", "huc12"],
-        help="WBD level used by step 9 (default: huc12).",
-    )
-    parser.add_argument(
-        "--simulation-target-level", type=str, default="all",
-        choices=["all", "huc10", "huc8"],
-        help="Target level used by step 10 HUC12-to-target manifests (default: all).",
-    )
-    parser.add_argument(
-        "--simulation-min-overlap-km2", type=float, default=0.1,
-        help="Step 10: drop target-HUC12 overlay fragments smaller than this area (default: 0.1).",
-    )
-    parser.add_argument(
-        "--gauge-min-fraction-of-subbasin", type=float, default=0.70,
-        help=(
-            "Step 9a filter (default: 0.70). A gauge that overlaps exactly "
-            "one subbasin is dropped only when its area is less than this "
-            "fraction of the subbasin's area.  Gauges that span two or more "
-            "subbasins are always kept."
-        ),
-    )
-    parser.add_argument(
         "--force", action="store_true", default=False,
         help=(
-            "Force regeneration of climate CSVs even when the output file "
-            "already exists (step 2).  Default skips existing files."
-        ),
-    )
-    parser.add_argument(
-        "--use-nldi", action="store_true", default=False,
-        help=(
-            "Step 9: use NLDI + NHDPlus WaterData for true along-network routing "
-            "distances (requires pynhd).  Per-gauge flowlines are cached under "
-            "data/prepare/geo_ops/nldi_cache/.  BasinATLAS is used as a gap-fill "
-            "for any gauge/unit pairs not covered by NHD."
+            "Force regeneration of every basin in the climate zarr cube "
+            "(step 2).  Default skips basins already in the cube."
         ),
     )
     cdec_group = parser.add_mutually_exclusive_group()
     cdec_group.add_argument(
         "--include-cdec", dest="include_cdec", action="store_true", default=True,
-        help="Step 0: include CDEC FNF watersheds and staged raw-flow files (default).",
+        help="Include CDEC FNF watersheds (step 0) and their staged flows (steps 6 and 8) (default).",
     )
     cdec_group.add_argument(
         "--exclude-cdec", dest="include_cdec", action="store_false",
-        help="Step 0: build USGS-only watershed products and remove staged CDEC raw-flow files.",
+        help="Build USGS-only watershed products (step 0) and skip CDEC flows in steps 6 and 8.",
     )
     args = parser.parse_args()
 
-    # HUC targets always write to data/eval/ (full-domain outputs).  Only the
-    # `watersheds` target writes directly into data/training/.  The training
-    # subset for HUC runs is materialised by step 9 (cross-reference + copy).
+    # HUC targets always write to data/eval/ (full-domain, inference-only
+    # outputs).  Only the `watersheds` target writes into data/training/.
     scope = "eval" if args.target in ("huc8", "huc10", "huc12") else "training"
 
     # Determine which steps to run.
@@ -175,8 +128,11 @@ def main() -> None:
         steps = []
     else:
         steps = list(range(9))  # 0–8
-        if args.target in ("huc10", "huc12"):
-            steps.append(9)
+
+    # Validate up front so a default run does not download flows (step 1)
+    # before failing on the missing meteo archive.
+    if 2 in steps and args.meteo_dir is None:
+        parser.error("--meteo-dir is required for step 2")
 
     if args.diagnose_missing_grids:
         _banner("DIAGNOSTIC: Missing meteo grids")
@@ -195,6 +151,11 @@ def main() -> None:
         from src.data.build_training_watersheds import main as run_build_training_watersheds
         run_build_training_watersheds(stage_flows=True, include_cdec=args.include_cdec)
 
+    if args.geo_intersect:
+        _banner(f"GEO INTERSECT: --geo {args.geo} --target {args.target}")
+        from src.data.geo_intersect import main as run_geo_intersect
+        run_geo_intersect(geo=args.geo, target=args.target, include_cdec=args.include_cdec)
+
     if 1 in steps:
         _banner("STEP 1: Retrieve raw USGS flow data")
         from src.data.retrieve_flows import main as run_retrieve
@@ -202,8 +163,6 @@ def main() -> None:
 
     if 2 in steps:
         _banner("STEP 2: Develop area-weighted climate time series")
-        if args.meteo_dir is None:
-            parser.error("--meteo-dir is required for step 2")
         from src.data.develop_climate import main as run_climate
         run_climate(meteo_dir=args.meteo_dir, target=args.target, force=args.force, scope=scope)
 
@@ -225,7 +184,7 @@ def main() -> None:
     if 6 in steps:
         _banner("STEP 6: Clean raw USGS flows (exceedance/precip filtering)")
         from src.data.clean_flows import main as run_clean
-        run_clean()
+        run_clean(include_cdec=args.include_cdec)
 
     if 7 in steps:
         _banner("STEP 7: Comprehensive QA/QC")
@@ -236,31 +195,6 @@ def main() -> None:
         _banner("STEP 8: Flow vs precipitation QA + tier sorting")
         from src.data.flow_precip_qaqc import main as run_flow_precip
         run_flow_precip(include_cdec=args.include_cdec)
-
-    if 9 in steps:
-        level = args.subbasin_level
-        _banner(f"STEP 9: {level.upper()} subbasin gauge cross-reference")
-        from src.data.subbasin_gauge_intersect import main as run_subbasin_intersect
-
-        print(f"  9a. gauge × {level.upper()} intersect + filter rule "
-              f"(min frac of subbasin = {args.gauge_min_fraction_of_subbasin:.0%})")
-        run_subbasin_intersect(
-            level=level,
-            gauge_min_fraction_of_subbasin=args.gauge_min_fraction_of_subbasin,
-            use_nldi=args.use_nldi,
-        )
-
-        print(f"\n  9b. Copy manifest subset → data/training/{{climate,static}}/{level}/")
-        from src.data.copy_subbasin_to_training import main as run_copy_subbasin_to_training
-        run_copy_subbasin_to_training(level=level)
-
-    if 10 in steps:
-        _banner("STEP 10: HUC12 → HUC10/HUC8 simulation manifests")
-        from src.data.huc_target_manifest import main as run_huc_target_manifest
-        run_huc_target_manifest(
-            target_level=args.simulation_target_level,
-            min_overlap_km2=args.simulation_min_overlap_km2,
-        )
 
     if steps:
         _banner("Pipeline complete.")
@@ -278,11 +212,6 @@ def main() -> None:
             _banner("ANALYSIS: Flow extremes (threshold calibration)")
             from src.data.analyse_flow_extremes import main as run_extremes
             run_extremes()
-
-    if args.geo_intersect:
-        _banner(f"GEO INTERSECT: --geo {args.geo} --target {args.target}")
-        from src.data.geo_intersect import main as run_geo_intersect
-        run_geo_intersect(geo=args.geo, target=args.target, include_cdec=args.include_cdec)
 
 
 if __name__ == "__main__":

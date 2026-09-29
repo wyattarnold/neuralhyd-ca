@@ -39,11 +39,18 @@ Model quality is evaluated with five complementary metrics:
 
 - **NSE** (Nash–Sutcliffe Efficiency) — overall fit, sensitive to peaks.
   Perfect score = 1; score > 0 beats the mean-flow baseline.
-- **KGE** (Kling–Gupta Efficiency) — decomposes error into correlation,
-  bias, and variability. Less peak-dominated than NSE. Perfect = 1.
-- **FHV** (percent bias in high flows) — bias in the top 2% of flows.
-  Positive = over-prediction; negative = under-prediction of peaks.
-- **FEHV** (percent bias in extreme high flows) — bias in the top 0.2%
-  of flows; emphasises the rarest peaks.
-- **FLV** (percent bias in low flows) — bias in the bottom 30% of flows.
+- **KGE** (modified Kling–Gupta Efficiency, Kling et al. 2012) —
+  decomposes error into correlation, bias, and variability (ratio of
+  coefficients of variation). Less peak-dominated than NSE. Perfect = 1.
+- **FHV** (percent bias in high flows) — volume bias in the top 2% of
+  the flow-duration curve. Positive = over-prediction; negative =
+  under-prediction of peaks.
+- **FEHV** (percent bias in extreme high flows) — the same bias in the
+  top 0.1% of the flow-duration curve; emphasises the rarest peaks.
+- **FLV** (percent bias in low flows) — log-space bias in the bottom 30%
+  of the flow-duration curve, each curve measured from its own minimum.
   Captures baseflow and recession performance.
+
+FHV, FEHV and FLV follow Yilmaz et al. (2008): observed and simulated
+flows are sorted independently, so they compare the two flow-duration
+curves (flow magnitudes), not flows on the same days (timing).

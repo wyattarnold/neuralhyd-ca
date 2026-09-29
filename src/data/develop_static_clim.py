@@ -1,8 +1,8 @@
 """Compute climate statistics for each PourPtID from area-weighted climate files.
 
 Calculates PET (Hargreaves), aridity index, snow fraction, and precipitation
-event statistics.  Output goes to data/training/static/<target>/Climate_Statistics_<TARGET>.csv
-(or data/eval/static/<target>/... when scope="eval").
+event statistics.  Output goes to data/training/static/watersheds/Climate_Statistics_Watersheds.csv
+(or data/eval/static/<target>/Climate_Statistics_<TARGET>.csv for HUC targets, scope="eval").
 """
 from __future__ import annotations
 

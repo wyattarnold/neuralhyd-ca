@@ -13,7 +13,7 @@ All models in this family consume watershed-scale daily climate forcing and wate
 | [cfg_single_lstm_cmal.toml](./../../scripts/cfg_single_lstm_cmal.toml) | `single` with `output_type = "cmal"` | Single hidden state with a probabilistic CMAL head; point read off the mixture, FDC tails shaped through the CRPS. |
 | [cfg_moe_lstm.toml](./../../scripts/cfg_moe_lstm.toml) | `moe` | Unsupervised mixture-of-experts baseline with learnable softmax temperature. |
 
-All active configs use `training_manifest = "gages"`, the standard watershed-gauge domain, with `include_cdec_basins = false` (also the `Config` default), so they train on the USGS gauges only. Setting `include_cdec_basins = true` adds the CDEC full-natural-flow pseudo-gauges when their flow, climate, and static rows are present.
+All active configs use the standard watershed-gauge domain with `include_cdec_basins = false` (also the `Config` default), so they train on the USGS gauges only. Setting `include_cdec_basins = true` adds the CDEC full-natural-flow pseudo-gauges when their flow, climate, and static rows are present.
 
 ## Shared Data Flow
 
@@ -81,7 +81,7 @@ y_b,t = q_mm_day_b,t / precip_mean_b
 
 `precip_mean_b` is the mean daily precipitation from the basin climate record, floored at 0.01 mm/day. Evaluation multiplies predictions by the same `precip_mean_b` before computing metrics. This keeps training targets in a compact range while preserving ungauged-basin applicability because precipitation statistics are available without observed streamflow.
 
-Climate and static normalization are computed from training basins only within each fold. Climate values are pooled across all training-basin days for the configured dynamic features. Static means and standard deviations are computed over the effective static feature list after optional climate-static exclusion, grouped static ordering, and log transforms.
+Climate and static normalization are computed from training basins only within each fold. Climate values are pooled across all training-basin days for the configured dynamic features. Static means and standard deviations are computed over the static feature list (in group order when `[static_feature_groups]` is set) after log transforms; one-hot categorical features stay on their 0/1 scale.
 
 Per-basin gradient balancing uses:
 
@@ -91,7 +91,7 @@ loss_weight_b = 1 / max(var(flow_b / precip_mean_b), basin_loss_min_var)^basin_l
 
 The default exponent is 0.5 in the dataclass; individual configs may choose a lighter exponent. All weighted losses use `sum(w * loss) / sum(w)`, so changing the absolute scale of weights does not change the overall loss magnitude.
 
-## Static Conditioning And Scale Head
+## Static Conditioning
 
 All LSTM-family models use a static encoder. The default `StaticEncoder` is a two-layer MLP:
 
@@ -99,14 +99,9 @@ All LSTM-family models use a static encoder. The default `StaticEncoder` is a tw
 x_static -> Linear(n_static, static_hidden_size) -> ReLU -> Dropout -> Linear(static_hidden_size, static_embedding_dim) -> ReLU
 ```
 
-The optional `GroupedStaticEncoder` encodes semantic static feature groups separately and fuses their group embeddings. With `static_context_mode = "fused"`, this behaves like a grouped version of the flat encoder: the fused embedding is tiled into the recurrent sequence. With `static_context_mode = "dpl_roles"`, the fused embedding still feeds `ScaleHead` and any static threshold heads, while dual-pathway branches receive role-specific group contexts: slow branches use topography, soil, land cover, snow, and hydroclimate groups; fast/event branches also receive routing groups. The single LSTM keeps using the fused embedding as its sequence context.
+The optional `GroupedStaticEncoder`, selected by a `[static_feature_groups]` table in the config, encodes semantic static feature groups separately and fuses their group embeddings. The fused embedding is used exactly like the flat encoder's.
 
-The static embedding has two roles:
-
-1. It is tiled across the sequence and concatenated with every daily climate vector.
-2. It feeds `ScaleHead`, a learned per-basin multiplicative scale.
-
-`ScaleHead` predicts `log_s`, clamps it to `[-4, 4]`, and returns `exp(log_s)`. Its final layer is zero-initialized, so every basin starts at `scale = 1.0`; the model then learns amplitude corrections under the primary loss.
+The static embedding is tiled across the sequence and concatenated with every daily climate vector. Per-basin amplitude is carried by this embedding and the runoff-ratio target normalization; there is no separate scale head.
 
 ```mermaid
 flowchart TD
@@ -117,17 +112,12 @@ flowchart TD
     Tile["tile e across T"]:::seq
     Join["concat climate + static<br/>(B, T, n_dynamic + E)"]:::seq
     Model["selected recurrent architecture"]:::head
-    Raw["positive raw flow output"]:::head
-    ScaleHead["ScaleHead(e)<br/>exp(clamp(log_s, -4, 4))"]:::head
-    Scaled["scaled q outputs"]:::output
+    Out["positive q outputs"]:::output
 
     Static --> Encoder --> Emb
     Emb --> Tile --> Join
     Dynamic --> Join
-    Join --> Model --> Raw
-    Emb --> ScaleHead
-    Raw --> Scaled
-    ScaleHead --> Scaled
+    Join --> Model --> Out
 
     classDef input fill:#e3f2fd,stroke:#1976d2,color:#0d47a1
     classDef static fill:#e8f5e9,stroke:#388e3c,color:#1b5e20
@@ -146,7 +136,7 @@ Architectures without explicit pathway outputs return zero placeholders for `q_f
 
 ## Shared Deterministic Losses
 
-For deterministic non-regime models, the primary loss is a weighted blend of MSE and log-MSE on normalized flow:
+For deterministic models, the primary loss (`_blended_primary` in [train.py](./../../src/lstm/train.py)) is a weighted blend of MSE and log-MSE on normalized flow:
 
 ```text
 MSE       = mean_w((q_total - y)^2)
@@ -228,12 +218,10 @@ flowchart TD
     LSTM["Single LSTM<br/>hidden size 128"]:::seq
     Drop["dropout"]:::seq
     Head["Linear -> ReLU -> Linear -> Softplus"]:::head
-    Scale["ScaleHead(static embedding)"]:::head
-    Q["q_total = head(h) * scale"]:::output
+    Q["q_total = head(h)"]:::output
     Z["q_fast = 0<br/>q_slow = 0"]:::output
 
     X --> LSTM --> Drop --> Head --> Q
-    Scale --> Q
     Q --> Z
 
     classDef input fill:#e3f2fd,stroke:#1976d2,color:#0d47a1
@@ -247,7 +235,6 @@ Important settings in the active config:
 | Setting | Value |
 | --- | --- |
 | `model_type` | `single` |
-| `training_manifest` | `gages` |
 | `include_cdec_basins` | `false` |
 | `seq_len` | `365` |
 | `single_hidden_size` | `128` |
@@ -278,8 +265,7 @@ flowchart TD
     Ratio["fast_ratio >= 0"]:::head
     QFastRaw["q_fast_raw = q_slow_raw * fast_ratio"]:::head
     QTotalRaw["q_total_raw = q_slow_raw * (1 + fast_ratio)"]:::head
-    Scale["ScaleHead"]:::head
-    Outputs["scaled q_total, q_fast, q_slow"]:::output
+    Outputs["q_total, q_fast, q_slow"]:::output
 
     XFull --> SlowLSTM --> SlowHead --> QSlowRaw
     XFast --> FastLSTM --> FastHead --> Ratio
@@ -290,7 +276,6 @@ flowchart TD
     QTotalRaw --> Outputs
     QFastRaw --> Outputs
     QSlowRaw --> Outputs
-    Scale --> Outputs
 
     classDef input fill:#e3f2fd,stroke:#1976d2,color:#0d47a1
     classDef seq fill:#ede7f6,stroke:#5e35b1,color:#311b92
@@ -305,7 +290,6 @@ Important settings in the active config:
 | Setting | Value |
 | --- | --- |
 | `model_type` | `dual` |
-| `training_manifest` | `gages` |
 | `include_cdec_basins` | `false` |
 | `seq_len` | `365` |
 | `fast_window` | `28` |
@@ -363,7 +347,7 @@ Important settings in the active config:
 | `cmal_crps_n_samples` | `50` |
 | `cmal_entropy_weight` | `0.05` |
 | `cmal_point_estimate` | `mean` |
-| `cmal_log_crps_lambda` | `0.3` |
+| `cmal_log_crps_lambda` | `0.05` |
 | `cmal_extreme_weight` | `true` |
 | `extreme_peak_boost` | `5.0` |
 
@@ -413,14 +397,14 @@ Important settings in the active config:
 | Setting | Value |
 | --- | --- |
 | `model_type` | `moe` |
-| `training_manifest` | `gages` |
+| `include_cdec_basins` | `false` |
 | `seq_len` | `365` |
-| `moe_n_experts` | `3` |
-| `moe_expert_hidden_size` | `64` |
+| `moe_n_experts` | `2` |
+| `moe_expert_hidden_size` | `96` |
 | `moe_gate_hidden_size` | `32` |
 | `moe_tau_init` | `0.25` |
 | `moe_tau_min` | `1e-4` |
-| `dropout` | `0.10` |
+| `dropout` | `0.15` |
 
 Lower `tau` values sharpen expert selection. `moe_tau_min` prevents the softmax from becoming numerically or behaviorally too hard.
 
@@ -428,9 +412,9 @@ Lower `tau` values sharpen expert selection. `moe_tau_min` prevents the softmax 
 
 All LSTM-family configs run through [train_kfold.py](./../../scripts/train_kfold.py), which dispatches to [train.py](./../../src/lstm/train.py). The default schedule is:
 
-1. Build spatial folds from `training_manifest`, `n_folds`, and `seed`.
+1. Build tier-stratified spatial folds from `n_folds` and `seed`.
 2. For each fold, compute normalization statistics from training basins only.
-3. Train with AdamW, input noise, gradient clipping, warmup, and cosine annealing.
+3. Train with Adam (coupled L2 `weight_decay`), input noise, gradient clipping, warmup, and cosine annealing.
 4. Select checkpoints by `validation_selection_metric`, usually validation loss.
 5. When `use_swa = true`, start a Stochastic Weight Averaging phase after the raw phase exhausts its `patience` budget; the raw best is saved as `best_raw_model.pt`. The SWA phase runs up to `swa_patience` additional epochs at the fixed `swa_lr`, with the patience counter reset. SWA weights are saved as `swa_model.pt` and promoted to `best_model.pt` only when they improve on the raw best under the same selection metric; otherwise `best_raw_model.pt` is promoted.
 6. Reload the selected checkpoint and evaluate held-out basins.
@@ -442,12 +426,14 @@ Validation loss is batch-averaged, but NSE and KGE are computed per basin in den
 Five scalar metrics are computed per basin in denormalized mm/day and then aggregated by tier median:
 
 - **NSE** (Nash–Sutcliffe Efficiency): `1 - Σ(obs-sim)² / Σ(obs-mean)²`. Perfect = 1; climatological mean = 0; worse than mean < 0.
-- **KGE** (Kling–Gupta Efficiency): `1 - √[(r-1)² + (β-1)² + (γ-1)²]`. Decomposes error into correlation (*r*), bias ratio (*β*), and variability ratio (*γ*).
-- **FHV** (High-flow volume bias): percent bias over the top 2 % of the flow-duration curve.
-- **FeHV** (Extreme high-flow volume bias): percent bias over the top 1 % of the flow-duration curve.
-- **FLV** (Low-flow volume bias): percent bias over the bottom 30 % of the flow-duration curve.
+- **KGE** (modified Kling–Gupta Efficiency, KGE', Kling et al. 2012): `1 - √[(r-1)² + (β-1)² + (γ-1)²]`. Decomposes error into correlation (*r*), bias ratio (*β*), and variability ratio (*γ*, the ratio of coefficients of variation).
+- **FHV** (High-flow volume bias): `Σ(sim_h - obs_h) / Σ obs_h × 100` over the top 2 % of each flow-duration curve.
+- **FeHV** (Extreme high-flow volume bias): FHV over the top 0.1 % of each flow-duration curve.
+- **FLV** (Low-flow volume bias): over the bottom 30 % of each flow-duration curve, in log space, with each segment measured from its own minimum: `QOL = Σ(log obs_l - log min obs_l)`, `QSL = Σ(log sim_l - log min sim_l)`, `FLV = -(QSL - QOL) / QOL × 100`.
 
-Tier 2 (transitional mixed rain/snow) median NSE and KGE are the headline cross-validation metrics. All five metrics are written to `fold_<n>/basin_results.csv` and aggregated in `all_fold_results.csv`.
+FHV, FeHV and FLV follow Yilmaz et al. (2008): observed and simulated flows are sorted independently, so they compare the two flow-duration curves (flow magnitudes), not flows on the same days (timing). A pure timing shift barely moves them.
+
+Tier 2 (transitional mixed rain/snow) median NSE and KGE are the headline cross-validation metrics. All five metrics are written to `fold_<n>/basin_results.csv` and aggregated in `all_fold_results.csv`; `post_process.py --eval` recomputes FHV, FeHV and FLV from the saved timeseries, so runs scored with older definitions are compared on the current ones.
 
 ## Outputs And Diagnostics
 
@@ -464,7 +450,7 @@ Common outputs are:
 - `fold_<n>/timeseries/<basin_id>.csv`: observed and predicted hydrographs plus model-specific diagnostics.
 - `all_fold_results.csv`: concatenated held-out basin metrics across folds.
 
-Diagnostic interpretation depends on architecture. For single/MoE baselines, `q_fast` and `q_slow` are placeholders. For dual and regime models, pathway outputs are useful diagnostics, but they are not observed physical truth; they are shaped by architecture and Lyne-Hollick-derived supervision.
+Diagnostic interpretation depends on architecture. For single/MoE baselines, `q_fast` and `q_slow` are placeholders. For the dual model, pathway outputs are useful diagnostics, but they are not observed physical truth; they are shaped by architecture and Lyne-Hollick-derived supervision.
 
 ## CDEC FNF Basin Evaluation
 
@@ -482,4 +468,4 @@ The SAC-SMA series is also served by the Streamflow Explorer web app on CDEC bas
 
 Gauge-mode LSTM models treat each watershed as one lumped unit. They do not explicitly simulate internal HUC12 heterogeneity, channel routing, reservoirs, diversions, groundwater pumping, land-use change, or snowpack physics. Static conditioning lets the same climate sequence produce different flow responses in different basins, but the representation remains a learned basin-level mapping.
 
-The dual-pathway and regime outputs are interpretable model components, not measurements. The Lyne-Hollick decomposition is a heuristic target, and per-basin flow quantiles are labels for high-flow behavior rather than direct process observations. Regime models add useful diagnostics but also add failure modes such as gate collapse, delayed specialization, and sensitivity to curriculum settings.
+The dual-pathway outputs are interpretable model components, not measurements. The Lyne-Hollick decomposition is a heuristic target, and per-basin flow quantiles are labels for high-flow behavior rather than direct process observations.

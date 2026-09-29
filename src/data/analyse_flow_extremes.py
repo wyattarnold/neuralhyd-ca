@@ -22,7 +22,7 @@ import pandas as pd
 
 from src.lstm.config import Config, load_config
 from src.lstm.dataset import load_all_data, create_folds
-from src.paths import QA_DIR
+from src.paths import QA_DIR, SCRIPTS_DIR
 
 TIER_LABELS = {1: "T1 (rain)", 2: "T2 (mixed)", 3: "T3 (snow)"}
 TIER_COLOURS = {1: "#e66101", 2: "#5e3c99", 3: "#0571b0"}
@@ -41,7 +41,9 @@ def _ramp_weight(y: np.ndarray, q_start: float, q_top: float, peak: float) -> np
     return 1.0 + (peak - 1.0) * frac
 
 
-def main(config: Config) -> None:
+def main(config: Config | None = None) -> None:
+    if config is None:
+        config = load_config(SCRIPTS_DIR / "cfg_dual_lstm.toml")
     out_dir = QA_DIR / "flow_extremes"
     out_dir.mkdir(parents=True, exist_ok=True)
 

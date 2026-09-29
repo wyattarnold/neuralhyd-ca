@@ -8,7 +8,7 @@ These are prepared inputs only. No model config, dataset class, or loader reads 
 
 | File | Contents | Approx. size | Stored as |
 |---|---|---|---|
-| `livneh_precip_mm_daily_1915-2018.nc` | `precip_mm(time, lat, lon)`, the x10 correction table, `x10_count(lat, lon)` | 0.55 GB | Git LFS, opt-in |
+| `livneh_precip_mm_daily_1915-2018.nc` | `precip_mm(time, lat, lon)`, the x10 correction table, `x10_count(lat, lon)` | ~0.47 GB | Git LFS, opt-in |
 | `livneh_tmax_c_daily_1915-2018.nc` | `tmax_c(time, lat, lon)`, `swap_count(lat, lon)` | 1.25–1.3 GB | Git LFS, opt-in |
 | `livneh_tmin_c_daily_1915-2018.nc` | `tmin_c(time, lat, lon)`, `swap_count(lat, lon)` | 1.3–1.4 GB | Git LFS, opt-in |
 | `alphaearth_2017.nc` | `embedding(band, lat, lon)` plus per-cell coverage diagnostics | a few MB (7.4 MB before compression) | Git LFS, opt-in |
@@ -253,7 +253,7 @@ cd data/gridded && sha256sum -c SHA256SUMS
 
 ## Rebuilding
 
-Everything runs from the repo root through `scripts/prepare_gridded.py`. Each subcommand takes `--out-dir` (default `data/gridded`); point it at a scratch directory for trial builds so `data/gridded` is never touched. `python scripts/prepare_gridded.py COMMAND --help` lists every option.
+Everything runs from the repo root through `scripts/prepare_gridded.py`. Every subcommand that reads or writes products (all but `check-x10`) takes `--out-dir` (default `data/gridded`); point it at a scratch directory for trial builds so `data/gridded` is never touched. `python scripts/prepare_gridded.py COMMAND --help` lists every option.
 
 ### Prerequisites
 

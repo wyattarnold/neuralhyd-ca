@@ -278,7 +278,12 @@ def build_training_watershed_catalog(include_cdec: bool = True) -> gpd.GeoDataFr
         _export_training_watershed_files(combined)
         return combined
 
-    build_cdec_fnf_geopackage()
+    # The source shapefiles live outside the repo; without them, reuse the
+    # tracked cdec_fnf.gpkg (build only if neither is available, to raise).
+    if CDEC_FNF_SHAPEFILE_DIR.exists() or not CDEC_FNF_GPKG.exists():
+        build_cdec_fnf_geopackage()
+    else:
+        print(f"CDEC shapefiles not found ({CDEC_FNF_SHAPEFILE_DIR}); reusing {CDEC_FNF_GPKG}")
 
     cdec = _standardise_raw_columns(gpd.read_file(CDEC_FNF_GPKG, layer="cdec_fnf"))
     cdec["Description"] = "CDEC FNF " + cdec["Description"].astype(str)
@@ -356,16 +361,12 @@ def _load_cdec_flow_mapping(cdec: gpd.GeoDataFrame) -> tuple[dict[str, int], pd.
     return mapping, pd.DataFrame(rows)
 
 
-def remove_staged_cdec_fnf_flows(remove_reports: bool = True) -> list[Path]:
+def remove_staged_cdec_fnf_flows() -> list[Path]:
     """Remove legacy generated synthetic CDEC flow CSVs from RAW_USGS_DIR."""
     removed: list[Path] = []
     for path in sorted(RAW_USGS_DIR.glob("990000*.csv")):
         path.unlink()
         removed.append(path)
-    if remove_reports:
-        for path in (CDEC_FLOW_CATALOG, CDEC_LEGACY_STAGING_REPORT, CDEC_MAPPING_AUDIT):
-            if path.exists():
-                path.unlink()
     return removed
 
 
@@ -455,7 +456,7 @@ def stage_cdec_fnf_flows() -> pd.DataFrame:
                 "status": "no_geometry_mapping",
             })
 
-    remove_staged_cdec_fnf_flows(remove_reports=False)
+    remove_staged_cdec_fnf_flows()
 
     staged_report = pd.DataFrame(report_rows).sort_values("FNF")
     if mapping_report.empty:
@@ -479,7 +480,8 @@ def main(stage_flows: bool = True, include_cdec: bool = True) -> None:
 
     if not include_cdec:
         removed = remove_staged_cdec_fnf_flows()
-        print(f"CDEC excluded; removed {len(removed)} staged raw-flow files")
+        print(f"CDEC excluded; removed {len(removed)} legacy CDEC raw-flow copies from {RAW_USGS_DIR}")
+        print(f"  Staged CDEC flows in {CDEC_DAILY_FNF_DIR} are left in place")
     elif stage_flows:
         report = stage_cdec_fnf_flows()
         ready_statuses = {"converted_from_legacy_text", "exists", "migrated_from_raw_usgs"}

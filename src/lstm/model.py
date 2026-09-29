@@ -29,7 +29,7 @@ from .loss import extract_mixture_quantile
 
 
 class StaticEncoder(nn.Module):
-    """MLP: n_static â†' hidden â†' embedding_dim."""
+    """MLP: n_static → hidden → embedding_dim."""
 
     def __init__(self, n_features: int, embedding_dim: int,
                  hidden_size: int = 32, dropout: float = 0.2):
@@ -468,7 +468,6 @@ class MoELSTM(nn.Module):
         z = self.gate_proj(c)                                  # (B, K)
         tau = self.tau                                         # bounded in [tau_min, 1) by construction
         pi = torch.softmax(z / tau, dim=-1)                    # (B, K)
-        self._last_tau_eff = tau.detach()
 
         mean_pi = pi.mean(dim=0)                               # (K,)
         self._last_pi = mean_pi.detach()                       # (K,) detached -- for diagnostics

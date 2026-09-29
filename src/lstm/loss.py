@@ -4,19 +4,19 @@ Key exports
 -----------
 mse_loss(q_pred, q_target)
     Mean-squared error used during training.  Operates on normalised
-    flow values (divided by per-basin std).
+    flow values (divided by per-basin mean daily precipitation).
 compute_nse(obs, sim)
     Nash-Sutcliffe Efficiency — primary skill score; 1 is perfect,
     values below 0 indicate the model is worse than the mean.
 compute_kge(obs, sim)
-    Kling-Gupta Efficiency — composite of correlation, bias, and
-    variability; 1 is perfect.
-compute_fhv(obs, sim)
-    Fractional high-flow bias (top 2 % of flows) — penalises peak
-    over- or under-prediction.
+    Modified Kling-Gupta Efficiency (Kling et al. 2012) — composite of
+    correlation, bias, and variability (CV ratio); 1 is perfect.
+compute_fhv(obs, sim) / compute_fehv(obs, sim)
+    High-flow volume bias on the top 2 % / 0.1 % of the flow-duration
+    curve — penalises peak over- or under-prediction.
 compute_flv(obs, sim)
-    Fractional low-flow bias (bottom 30 % of flows) — penalises
-    baseflow over- or under-prediction.
+    Low-flow volume bias (log space) on the bottom 30 % of the
+    flow-duration curve — penalises baseflow over- or under-prediction.
 
 All evaluation functions operate on denormalised mm/day values.
 """
@@ -395,7 +395,7 @@ def compute_nse(obs: np.ndarray, pred: np.ndarray) -> float:
 
 
 def compute_kge(obs: np.ndarray, pred: np.ndarray) -> float:
-    """Kling–Gupta Efficiency (2009 formulation)."""
+    """Modified Kling–Gupta Efficiency (KGE', Kling et al. 2012; gamma = CV ratio)."""
     obs, pred = np.asarray(obs, dtype=np.float64), np.asarray(pred, dtype=np.float64)
     if len(obs) < 2 or obs.std() < 1e-12:
         return float("nan")
@@ -406,11 +406,15 @@ def compute_kge(obs: np.ndarray, pred: np.ndarray) -> float:
 
 
 def compute_fhv(obs: np.ndarray, pred: np.ndarray, h: float = 0.02) -> float:
-    """Peak flow bias (%BiasFHV) on the upper *h* fraction of the FDC."""
+    """Peak flow bias (%BiasFHV, Yilmaz et al. 2008) on the upper *h* fraction of the FDC.
+
+    Observed and simulated flows are sorted independently, so this compares
+    the two flow-duration curves (volume), not flows on the same days (timing).
+    """
     obs, pred = np.asarray(obs, dtype=np.float64), np.asarray(pred, dtype=np.float64)
-    idx = np.argsort(obs)[::-1]
     n = max(1, int(np.ceil(h * len(obs))))
-    obs_h, pred_h = obs[idx[:n]], pred[idx[:n]]
+    obs_h = np.sort(obs)[::-1][:n]
+    pred_h = np.sort(pred)[::-1][:n]
     denom = obs_h.sum()
     if denom < 1e-12:
         return float("nan")
@@ -420,33 +424,30 @@ def compute_fhv(obs: np.ndarray, pred: np.ndarray, h: float = 0.02) -> float:
 def compute_fehv(obs: np.ndarray, pred: np.ndarray, h: float = 0.001) -> float:
     """Extreme high-flow bias (%BiasFEHV) on the upper *h* fraction of the FDC.
 
-    Like FHV but targets the 99.9th-percentile peak flows (top 0.1%).
+    FHV evaluated on the top 0.1% of each flow-duration curve.
     Perfect score is 0; positive = over-prediction, negative = under-prediction.
     """
-    obs, pred = np.asarray(obs, dtype=np.float64), np.asarray(pred, dtype=np.float64)
-    idx = np.argsort(obs)[::-1]
-    n = max(1, int(np.ceil(h * len(obs))))
-    obs_h, pred_h = obs[idx[:n]], pred[idx[:n]]
-    denom = obs_h.sum()
-    if denom < 1e-12:
-        return float("nan")
-    return float((pred_h.sum() - denom) / denom * 100)
+    return compute_fhv(obs, pred, h=h)
 
 
 def compute_flv(obs: np.ndarray, pred: np.ndarray, l: float = 0.3) -> float:
-    """Low flow bias (%BiasFLV) on the lower *l* fraction of the FDC."""
+    """Low flow bias (%BiasFLV, Yilmaz et al. 2008) on the lower *l* fraction of the FDC.
+
+    Observed and simulated flows are sorted independently; each low-flow
+    segment is taken in log space relative to its own minimum.
+    """
     obs, pred = np.asarray(obs, dtype=np.float64), np.asarray(pred, dtype=np.float64)
-    idx = np.argsort(obs)
     n = max(1, int(np.ceil(l * len(obs))))
-    obs_l, pred_l = obs[idx[:n]], pred[idx[:n]]
+    obs_l = np.sort(obs)[:n]
+    pred_l = np.sort(pred)[:n]
     # guard against log(0)
     eps = 1e-8
     obs_l = np.maximum(obs_l, eps)
     pred_l = np.maximum(pred_l, eps)
     log_obs = np.log(obs_l)
     log_pred = np.log(pred_l)
-    denom = (log_obs - log_obs[-1]).sum()
-    if abs(denom) < 1e-12:
+    qol = (log_obs - log_obs.min()).sum()
+    if abs(qol) < 1e-12:
         return float("nan")
-    numer = (log_pred - log_pred[-1]).sum() - denom
-    return float(-1.0 * numer / denom * 100)
+    qsl = (log_pred - log_pred.min()).sum()
+    return float(-1.0 * (qsl - qol) / qol * 100)

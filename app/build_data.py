@@ -9,13 +9,9 @@ Outputs go to app/data/:
   timeseries/obs.parquet                — observed streamflow (CFS, Int32)
   timeseries/obs_baseflow.parquet       — Lyne–Hollick baseflow (CFS)
   timeseries/lstm_pred_{layer}.parquet       — LSTM dual ensemble mean total Q (CFS)
-  timeseries/lstm_pred_min_{layer}.parquet   — LSTM dual ensemble min total Q (CFS)
-  timeseries/lstm_pred_max_{layer}.parquet   — LSTM dual ensemble max total Q (CFS)
   timeseries/lstm_fast_{layer}.parquet       — LSTM dual fast pathway mean (CFS)
   timeseries/lstm_slow_{layer}.parquet       — LSTM dual slow pathway mean (CFS)
-  timeseries/lstm_single_pred_{layer}.parquet     — LSTM single ensemble mean total Q (CFS)
-  timeseries/lstm_single_pred_min_{layer}.parquet — LSTM single ensemble min total Q (CFS)
-  timeseries/lstm_single_pred_max_{layer}.parquet — LSTM single ensemble max total Q (CFS)
+  timeseries/lstm_single_pred_{layer}.parquet — LSTM single ensemble mean total Q (CFS)
 
 Run once (or whenever source data changes):
     python -m app.build_data
@@ -29,7 +25,6 @@ from pathlib import Path
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -38,7 +33,6 @@ from tqdm import tqdm
 REPO = Path(__file__).resolve().parents[1]
 GIS_DIR = REPO / "data" / "raw" / "gis"
 HUC8_GPKG = GIS_DIR / "WBDHU8.gpkg"
-HUC10_GPKG = GIS_DIR / "WBDHU10.gpkg"
 WATERSHEDS_GPKG = GIS_DIR / "USGS_Training_Watersheds.gpkg"
 CDEC_FNF_GPKG   = GIS_DIR / "cdec_fnf.gpkg"
 AGG = REPO / "data" / "external" / "cec" / "VIC-Sim" / "aggregated"
@@ -46,7 +40,6 @@ AGG = REPO / "data" / "external" / "cec" / "VIC-Sim" / "aggregated"
 FLOW_ZARR = REPO / "data" / "training" / "flow.zarr"
 STATIC_CSV = REPO / "data" / "training" / "static" / "watersheds" / "Physical_Attributes_Watersheds.csv"
 CLIMATE_STATIC_CSV = REPO / "data" / "training" / "static" / "watersheds" / "Climate_Statistics_Watersheds.csv"
-VIC_KGE_CSV = REPO / "data" / "external" / "cec" / "model_kge_comparison.csv"
 LSTM_DIR = REPO / "data" / "training" / "output" / "dual_lstm"
 LSTM_SINGLE_DIR = REPO / "data" / "training" / "output" / "single_lstm"
 SIM_DIR = REPO / "data" / "eval" / "sim"
@@ -92,23 +85,25 @@ def build_geojson(key: str, id_col: str, src_path: Path, tol: float) -> None:
 
 
 def build_training_watersheds_geojson(tol: float) -> None:
-    """Build training_watersheds GeoJSON with tier, obs dates, KGE and NSE properties."""
+    """Build training_watersheds GeoJSON with tier, obs dates and NSE properties."""
     out_path = GEO_DIR / "training_watersheds.geojson"
     print("  GeoJSON training_watersheds … ", end="", flush=True)
 
-    # --- Basin tier + LSTM Dual KGE/NSE from 5-fold basin_results ---
-    tier_map: dict[str, int] = {}
-    lstm_kge_map: dict[str, float] = {}
+    # --- Observed flow + basin tier from the zarr cube (covers every basin,
+    # including CDEC basins excluded from training) ---
+    from src.data.io import load_flow_dataframes
+    flow_all, zarr_tier = load_flow_dataframes(FLOW_ZARR)
+    tier_map: dict[str, int] = {str(b): t for b, t in zarr_tier.items()}
+
+    # --- LSTM Dual NSE from 5-fold basin_results ---
     lstm_nse_map: dict[str, float] = {}
     for br in sorted(LSTM_DIR.glob("fold_*/basin_results.csv")):
-        df = pd.read_csv(br, usecols=["basin_id", "tier", "kge", "nse"])
+        df = pd.read_csv(br, usecols=["basin_id", "nse"])
         for _, row in df.iterrows():
             bid = str(int(row["basin_id"]))
-            tier_map[bid] = int(row["tier"])
-            lstm_kge_map[bid] = float(row["kge"])
             lstm_nse_map[bid] = float(row["nse"])
 
-    # --- LSTM Single KGE/NSE from 5-fold basin_results ---
+    # --- LSTM Single NSE from 5-fold basin_results ---
     lstm_single_nse_map: dict[str, float] = {}
     if LSTM_SINGLE_DIR.exists():
         for br in sorted(LSTM_SINGLE_DIR.glob("fold_*/basin_results.csv")):
@@ -117,20 +112,10 @@ def build_training_watersheds_geojson(tol: float) -> None:
                 bid = str(int(row["basin_id"]))
                 lstm_single_nse_map[bid] = float(row["nse"])
 
-    # --- VIC regionalized KGE ---
-    vic_kge_map: dict[str, float] = {}
-    if VIC_KGE_CSV.exists():
-        vic_df = pd.read_csv(VIC_KGE_CSV, usecols=["GageID", "VIC_KGE_Regionalized"])
-        for _, row in vic_df.iterrows():
-            if pd.notna(row["VIC_KGE_Regionalized"]):
-                vic_kge_map[str(row["GageID"])] = float(row["VIC_KGE_Regionalized"])
-
     # --- VIC NSE (computed from obs vs VIC timeseries) ---
     vic_nse_map: dict[str, float] = {}
     vic_ts_path = AGG / "training_watersheds_runoff.csv"
     if vic_ts_path.exists():
-        from src.data.io import load_flow_dataframes
-        flow_all, _ = load_flow_dataframes(FLOW_ZARR)
         vic_wide = pd.read_csv(vic_ts_path, index_col="date", parse_dates=True)
         for bid_int, obs_df in flow_all.items():
             bid = str(bid_int)
@@ -148,8 +133,6 @@ def build_training_watersheds_geojson(tol: float) -> None:
                 vic_nse_map[bid] = float(1.0 - ss_res / ss_tot)
 
     # --- Observed record date ranges ---
-    from src.data.io import load_flow_dataframes
-    flow_all, _ = load_flow_dataframes(FLOW_ZARR)
     obs_range: dict[str, tuple[str, str]] = {}
     for bid_int, obs_df in flow_all.items():
         valid = obs_df.dropna(subset=["flow"])
@@ -175,8 +158,6 @@ def build_training_watersheds_geojson(tol: float) -> None:
     gdf["tier"] = gdf["Pour Point ID"].map(tier_map)
     gdf["obs_start"] = gdf["Pour Point ID"].map(lambda b: obs_range.get(b, (None, None))[0])
     gdf["obs_end"]   = gdf["Pour Point ID"].map(lambda b: obs_range.get(b, (None, None))[1])
-    gdf["lstm_kge"]  = gdf["Pour Point ID"].map(lstm_kge_map)
-    gdf["vic_kge"]   = gdf["Pour Point ID"].map(vic_kge_map)
     gdf["lstm_nse"]  = gdf["Pour Point ID"].map(lstm_nse_map)
     gdf["lstm_single_nse"] = gdf["Pour Point ID"].map(lstm_single_nse_map)
     gdf["vic_nse"]   = gdf["Pour Point ID"].map(vic_nse_map)
@@ -232,7 +213,6 @@ def build_obs_parquet() -> None:
 def _build_sim_parquets(
     sim_dir: Path,
     layer_key: str,
-    model_label: str,
     columns: dict[str, str],
     fallback_columns: dict[str, str] | None = None,
 ) -> None:
@@ -242,13 +222,12 @@ def _build_sim_parquets(
     ----------
     sim_dir   : directory containing <basin_id>.csv files (already in CFS)
     layer_key : e.g. "training_watersheds", "huc8"
-    model_label : display name for print messages
     columns   : mapping from sim CSV column → output parquet name prefix,
                 e.g. {"q_mean": "lstm_pred", "q_fast_mean": "lstm_fast", ...}
     fallback_columns : optional per-output fallback source column used when
                 ``src_col`` is missing from a basin CSV.  Lets training_watersheds
-                held-out sims (``q_total/q_fast/q_slow``) fill both the mean
-                and min/max outputs with the same single-fold prediction.
+                held-out sims (``q_total/q_fast/q_slow``) fill the mean outputs
+                with the single-fold prediction.
     """
     if not sim_dir.is_dir():
         for prefix in columns.values():
@@ -301,22 +280,18 @@ def build_lstm_parquets() -> None:
     sim_base = SIM_DIR / "dual_lstm"
     # Ensemble columns are preferred; fall back to held-out single-fold
     # columns (training_watersheds uses q_total/q_fast/q_slow for the
-    # unbiased out-of-fold prediction — min/max then collapse to the mean).
+    # unbiased out-of-fold prediction).
     fallback = {
-        "lstm_pred":     "q_total",
-        "lstm_fast":     "q_fast",
-        "lstm_slow":     "q_slow",
-        "lstm_pred_min": "q_total",
-        "lstm_pred_max": "q_total",
+        "lstm_pred": "q_total",
+        "lstm_fast": "q_fast",
+        "lstm_slow": "q_slow",
     }
     for layer_key in ("training_watersheds", "huc8"):
         sim_dir = sim_base / layer_key / "historical"
-        _build_sim_parquets(sim_dir, layer_key, "LSTM Dual", {
+        _build_sim_parquets(sim_dir, layer_key, {
             "q_mean":      "lstm_pred",
             "q_fast_mean": "lstm_fast",
             "q_slow_mean": "lstm_slow",
-            "q_min":       "lstm_pred_min",
-            "q_max":       "lstm_pred_max",
         }, fallback_columns=fallback)
 
 
@@ -328,16 +303,12 @@ def build_lstm_single_parquets() -> None:
     """Build LSTM single sim Parquets for all available layer types."""
     sim_base = SIM_DIR / "single_lstm"
     fallback = {
-        "lstm_single_pred":     "q_total",
-        "lstm_single_pred_min": "q_total",
-        "lstm_single_pred_max": "q_total",
+        "lstm_single_pred": "q_total",
     }
     for layer_key in ("training_watersheds", "huc8"):
         sim_dir = sim_base / layer_key / "historical"
-        _build_sim_parquets(sim_dir, layer_key, "LSTM Single", {
+        _build_sim_parquets(sim_dir, layer_key, {
             "q_mean": "lstm_single_pred",
-            "q_min":  "lstm_single_pred_min",
-            "q_max":  "lstm_single_pred_max",
         }, fallback_columns=fallback)
 
 

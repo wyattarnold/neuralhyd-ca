@@ -6,11 +6,9 @@
 
 | Directory | Contents |
 |---|---|
-| `training/climate/watersheds/` | Daily climate CSVs per gauge (`climate_<basin_id>.csv`): precip_mm, tmax_c, tmin_c (1915–2018) |
-| `training/climate/huc12/` | Daily climate CSVs per HUC12 (manifest subset — only HUC12s overlapping training gauges; full domain is in `data/eval/climate/huc12/`) |
-| `training/flow/` | Quality-filtered daily streamflow + climate, split by tier (`tier_{1,2,3}/<basin_id>_cleaned.csv`) |
+| `training/climate/watersheds.zarr` | Daily watershed-mean climate cube per gauge basin: `precip_mm`, `tmax_c`, `tmin_c` (1915–2018) |
+| `training/flow.zarr` | Quality-filtered daily streamflow cube (cfs) per gauge basin, with each basin's tier |
 | `training/static/watersheds/` | Gauge-level attributes: `Physical_Attributes_Watersheds.csv`, `Climate_Statistics_Watersheds.csv` |
-| `training/static/huc12/` | HUC12-level attributes (manifest subset) |
 | `training/watersheds/` | Watershed boundaries (`watersheds.geojson`) and pour-point table (`watersheds.csv`) |
 | `training/output/` | Model outputs created at runtime — per-fold checkpoints (`best_model.pt`), basin results, and predicted timeseries |
 
@@ -18,8 +16,10 @@
 
 `raw/` — Immutable downloads, never modified by the pipeline.
 
+- `USGS_Table_1.csv` — USGS station table
 - `usgs/` — Original USGS daily streamflow downloads (219 gages; 210 pass strict QA/QC)
-- `watershed_geometry/` — Watershed boundaries and pour point shapefiles
+- `cdec/` — CDEC full-natural-flow station key (`FNF_key.csv`) and daily FNF records (`daily_fnf/`, with catalog and mapping audit)
+- `gis/` — GeoPackage layers: USGS training watersheds, CDEC FNF basins, WBD HUC8/10/12, VIC grid cells, clipped BasinATLAS level 12
 
 ## Processing Pipeline
 
@@ -27,13 +27,14 @@
 
 | Directory | Contents |
 |---|---|
-| `prepare/geo_ops/` | GIS intersection tables from ArcGIS (`BasinATLAS_v10_lev12_Intersect_Watersheds.csv`, `VICGrids_Intersect_Watersheds.csv`) — inputs to steps 4 and 5 |
+| `prepare/geo_ops/` | GIS intersection tables written by `--geo-intersect` (`BasinATLAS_v10_lev12_Intersect_<target>.csv`, `VICGrids_Intersect_<target>.csv` for Watersheds / HUC8 / HUC10 / HUC12) — inputs to steps 2 and 4 |
 | `prepare/verify_climate_data/` | Step 3 outputs — monthly average verification CSVs per basin |
 | `prepare/flow_precip_exceedance_filter/` | Step 6 outputs — cleaned/dropped flow CSVs, per-site figures, site metrics |
-| `prepare/qa_qc_report/` | Step 7 outputs — QA/QC section CSVs (`sec1_` through `sec7_`), full report, strictly-cleaned flow files |
-| `prepare/qa_qc_tier_sort/` | Step 8 outputs — flow/precip QA CSVs; also writes final tier-sorted files to `training/flow/` |
+| `prepare/qa_qc_report/` | Step 7 outputs — QA/QC section CSVs (`sec1_` through `sec8_`), full report, strictly-cleaned flow files |
+| `prepare/qa_qc_tier_sort/` | Step 8 outputs — flow/precip QA CSVs; also writes the final tiered flow cube `training/flow.zarr` |
 | `prepare/map_watersheds/` | Analysis — watershed map (PNG + PDF) |
 | `prepare/tier_characteristics/` | Analysis — tier characterisation CDF figures (PDF) |
+| `prepare/flow_extremes/` | Analysis — per-basin extreme-flow quantiles and ramp-coverage figures for extreme-loss calibration (`--analysis flow_extremes`) |
 
 ## External Comparison Data
 
@@ -47,16 +48,17 @@
 
 | File / directory | Contents |
 |---|---|
-| `dual_lstm.csv` | Per-basin evaluation metrics (NSE, KGE, FHV, FLV) for the dual-pathway LSTM 5-fold cross-validation |
-| `dual_lstm_cmal.csv` | Per-basin metrics for the dual-pathway LSTM with CMAL probabilistic head |
+| `dual_lstm.csv` | Per-basin evaluation metrics (NSE, KGE, FHV, FeHV, FLV) for the dual-pathway LSTM 5-fold cross-validation; FHV/FeHV/FLV are recomputed from each fold's timeseries with the flow-duration-curve definitions |
+| `single_lstm_cmal.csv` | Per-basin metrics for the single LSTM with CMAL probabilistic head |
 | `single_lstm.csv` | Per-basin metrics for the single LSTM baseline |
 | `moe_lstm.csv` | Per-basin metrics for the mixture-of-experts LSTM |
 | `vic_simulated.csv` | Per-basin metrics for VIC simulated runoff vs observed flow |
-| `cdf_nse.png`, `cdf_kge.png`, `cdf_fhv.png`, `cdf_flv.png` | CDF plots of each metric across all models (generated via `--cdf`) |
+| `cdf_nse.png`, `cdf_kge.png`, `cdf_fhv.png`, `cdf_fehv.png`, `cdf_flv.png` | CDF plots of each metric across all models (generated via `--cdf`) |
 | `cdf_kge_vic_comparison.png` | CDF of KGE comparing LSTM vs VIC calibrated/regionalized on overlapping basins |
 | `barplot_median_metrics.png` | Multipanel barplot of median metrics across VIC + LSTM runs (generated via `--barplot`) |
-| `sim/<run>/<target>/historical/` | Ensemble-simulated daily timeseries produced by `post_process.py --simulate` |
-| `climate/`, `static/` | Cached inputs for simulations over non-training domains (e.g. HUC8) |
+| `cdec_barplot.png` | Conventional-model baseline vs neural-model metrics on the 14 CDEC FNF basins (generated via `--cdec-barplot`) |
+| `sim/<run>/<target>/historical/` | Daily timeseries produced by `post_process.py --simulate`: held-out fold per basin for `training_watersheds`, all-fold ensemble for other targets |
+| `climate/<level>.zarr`, `static/<level>/` | Full-domain HUC8 / HUC10 / HUC12 climate cubes and static attributes (steps 2/4/5 with `--target huc*`), read by `--simulate --target huc*` |
 
 ## Gridded Inputs
 

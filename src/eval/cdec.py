@@ -2,10 +2,12 @@
 
 Evaluation period: 2003-10-01 through 2018-09-30 (post-calibration).
 
-The 15 CDEC reservoir stations map to 14 basins in the neural model training
-domain (BND is excluded — no matching PourPtID).  The conventional SAC-SMA
-simulations are in mm/day and were calibrated through 9/30/2003; only the
-post-calibration period is used for all models to ensure a fair comparison.
+The 15 CDEC reservoir stations map to 14 CDEC basins (BND is excluded — no
+matching PourPtID).  These basins only have held-out timeseries when a run
+was trained with ``include_cdec_basins = true`` (the default is false).  The
+conventional SAC-SMA simulations are in mm/day and were calibrated through
+9/30/2003; only the post-calibration period is used for all models to ensure
+a fair comparison.
 
 Public API
 ----------
@@ -146,9 +148,9 @@ def evaluate_cdec(
 ) -> dict[str, dict[str, dict[str, float]]]:
     """Evaluate each model on the 14 common CDEC basins.
 
-    The conventional SAC-SMA is always evaluated first, using the dPL model's
-    ``obs_mm`` column as the shared observed reference.  At least one of
-    *model_dirs* must be the dPL SAC-SMA output directory (it provides obs).
+    The conventional SAC-SMA is always evaluated first.  For each basin, the
+    first model with a held-out timeseries supplies the ``obs`` column used
+    as the shared observed reference.
 
     Parameters
     ----------
@@ -156,8 +158,7 @@ def evaluate_cdec(
         Sequence of training-output directories for the neural models, in the
         same order as *labels*.
     labels:
-        Display labels for each directory; the first entry whose directory
-        contains a dPL-style ``obs_mm`` column will supply the observed data.
+        Display labels for each directory, in the same order as *model_dirs*.
     sacsma_label:
         Display label for the conventional SAC-SMA baseline.
 
@@ -170,7 +171,7 @@ def evaluate_cdec(
     results: dict[str, dict[str, dict[str, float]]] = {lbl: {} for lbl in all_labels}
 
     for cdec_code, pourpt_id in CDEC_MAP:
-        # Find the dPL directory to use as the obs reference
+        # The first model with a held-out timeseries supplies the obs reference
         obs_ref_series: pd.Series | None = None
         for lbl, mdir in zip(labels, model_dirs):
             try:
@@ -178,16 +179,15 @@ def evaluate_cdec(
             except FileNotFoundError:
                 continue
             df = pd.read_csv(path, parse_dates=["date"], index_col="date")
-            obs_col_ref = next((c for c in ("obs_mm", "obs") if c in df.columns), None)
-            if obs_col_ref:
-                obs_ref_series = _clip(df[obs_col_ref]).dropna()
+            if "obs" in df.columns:
+                obs_ref_series = _clip(df["obs"]).dropna()
                 break
 
         if obs_ref_series is None:
             print(f"  WARNING: no observed series for {cdec_code} ({pourpt_id}) — skipping")
             continue
 
-        # Conventional SAC-SMA vs dPL obs
+        # Conventional SAC-SMA vs observed
         sacsma_sim = _clip(_read_sacsma(cdec_code))
         common = sacsma_sim.index.intersection(obs_ref_series.index)
         valid  = obs_ref_series.loc[common].notna() & sacsma_sim.loc[common].notna()
@@ -207,19 +207,13 @@ def evaluate_cdec(
                 print(f"  WARNING: {lbl} has no timeseries for {pourpt_id}")
                 continue
             df = pd.read_csv(path, parse_dates=["date"], index_col="date")
-
-            # Determine obs/pred column names
-            if "obs_mm" in df.columns and "pred_mm" in df.columns:
-                obs_col, pred_col = "obs_mm", "pred_mm"
-            elif "obs" in df.columns and "pred" in df.columns:
-                obs_col, pred_col = "obs", "pred"
-            else:
+            if "obs" not in df.columns or "pred" not in df.columns:
                 print(f"  WARNING: unrecognised columns in {path.name} — skipping")
                 continue
 
-            sub = _clip(df[[obs_col, pred_col]]).dropna()
+            sub = _clip(df[["obs", "pred"]]).dropna()
             results[lbl][pourpt_id] = _metrics(
-                sub[obs_col].to_numpy(), sub[pred_col].to_numpy()
+                sub["obs"].to_numpy(), sub["pred"].to_numpy()
             )
 
     return results
@@ -338,7 +332,8 @@ def plot_cdec_barplot(
         if metric in _YLIMS_FIXED:
             ax.set_ylim(*_YLIMS_FIXED[metric])
         else:
-            all_finite = np.concatenate([v for v in all_vals if len(v)])
+            nonempty = [v for v in all_vals if len(v)]
+            all_finite = np.concatenate(nonempty) if nonempty else np.array([])
             all_finite = all_finite[np.isfinite(all_finite)]
             if len(all_finite):
                 lo   = min(float(np.nanmin(all_finite)), 0)
@@ -419,6 +414,11 @@ def run_cdec_barplot(
           f"(period: {EVAL_START.date()} – {EVAL_END.date()}) ...")
 
     results = evaluate_cdec(model_dirs, labels, sacsma_label=sacsma_label)
+    if not any(results[lbl] for lbl in labels):
+        raise RuntimeError(
+            "No CDEC basin timeseries found in any run — CDEC basins are only "
+            "evaluated when a run is trained with include_cdec_basins = true."
+        )
 
     # Print summary
     all_labels = list(results.keys())

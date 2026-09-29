@@ -8,8 +8,10 @@ Design for memory efficiency:
   so resident memory scales with one polygon at a time, not the full table.
 
 Data sources per layer:
-  HUC layers       -> VIC-Sim only
-  training_watersheds -> VIC-Sim + observed (CFS) + LSTM dual (pred, fast, slow)
+  huc8                -> VIC-Sim + LSTM dual (pred, fast, slow) + LSTM single
+  training_watersheds -> VIC-Sim (total, baseflow, surface) + observed (CFS)
+                         + Lyne-Hollick obs baseflow + LSTM dual (pred, fast,
+                         slow) + LSTM single + conventional-model baseline (CDEC FNF basins)
 
 Run ``python -m app.build_data`` after source data changes to refresh.
 """

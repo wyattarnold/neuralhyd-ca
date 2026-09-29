@@ -1,7 +1,7 @@
 """Verify area-weighted climate data by calculating monthly averages.
 
-Reads climate files from data/training/climate/watersheds/ and produces monthly average
-tables plus summary statistics.  Output goes to data/prepare/climate_verification/.
+Reads the climate cube data/training/climate/watersheds.zarr and produces monthly average
+tables plus summary statistics.  Output goes to data/prepare/verify_climate_data/.
 """
 from __future__ import annotations
 

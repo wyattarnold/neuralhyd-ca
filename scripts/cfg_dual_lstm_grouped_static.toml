@@ -4,14 +4,12 @@
 # =============================================================================
 
 [paths]
-data_dir             = "../data"
 climate_zarr          = "../data/training/climate/watersheds.zarr"
 flow_zarr             = "../data/training/flow.zarr"
 static_basin_atlas   = "../data/training/static/watersheds/Physical_Attributes_Watersheds.csv"
 static_climate       = "../data/training/static/watersheds/Climate_Statistics_Watersheds.csv"
 
 [basins]
-training_manifest    = "gages"
 include_cdec_basins  = false
 
 [sequence]
@@ -28,7 +26,7 @@ static_dropout       = 0.25
 basin_loss_weight_exponent = 0.25
 
 [static_encoding]
-static_attribute_mode = "grouped"
+# The GroupedStaticEncoder is selected by the [static_feature_groups] table.
 static_group_dropout  = 0.15
 
 [aux_loss]

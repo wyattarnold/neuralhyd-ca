@@ -12,11 +12,9 @@ Via the pipeline:
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 
 import geopandas as gpd
-import pandas as pd
 
 from src.paths import (
     GEO_OPS_DIR, BASIN_ATLAS_CLIPPED, VIC_GRIDS_GPKG,

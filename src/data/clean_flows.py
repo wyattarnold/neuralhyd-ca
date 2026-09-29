@@ -1,12 +1,12 @@
 """Clean raw USGS/CDEC flow files using exceedance-based precip filtering.
 
 For each site:
-  1. Merge raw USGS flow with area-weighted climate
+  1. Merge raw USGS/CDEC flow with area-weighted climate
   2. Iteratively drop extreme-flow days where 3-day precip is implausibly low
      (criteria from original USGS_qaqc.ipynb)
-  3. Save cleaned CSV to data/intermediate/flow_cleaned/<site>_cleaned.csv
-  4. Save dropped rows to data/intermediate/flow_dropped/<site>_dropped.csv
-  5. Save one QA figure per site to data/prepare/figures/<site>_exceedance.png
+  3. Save cleaned CSV to data/prepare/flow_precip_exceedance_filter/flow_cleaned/<site>_cleaned.csv
+  4. Save dropped rows to data/prepare/flow_precip_exceedance_filter/flow_dropped/<site>_dropped.csv
+  5. Save one QA figure per site to data/prepare/flow_precip_exceedance_filter/figures/<site>_filter.png
 
 The figure shows the top-15 exceedance points with:
   - Green markers = retained
@@ -16,7 +16,6 @@ The figure shows the top-15 exceedance points with:
 """
 from __future__ import annotations
 
-import csv
 from pathlib import Path
 
 import matplotlib
@@ -25,8 +24,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from src.data.io import load_climate_dataframes
-from src.data.io import load_climate_dataframes, detect_flow_col
+from src.data.io import load_climate_dataframes, detect_flow_col, raw_flow_path
 from src.paths import (
     CLIMATE_STATS_OUTPUT,
     CLIMATE_WATERSHEDS_ZARR,
@@ -47,13 +45,6 @@ SNOW_FRAC_THRESH = 0.1       # basin snow_fraction above which exemption applies
 MELT_MONTHS = {3, 4, 5, 6, 7}  # Mar–Jul
 WINTER_PRECIP_WINDOW = 280    # rolling lookback (days) for winter accumulation
 WINTER_PRECIP_MIN = 100       # mm cumulative to trigger exemption
-
-
-def _raw_flow_path(site: str) -> Path:
-    cdec_path = CDEC_DAILY_FNF_DIR / f"{site}.csv"
-    if site.startswith("990000") and cdec_path.exists():
-        return cdec_path
-    return RAW_USGS_DIR / f"{site}.csv"
 
 
 def _build_exc_df(df: pd.DataFrame) -> pd.DataFrame:
@@ -194,7 +185,7 @@ def process_site(
     columns ``precip_mm``, ``tmax_c``, ``tmin_c`` (loaded once from zarr by
     the caller).
     """
-    flow_path    = _raw_flow_path(site)
+    flow_path    = raw_flow_path(site)
     out_clean    = FLOW_CLEANED_DIR / f"{site}_cleaned.csv"
     out_dropped  = FLOW_DROPPED_DIR / f"{site}_dropped.csv"
     out_fig      = FIGURES_DIR / f"{site}_filter.png"
@@ -274,7 +265,7 @@ def process_site(
     }
 
 
-def main() -> None:
+def main(include_cdec: bool = True) -> None:
     FLOW_CLEANED_DIR.mkdir(parents=True, exist_ok=True)
     FLOW_DROPPED_DIR.mkdir(parents=True, exist_ok=True)
     FIGURES_DIR.mkdir(parents=True, exist_ok=True)
@@ -288,7 +279,9 @@ def main() -> None:
         )
 
     usgs_sites = {p.stem for p in RAW_USGS_DIR.glob("*.csv") if not p.stem.startswith("990000")}
-    cdec_sites = {p.stem for p in CDEC_DAILY_FNF_DIR.glob("990000*.csv")}
+    cdec_sites = (
+        {p.stem for p in CDEC_DAILY_FNF_DIR.glob("990000*.csv")} if include_cdec else set()
+    )
     sites = sorted(usgs_sites | cdec_sites)
     print(f"Found {len(sites)} sites ({len(usgs_sites)} USGS, {len(cdec_sites)} CDEC).")
 
@@ -303,7 +296,7 @@ def main() -> None:
         print(f"[{i}/{len(sites)}] {site} (snow_frac={sf:.2f}) ... ", end="", flush=True)
         result = process_site(site, snow_fraction=sf, climate_df=climate_dfs.get(site))
         # detect which flow column was used for site_metrics.csv
-        flow_path = _raw_flow_path(site)
+        flow_path = raw_flow_path(site)
         flow_col = None
         if flow_path.exists():
             try:

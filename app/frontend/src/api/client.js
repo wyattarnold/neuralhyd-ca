@@ -6,7 +6,6 @@ async function fetchJSON(path) {
   return res.json();
 }
 
-export const fetchLayers = () => fetchJSON("/layers");
 export const fetchLayerGeoJSON = (key) => fetchJSON(`/layers/${key}/geojson`);
 export const fetchTimeseries = (layerKey, polygonId) =>
   fetchJSON(`/timeseries/${layerKey}/${polygonId}`);

@@ -70,7 +70,7 @@ export default function WatershedNseTable({ selectedId, onSelectBasin }) {
               onClick={() => {
                 if (onSelectBasin) {
                   const props = featureLookup.get(r.id) ?? {};
-                  onSelectBasin(r.id, r.id, props);
+                  onSelectBasin(r.id, props.name || r.id, props);
                 }
               }}
             >

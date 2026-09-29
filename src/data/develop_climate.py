@@ -2,8 +2,9 @@
 
 Reads VICGrids intersect table and gridded meteo files to produce
 area-weighted daily precipitation, tmax, and tmin for each watershed.
-Output goes to data/training/climate/<target>/ (default ``target="watersheds"``)
-or data/eval/climate/<target>/ when ``scope="eval"``.
+Output goes to data/training/climate/watersheds.zarr (default
+``target="watersheds"``) or data/eval/climate/<target>.zarr for HUC targets
+(``scope="eval"``).
 
 The meteo directory must be supplied as an argument (it is a large external
 dataset not stored in the repo).
@@ -242,17 +243,15 @@ def main(
         Polygon target (``"watersheds"``, ``"huc8"``, ``"huc10"``, ``"huc12"``).
     scope_ids : list or set, optional
         When provided, restrict processing to this subset of PourPtIDs.
-        Used by HUC subbasin data prep to limit climate generation to
-        only the sub-basins touched by kept gauges (see
-        ``<LEVEL>_In_Scope.csv`` written by ``subbasin_gauge_intersect``).
     force : bool
         If False (default), skip any PourPtID already present in the
         existing climate zarr cube.  Set True to regenerate from scratch.
     scope : {"training", "eval"}
         Selects the output root.  ``"training"`` (default) writes to
-        ``data/training/climate/<target>.zarr``; ``"eval"`` writes the
-        full-domain outputs to ``data/eval/climate/<target>.zarr``.  For
-        ``target="watersheds"`` only ``"training"`` is valid.
+        ``data/training/climate/watersheds.zarr``; ``"eval"`` writes the
+        full-domain outputs to ``data/eval/climate/<target>.zarr``.
+        ``"training"`` is valid only for ``target="watersheds"`` and
+        ``"eval"`` only for the HUC targets.
     """
     if meteo_dir is None:
         if len(sys.argv) < 2:

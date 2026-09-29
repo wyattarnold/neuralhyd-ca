@@ -2,8 +2,9 @@
 
 Reads the GIS intersect table and calculates weighted averages (or spatial
 majority for class attributes) per watershed. Output goes to
-data/training/static/<target>/Physical_Attributes_<TARGET>.csv
-(or data/eval/static/<target>/... when scope="eval").
+data/training/static/watersheds/Physical_Attributes_Watersheds.csv
+(or data/eval/static/<target>/Physical_Attributes_<TARGET>.csv for HUC
+targets, scope="eval").
 """
 from __future__ import annotations
 
@@ -11,8 +12,6 @@ import numpy as np
 import pandas as pd
 
 from src.paths import (
-    BASIN_ATLAS_INPUT,
-    BASIN_ATLAS_OUTPUT,
     WATERSHED_GEOMETRY,
     get_target_paths,
     get_eval_target_paths,

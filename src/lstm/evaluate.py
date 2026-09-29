@@ -6,13 +6,13 @@ metrics are computed so that NSE/KGE/FHV/FLV are in physical units
 
 Key exports
 -----------
-evaluate_basin(model, dataset, basin_id, norm_stats, config, device)
-    Run inference for a single basin and return a metrics dict plus the
-    observed-vs-predicted timeseries DataFrame.
-evaluate_fold(model, val_basins, basin_data, norm_stats, config, device)
+evaluate_basin(model, basin_data, config, device)
+    Run inference for one basin (an entry of ``HydroDataset.basin_data``)
+    and return a dict of metrics plus the observed / predicted arrays.
+evaluate_fold(model, val_dataset, tier_map, config, fold_idx, device)
     Evaluate all held-out basins in a fold; write per-basin CSVs to
-    ``output_dir/fold_<n>/timeseries/`` and return a combined
-    ``basin_results.csv`` DataFrame with tier-grouped summary rows.
+    ``output_dir/fold_<n>/timeseries/``, save ``basin_results.csv`` and
+    return it as a per-basin DataFrame (tier medians are printed).
 """
 
 from __future__ import annotations
@@ -62,6 +62,7 @@ def evaluate_basin(
 
     all_pred, all_obs, all_fast, all_slow = [], [], [], []
     all_q_experts: list = []
+    pi_sum = None  # MoE gate weights, summed over batches weighted by batch size
     # CMAL distribution params (collected per batch for quantile computation)
     cmal_pi, cmal_mu, cmal_bl, cmal_br = [], [], [], []
     use_cmal = config.output_type == "cmal"
@@ -84,6 +85,9 @@ def evaluate_basin(
 
         if hasattr(m, "_last_q_experts"):
             all_q_experts.append(m._last_q_experts.cpu().numpy() * scale)
+        if hasattr(m, "_last_pi"):
+            batch_pi = m._last_pi.cpu().numpy() * len(batch_idx)
+            pi_sum = batch_pi if pi_sum is None else pi_sum + batch_pi
 
         # Collect CMAL params (in normalised space — denormalise later)
         if use_cmal:
@@ -132,18 +136,13 @@ def evaluate_basin(
         covered = np.sum((obs >= q05) & (obs <= q95))
         result["picp_90"] = float(covered / len(obs)) if len(obs) > 0 else float("nan")
 
-    # Capture MoE gate weights and per-expert predictions.
-    m = _unwrap_model(model)
-    gate_names = getattr(m, "gate_output_names", None)
-    expert_names = getattr(m, "expert_output_names", gate_names)
-    if hasattr(m, "_last_pi"):
-        pi = m._last_pi.cpu().numpy()
-        for i, v in enumerate(pi):
-            key = f"pi_{gate_names[i]}" if gate_names is not None else f"pi_{i}"
-            result[key] = float(v)
+    # Capture MoE gate weights (mean over all of the basin's days) and
+    # per-expert predictions.
+    if pi_sum is not None:
+        for i, v in enumerate(pi_sum / len(valid_idx)):
+            result[f"pi_{i}"] = float(v)
     if q_experts is not None:
         result["q_experts"] = q_experts
-        result["expert_names"] = expert_names
 
     return result
 
@@ -201,9 +200,8 @@ def evaluate_fold(
                     ts_data[col] = res[col]
         if "q_experts" in res:
             q_experts = res["q_experts"]
-            names = res.get("expert_names") or [str(i) for i in range(q_experts.shape[1])]
-            for i, name in enumerate(names):
-                ts_data[f"q_{name}"] = q_experts[:, i]
+            for i in range(q_experts.shape[1]):
+                ts_data[f"q_{i}"] = q_experts[:, i]
         ts = pd.DataFrame(ts_data)
         ts.to_csv(ts_dir / f"{bid}.csv", index=False)
 

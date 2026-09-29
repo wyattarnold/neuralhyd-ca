@@ -39,10 +39,7 @@ GIS_DIR              = RAW_DIR / "gis"
 USGS_WATERSHEDS_GPKG = GIS_DIR / "USGS_Training_Watersheds.gpkg"
 CDEC_FNF_GPKG        = GIS_DIR / "cdec_fnf.gpkg"
 WATERSHEDS_GPKG      = GEO_OPS_DIR / "Training_Watersheds.gpkg"
-POUR_POINTS_GPKG     = GIS_DIR / "USGS_Training_Watersheds_Pour_Points.gpkg"
 VIC_GRIDS_GPKG       = GIS_DIR / "VICGrids_CAORNV_LatLong.gpkg"
-WBDHU4_GPKG          = GIS_DIR / "WBDHU4.gpkg"
-WBDHU6_GPKG          = GIS_DIR / "WBDHU6.gpkg"
 WBDHU8_GPKG          = GIS_DIR / "WBDHU8.gpkg"
 WBDHU10_GPKG         = GIS_DIR / "WBDHU10.gpkg"
 WBDHU12_GPKG         = GIS_DIR / "WBDHU12.gpkg"
@@ -55,10 +52,10 @@ WATERSHED_GEOJSON    = WATERSHEDS_DIR / "watersheds.geojson"
 # ---------------------------------------------------------------------------
 # Training data (final outputs used by the model)
 #
-# Layout: ``data/training/{climate,static}/<polygon-target>/`` for static
-# attributes; daily climate + flow time series are consolidated into compact
-# zarr cubes (see below).  ``<polygon-target>`` is one of ``watersheds``
-# (USGS + CDEC gauge basins), ``huc8``, ``huc10``, ``huc12``.
+# Layout: ``data/training/static/watersheds/`` for static attributes of the
+# gauge basins (USGS + CDEC); daily climate + flow time series are
+# consolidated into compact zarr cubes (see below).  HUC8/10/12 targets are
+# full-domain, inference-only products under ``data/eval/``.
 # ---------------------------------------------------------------------------
 TRAINING_CLIMATE_ROOT = TRAINING_DIR / "climate"
 TRAINING_STATIC_ROOT  = TRAINING_DIR / "static"
@@ -69,12 +66,9 @@ TRAINING_OUTPUT_DIR  = TRAINING_DIR / "output"
 # Compact zarr cube stores (single source of truth for daily time series).
 # ---------------------------------------------------------------------------
 CLIMATE_WATERSHEDS_ZARR = TRAINING_CLIMATE_ROOT / "watersheds.zarr"
-CLIMATE_HUC12_ZARR      = TRAINING_CLIMATE_ROOT / "huc12.zarr"
 FLOW_ZARR               = TRAINING_DIR / "flow.zarr"
 
-# Static attribute inputs (GIS intersect tables — in prepare/geo_ops/)
-VICGRIDS_FILE        = GEO_OPS_DIR / "VICGrids_Intersect_Watersheds.csv"
-BASIN_ATLAS_INPUT    = GEO_OPS_DIR / "BasinATLAS_v10_lev12_Intersect_Watersheds.csv"
+# Static attribute source layer (intersected with the targets by geo_intersect)
 BASIN_ATLAS_CLIPPED  = GIS_DIR / "BasinATLAS_v10_lev12_clipped.gpkg"
 
 # Static attribute outputs (weighted averages)
@@ -82,7 +76,7 @@ BASIN_ATLAS_OUTPUT   = STATIC_DIR / "Physical_Attributes_Watersheds.csv"
 CLIMATE_STATS_OUTPUT = STATIC_DIR / "Climate_Statistics_Watersheds.csv"
 
 # ---------------------------------------------------------------------------
-# Target-aware path resolution (watersheds / huc8 / huc10)
+# Target-aware path resolution (watersheds / huc8 / huc10 / huc12)
 # ---------------------------------------------------------------------------
 
 _TARGET_SUFFIX: dict[str, str] = {
@@ -95,19 +89,21 @@ _TARGET_SUFFIX: dict[str, str] = {
 
 
 def get_target_paths(target: str = "watersheds") -> dict[str, Path]:
-    """Return input/output paths for a given polygon target.
+    """Return input/output paths for the gauge-watershed training domain.
 
-    All targets now live under ``data/training/{climate,static}/<target>/``.
-    For HUC targets the *full-domain* climate/static outputs additionally land
-    in ``data/eval/{climate,static}/<target>/`` (see ``get_eval_target_paths``);
-    the training subset is copied into the training tree by step 9 so trainable
-    configs only need a single root.
+    Only ``watersheds`` (alias ``training_watersheds``) lives under
+    ``data/training/``.  HUC targets are full-domain, inference-only outputs
+    under ``data/eval/``; use ``get_eval_target_paths`` for those.
     """
+    if target not in ("watersheds", "training_watersheds"):
+        raise ValueError(
+            f"No training-tree outputs for target {target!r}; "
+            f"use get_eval_target_paths() for HUC targets."
+        )
     suffix = _TARGET_SUFFIX[target]
-    key = "watersheds" if target in ("watersheds", "training_watersheds") else target
-    static_dir  = TRAINING_STATIC_ROOT / key
+    static_dir  = STATIC_DIR
     return {
-        "climate_zarr":         TRAINING_CLIMATE_ROOT / f"{key}.zarr",
+        "climate_zarr":         CLIMATE_WATERSHEDS_ZARR,
         "static_dir":           static_dir,
         "vicgrids_file":        GEO_OPS_DIR / f"VICGrids_Intersect_{suffix}.csv",
         "basin_atlas_input":    GEO_OPS_DIR / f"BasinATLAS_v10_lev12_Intersect_{suffix}.csv",
@@ -119,8 +115,8 @@ def get_target_paths(target: str = "watersheds") -> dict[str, Path]:
 def get_eval_target_paths(target: str) -> dict[str, Path]:
     """Return paths under ``data/eval/{climate,static}/<target>/``.
 
-    Used by step 9 to write *full-domain* HUC8/10/12 climate + static outputs.
-    Only the manifest subset is later copied into the training tree.
+    Used by steps 2/4/5 (``scope="eval"``) to write, and by the simulator to
+    read, the *full-domain* HUC8/10/12 climate + static outputs.
     """
     suffix = _TARGET_SUFFIX[target]
     static_dir  = EVAL_DIR / "static" / target
@@ -156,7 +152,6 @@ FLOW_CLEANED_STRICT_DIR  = STEP_7_OUTPUT_DIR / "flow_cleaned_strict"
 # ---------------------------------------------------------------------------
 # QA outputs
 # ---------------------------------------------------------------------------
-QA_OUTPUT_DIR            = QA_DIR
 CLIMATE_VERIFICATION_DIR = STEP_3_OUTPUT_DIR
 QAQC_FLOW_PRECIP_CSV    = STEP_8_OUTPUT_DIR / "qaqc_flow_vs_precip_summary.csv"
 
@@ -165,14 +160,14 @@ QAQC_FLOW_PRECIP_CSV    = STEP_8_OUTPUT_DIR / "qaqc_flow_vs_precip_summary.csv"
 # ---------------------------------------------------------------------------
 MAP_WATERSHEDS_DIR       = QA_DIR / "map_watersheds"
 TIER_CHARACTERISTICS_DIR = QA_DIR / "tier_characteristics"
-SPATIAL_ANALYSIS_DIR     = QA_DIR / "spatial_analysis"
 
 # ---------------------------------------------------------------------------
 # Statewide 1/16° gridded inputs (scripts/prepare_gridded.py)
 # ---------------------------------------------------------------------------
 # Dense (lat, lon) products on the Livneh lattice: daily forcing, one NetCDF
-# per variable, plus the AlphaEarth 2017 static embedding.  The NetCDFs are
-# Git LFS objects excluded from the default fetch (.lfsconfig).
+# per variable, plus the AlphaEarth 2017 static embedding and its optional
+# 2017-2025 multi-year mean.  The NetCDFs are Git LFS objects excluded from
+# the default fetch (.lfsconfig).
 GRIDDED_DIR              = DATA_DIR / "gridded"
 GRIDDED_GRID_CSV         = GRIDDED_DIR / "grid_cells.csv"
 GRIDDED_X10_CSV          = GRIDDED_DIR / "precip_x10_corrections.csv"

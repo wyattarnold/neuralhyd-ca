@@ -2,7 +2,7 @@
 # neuralhyd-ca - single-LSTM gauge baseline
 # Run with: python scripts/train_kfold.py scripts/cfg_single_lstm.toml
 #
-# This config excludes dual-pathway, MoE, CMAL, and regime-gate sections because
+# This config excludes dual-pathway, MoE, and CMAL sections because
 # the single baseline reads only one recurrent hidden size plus shared training
 # and feature settings.
 # =============================================================================
@@ -10,17 +10,15 @@
 [paths]
 # Paths are resolved relative to this TOML file.  The output directory is
 # derived from the filename: cfg_single_lstm.toml -> output/single_lstm/.
-data_dir             = "../data"
 climate_zarr          = "../data/training/climate/watersheds.zarr"
 flow_zarr             = "../data/training/flow.zarr"
 static_basin_atlas   = "../data/training/static/watersheds/Physical_Attributes_Watersheds.csv"
 static_climate       = "../data/training/static/watersheds/Climate_Statistics_Watersheds.csv"
 
 [basins]
-# "gages" uses the gauge watershed domain.  USGS gauges only by default; set
+# Gauge watershed domain.  USGS gauges only by default; set
 # include_cdec_basins = true to add the 14 CDEC full-natural-flow basins
 # (needed for post_process.py --cdec-barplot).
-training_manifest    = "gages"
 include_cdec_basins  = false
 normalize_by_precip  = true
 
@@ -45,7 +43,8 @@ log_loss_lambda      = 0.05
 log_loss_epsilon     = 0.001
 
 [training]
-# AdamW schedule: warmup, cosine annealing, early stopping, then optional SWA.
+# Adam (L2 weight_decay) schedule: warmup, cosine annealing, early stopping,
+# then optional SWA.
 batch_size           = 512
 learning_rate        = 4e-4
 weight_decay         = 1e-4

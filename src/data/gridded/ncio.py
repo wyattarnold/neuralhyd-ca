@@ -45,7 +45,7 @@ import numpy as np
 import pandas as pd
 
 from src.data.gridded import lattice as L
-from src.paths import GRIDDED_PROVENANCE, GRIDDED_SHA256SUMS, PROJECT_ROOT
+from src.paths import GRIDDED_DIR, GRIDDED_PROVENANCE, GRIDDED_SHA256SUMS, PROJECT_ROOT
 
 #: Encoding of every gridded data variable.
 ZLIB = dict(zlib=True, complevel=4, shuffle=True)
@@ -152,16 +152,9 @@ def set_attrs(obj: netCDF4.Dataset | netCDF4.Variable, attrs: Mapping[str, Any])
 
 
 def part_path(final: str | os.PathLike) -> Path:
-    """Temporary sibling a product is written to before :func:`finalize`."""
+    """Temporary sibling a product is written to before :func:`finalize_all`."""
     final = Path(final)
     return final.with_name(final.name + ".part")
-
-
-def finalize(final: str | os.PathLike) -> Path:
-    """Atomically move ``<final>.part`` into place."""
-    final = Path(final)
-    os.replace(part_path(final), final)
-    return final
 
 
 def _backup_path(final: Path) -> Path:
@@ -208,6 +201,13 @@ def finalize_all(finals: list[str | os.PathLike]) -> list[Path]:
     for f in finals:
         _backup_path(f).unlink(missing_ok=True)
     return finals
+
+
+def is_repo_gridded_dir(path: str | os.PathLike) -> bool:
+    """True when ``path`` is the committed product directory (data/gridded)."""
+    def _norm(p: str | os.PathLike) -> str:
+        return os.path.normcase(os.path.realpath(p))
+    return _norm(path) == _norm(GRIDDED_DIR)
 
 
 def is_lfs_pointer(path: str | os.PathLike) -> bool:

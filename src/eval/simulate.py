@@ -8,7 +8,7 @@ Output directory structure:
 
 Where:
     <model>    = training run name (e.g. dual_lstm)
-    <type>     = input domain (training_watersheds, huc_8, huc_10)
+    <type>     = input domain (training_watersheds, watersheds, huc8, huc10, huc12)
     <scenario> = climate scenario (historical, ...)
 
 Each CSV contains: date, q_total, q_fast, q_slow (all CFS, 1 decimal).
@@ -193,7 +193,9 @@ def _normalise_basin(
 
     ``scale`` is the per-basin mean daily precipitation (mm/day), computed
     directly from the basin's climate record.  This works for any basin
-    with a climate file \u2014 no observed flow required.
+    with a climate file \u2014 no observed flow required.  It is 1.0 when the
+    run was trained with ``normalize_by_precip = false`` (targets in mm/day),
+    matching ``compute_norm_stats``.
     """
     clim_mean, clim_std = norm_stats["climate"]
     stat_mean, stat_std = norm_stats["static"]
@@ -213,9 +215,13 @@ def _normalise_basin(
     # Per-basin denormalisation scale: mean daily precipitation (mm/day).
     # Always available from the basin's own climate record \u2014 universally
     # computable for training watersheds, HUC8, HUC10, or any new basin.
-    precip_idx = config.dynamic_features.index("precip_mm")
-    precip_vals = climate_df.values[:, precip_idx]
-    scale = float(max(np.mean(precip_vals), 0.01))
+    # Runs trained without precip normalisation predict mm/day directly.
+    if config.normalize_by_precip:
+        precip_idx = config.dynamic_features.index("precip_mm")
+        precip_vals = climate_df.values[:, precip_idx]
+        scale = float(max(np.mean(precip_vals), 0.01))
+    else:
+        scale = 1.0
 
     return dynamic, static, dates, scale
 
@@ -377,7 +383,8 @@ def simulate_ensemble(
     ----------
     config_path : Path to the experiment TOML
     output_base : Root output directory (e.g. data/eval/sim/)
-    target      : "watersheds", "huc8", "huc10" or "huc12" — determines input data sources
+    target      : "training_watersheds", "watersheds", "huc8", "huc10" or "huc12"
+                  — determines input data sources
     device      : Torch device; auto-detected if None
 
     Returns

@@ -62,7 +62,7 @@ Output (``out_dir``, default ``data/gridded``)
     SHA256SUMS, provenance.toml          table ["forcing"]
 
 There is one file per variable so that each stays under GitHub LFS's 2 GB
-cap; they come to roughly 0.55, 1.25 and 1.3 GB.  Values are float32 with
+cap; they come to roughly 0.47, 1.25 and 1.3 GB.  Values are float32 with
 zlib(4) + shuffle and NaN outside the store cells (``mask == 0``).  Chunks are
 (time=1461, lat=16, lon=16).  1461 days is four years and divides the record
 exactly (26 x 1461 = 37,986).  A 16 x 16 cell chunk balances a per-cell series
@@ -471,7 +471,7 @@ def build_forcing(meteo_dir, *, out_dir=GRIDDED_DIR, rows: tuple[int, int] | Non
     meteo_dir = Path(meteo_dir)
     out_dir = Path(out_dir)
     subset = _parse_rows(rows)
-    if subset is not None and out_dir.resolve() == GRIDDED_DIR.resolve():
+    if subset is not None and ncio.is_repo_gridded_dir(out_dir):
         raise SystemExit(f"--rows is a smoke-test mode; refusing to write into {GRIDDED_DIR} "
                          f"(pass --out-dir)")
 
@@ -826,7 +826,7 @@ def _compare_product_a(meteo_dir: Path, pa_dir: Path, key: str) -> dict[str, Any
     pa_corr = (np.abs(pa - raw) > _PA_CORR_TOL) & (np.abs(pa - raw / 10.0) <= _PA_TOL)
     out["n_rule"] = int(rule.sum())
     out["n_pa_corr"] = int(pa_corr.sum())
-    out["max_diff"] = float(np.nanmax(diff)) if np.isfinite(diff).any() else float("inf")
+    known = np.zeros(diff.shape, dtype=bool)
     for t in np.flatnonzero(~(diff <= _PA_TOL)):          # NaN counts as a mismatch
         if rule[t] and abs(pa[t] - raw[t]) <= _PA_TOL:
             kind = "rule_day_not_corrected_by_pa"
@@ -834,12 +834,15 @@ def _compare_product_a(meteo_dir: Path, pa_dir: Path, key: str) -> dict[str, Any
             kind = "pa_correction_missed_by_rule"
         elif _is_known_non_rule(key, _date_str(t), raw[t], pa[t]):
             kind = "known_non_rule"
+            known[t] = True
         else:
             kind = "other"
         out["rows"].append({"key": key, "date": _date_str(t), "kind": kind,
                             "month": int(values[t, _C_MONTH]), "raw_mm": _fmt(raw[t]),
                             "expected_mm": _fmt(expected[t]), "product_a_mm": _fmt(pa[t]),
                             "abs_diff": _fmt(np.float64(round(float(diff[t]), 6)))})
+    kept = diff[~known]                                   # listed non-rule edits reported apart
+    out["max_diff"] = float(np.nanmax(kept)) if np.isfinite(kept).any() else float("inf")
     return out
 
 
@@ -938,7 +941,8 @@ def check_x10_product_a(meteo_dir, product_a_dir, *, sample: int | None = None, 
           + (f"  ({n_rule_cells} with rule pairs)" if n_rule_cells is not None else ""))
     print(f"  rule pairs (x10 days)         {n_rule}")
     print(f"  Product A x10 corrections     {n_pa_corr}")
-    print(f"  max |PA - expected|           {max_diff:.4f} mm  (tolerance {_PA_TOL})")
+    print(f"  max |PA - expected|           {max_diff:.4f} mm  (tolerance {_PA_TOL}; "
+          f"known non-rule edits excluded)")
     print(f"  (i)   rule days PA left raw   {n_i}")
     print(f"  (ii)  PA corrections missed   {n_ii}")
     print(f"  (iii) other mismatches        {n_iii}")
@@ -1022,8 +1026,7 @@ def verify_forcing(out_dir=GRIDDED_DIR, *, meteo_dir=None, sample: int = 64, see
                f"{', '.join(stubs)}; fetch them with {ncio.LFS_PULL_HINT}" if stubs else ""):
         return False
     prov = ncio.read_provenance(out_dir / GRIDDED_PROVENANCE.name).get("forcing", {})
-    is_repo_dir = os.path.normcase(os.path.realpath(out_dir)) == \
-        os.path.normcase(os.path.realpath(GRIDDED_DIR))
+    is_repo_dir = ncio.is_repo_gridded_dir(out_dir)
 
     ds = {var: netCDF4.Dataset(finals[var], "r") for var in VARS}
     try:

@@ -2,12 +2,13 @@
 
 Key exports
 -----------
-train_epoch(model, loader, optimiser, config)
-    One forward + backward pass over all batches; returns mean loss.
-validate_epoch(model, loader, config)
-    Inference-only pass; returns mean validation loss.
-train_model(model, train_loader, val_loader, config, norm_stats)
-    Full training run with warmup â†' cosine annealing â†' optional SWA,
+train_epoch(model, loader, optimizer, device, config)
+    One forward + backward pass over all batches; returns mean
+    (primary loss, total loss).
+validate_epoch(model, loader, device, config)
+    Inference-only pass; returns (mean loss, median NSE, median KGE).
+train_model(model, train_loader, val_loader, config, fold_idx, device, norm_stats=...)
+    Full training run with warmup → cosine annealing → optional SWA,
     using patience-based transitions.  Saves ``best_model.pt`` when the
     configured validation selection metric improves; bundles ``norm_stats``
     into the checkpoint.
@@ -124,28 +125,11 @@ def _blended_primary(
     return (1 - lam) * mse_term + lam * log_term
 
 
-def _weighted_mean_tensor(
-    per_sample: torch.Tensor,
-    sample_weights: torch.Tensor,
-) -> torch.Tensor:
-    return (per_sample * sample_weights).sum() / (sample_weights.sum() + 1e-8)
-
-
-def _weighted_bias_pct(
-    pred: torch.Tensor,
-    target: torch.Tensor,
-    sample_weights: torch.Tensor,
-) -> torch.Tensor:
-    numer = ((pred - target) * sample_weights).sum()
-    denom = (target * sample_weights).sum().clamp_min(1e-8)
-    return numer / denom * 100.0
-
-
-
 def _is_improved(value: float, best: float, min_delta: float) -> bool:
     if not math.isfinite(best):
         return True
-    return value < best * (1.0 - min_delta)
+    # Relative margin on |best| so the check also holds for negative losses (CMAL NLL).
+    return value < best - min_delta * abs(best)
 
 
 def _selection_metric(config: Config) -> str:
@@ -189,10 +173,6 @@ def _is_selection_better(value: float, reference: float, config: Config) -> bool
     if _selection_metric(config) == "loss":
         return value < reference
     return value > reference
-
-
-def _get_train_stats(model: torch.nn.Module) -> dict:
-    return getattr(_unwrap_model(model), "_last_train_stats", {})
 
 
 def train_epoch(
@@ -309,13 +289,18 @@ def validate_epoch(
 ) -> tuple[float, float, float]:
     """Returns (loss, median_nse, median_kge) computed per basin then aggregated.
 
-    When *config* indicates CMAL output, the loss is CMAL NLL; otherwise MSE.
+    When *config* indicates CMAL output, the loss is CMAL CRPS or NLL
+    (per ``cmal_loss``); otherwise MSE.  For MoE models the gate weights
+    ``_last_pi`` are left as their mean over the whole validation set.
     """
     model.eval()
     total_loss = torch.tensor(0.0, device=device)
     n = 0
     use_cmal = config is not None and config.output_type == "cmal"
     cmal_use_crps = use_cmal and config is not None and config.cmal_loss == "crps"
+    m = _unwrap_model(model)
+    pi_sum = None
+    n_samples = 0
     # Accumulate per-basin predictions and observations
     basin_pred: dict[int, list] = {}
     basin_obs: dict[int, list] = {}
@@ -343,6 +328,10 @@ def validate_epoch(
             else:
                 total_loss += mse_loss(q_total, y, sample_weights=basin_w)
         n += 1
+        if hasattr(m, "_last_pi"):
+            batch_pi = m._last_pi * y.shape[0]
+            pi_sum = batch_pi if pi_sum is None else pi_sum + batch_pi
+            n_samples += y.shape[0]
         # denormalise for NSE/KGE (scale = per-basin precip_mean)
         scale = _to(pmean, device)
         pred_de = (q_total.float() * scale).cpu().numpy()
@@ -353,6 +342,8 @@ def validate_epoch(
             basin_pred.setdefault(bid, []).append(pred_de[i])
             basin_obs.setdefault(bid, []).append(obs_de[i])
     mse = total_loss.item() / max(n, 1)
+    if pi_sum is not None:
+        m._last_pi = pi_sum / n_samples  # validation-set mean, read by _get_gate_stats
     # Per-basin NSE/KGE, then take median
     nses, kges = [], []
     for bid in basin_pred:
@@ -403,17 +394,14 @@ def _get_gate_stats(model: torch.nn.Module) -> dict | None:
         tau_min = getattr(m, "tau_min", None)
         if tau_min is not None:
             stats["tau_eff"] = max(stats["tau"], float(tau_min))
-    gate_names = getattr(m, "gate_output_names", None)
     if hasattr(m, "_last_pi"):
         pi = m._last_pi
         for i in range(pi.shape[0]):
-            key = f"pi_{gate_names[i]}" if gate_names is not None else f"pi_{i}"
-            stats[key] = pi[i].item()
+            stats[f"pi_{i}"] = pi[i].item()
     else:
         # Before the first forward pass, fill with NaN so columns exist
         for i in range(n_out):
-            key = f"pi_{gate_names[i]}" if gate_names is not None else f"pi_{i}"
-            stats[key] = float("nan")
+            stats[f"pi_{i}"] = float("nan")
     return stats
 
 
@@ -443,21 +431,15 @@ def train_model(
     config: Config,
     fold_idx: int,
     device: torch.device,
-    epoch_callback: callable | None = None,
     norm_stats: dict | None = None,
 ) -> tuple[torch.nn.Module, dict]:
-    """Train with warmup â†' cosine â†' optional SWA. Returns (best model, history).
+    """Train with warmup → cosine → optional SWA. Returns (best model, history).
 
     Two phases controlled by a single patience counter:
       1. Normal training: warmup then cosine LR.  Best checkpoint saved.
-         When patience exhausts â†' if use_swa, activate SWA; else stop.
+         When patience exhausts → if use_swa, activate SWA; else stop.
       2. SWA phase: fixed low LR, weight averaging every epoch.
-         When patience exhausts again â†' stop.  Final averaged model returned.
-
-    If *epoch_callback* is provided, it is called as
-    ``epoch_callback(epoch, val_loss)`` after each validation step.
-    The callback may raise an exception (e.g. ``optuna.TrialPruned``)
-    to terminate training early.
+         When patience exhausts again → stop.  Final averaged model returned.
 
     If *norm_stats* is provided, it is bundled into the checkpoint so
     that normalisation can be recovered at inference time.
@@ -465,9 +447,6 @@ def train_model(
     A ``log.txt`` file is written to the fold directory with per-epoch
     metrics (train loss, val loss, NSE, KGE, LR, and gate diagnostics).
     """
-    _train_epoch_impl = train_epoch
-    _validate_epoch_impl = validate_epoch
-
     decay_params = []
     no_decay_params = []
     for name, param in model.named_parameters():
@@ -482,7 +461,7 @@ def train_model(
         param_groups.append({"params": no_decay_params, "weight_decay": 0.0})
     optimizer = torch.optim.Adam(param_groups, lr=config.learning_rate)
 
-    # Warmup â†' cosine annealing
+    # Warmup → cosine annealing
     # When warmup_epochs=0 (e.g. fine-tuning pretrained weights), skip the
     # warmup and use bare cosine to avoid SequentialLR edge cases.
     if config.warmup_epochs > 0:
@@ -526,14 +505,12 @@ def train_model(
 
     # Determine whether model has a gating network (for extra columns)
     has_gate = _get_gate_stats(model) is not None
-    train_extra_keys: list[str] = []
 
     best_val = _initial_selection_score(config)
     raw_best_score = _initial_selection_score(config)
     swa_best_score = _initial_selection_score(config)
     wait = 0
     swa_active = False
-    curriculum_phase = "daily"
 
     if config.output_type == "cmal":
         _loss_tag = config.cmal_loss          # "nll" or "crps"
@@ -547,8 +524,6 @@ def train_model(
         f"train_{_loss_tag}": [], "train_total": [],
         f"val_{_loss_tag}": [], "val_nse": [], "val_kge": [],
     }
-    for key in train_extra_keys:
-        history[key] = []
     if has_gate:
         _init_gate = _get_gate_stats(model)
         if "tau" in _init_gate:
@@ -556,11 +531,7 @@ def train_model(
         if "tau_eff" in _init_gate:
             history["tau_eff"] = []
         # Pre-populate pi column names from initial stats
-        gate_names = getattr(_unwrap_model(model), "gate_output_names", None)
-        if gate_names is not None:
-            gate_pi_keys = [f"pi_{name}" for name in gate_names]
-        else:
-            gate_pi_keys = [k for k in sorted(_init_gate) if k.startswith("pi_")]
+        gate_pi_keys = [k for k in sorted(_init_gate) if k.startswith("pi_")]
         for k in gate_pi_keys:
             history[k] = []
 
@@ -571,7 +542,6 @@ def train_model(
         f"train_{_loss_tag}", "train_total",
         f"val_{_loss_tag}", "val_nse", "val_kge",
     ]
-    _log_columns.extend(train_extra_keys)
     if has_gate:
         if "tau" in _init_gate:
             _log_columns.append("tau")
@@ -585,10 +555,8 @@ def train_model(
     def _record_epoch(epoch: int, phase: str, lr: float,
                       train_mse: float, train_total: float,
                       val_loss: float, val_nse: float, val_kge: float,
-                      active_model: torch.nn.Module,
-                      train_extra: dict | None = None) -> None:
+                      active_model: torch.nn.Module) -> None:
         """Append one row to history, log file, and console."""
-        train_extra = train_extra or {}
         history["epoch"].append(epoch)
         history["phase"].append(phase)
         history["lr"].append(lr)
@@ -597,8 +565,6 @@ def train_model(
         history[f"val_{_loss_tag}"].append(val_loss)
         history["val_nse"].append(val_nse)
         history["val_kge"].append(val_kge)
-        for key in train_extra_keys:
-            history[key].append(train_extra.get(key, float("nan")))
 
         # gate diagnostics
         gate_str = ""
@@ -638,8 +604,6 @@ def train_model(
             f"{train_mse:.6f}", f"{train_total:.6f}",
             f"{val_loss:.6f}", f"{val_nse:.4f}", f"{val_kge:.4f}",
         ]
-        for key in train_extra_keys:
-            row.append(f"{train_extra.get(key, float('nan')):.6f}")
         if has_gate:
             if "tau" in gs:
                 row.append(f"{gs['tau']:.6f}")
@@ -652,35 +616,29 @@ def train_model(
 
     try:
         # ---- Epoch 0: cold (random-weight) performance ----
-        val_loss_0, val_nse_0, val_kge_0 = _validate_epoch_impl(model, val_loader, device, config)
-        _record_epoch(0, f"init_{curriculum_phase}", 0.0, float("nan"), float("nan"),
+        val_loss_0, val_nse_0, val_kge_0 = validate_epoch(model, val_loader, device, config)
+        _record_epoch(0, "init_daily", 0.0, float("nan"), float("nan"),
                        val_loss_0, val_nse_0, val_kge_0, model)
 
         for epoch in range(1, config.num_epochs + 1):
-            train_mse, train_total = _train_epoch_impl(
+            train_mse, train_total = train_epoch(
                 model, train_loader, optimizer, device, config,
             )
 
             if swa_active:
                 swa_model.update_parameters(model)
                 swa_scheduler.step()
-                val_loss, val_nse, val_kge = _validate_epoch_impl(swa_model, val_loader, device, config)
+                val_loss, val_nse, val_kge = validate_epoch(swa_model, val_loader, device, config)
             else:
                 scheduler.step()
-                val_loss, val_nse, val_kge = _validate_epoch_impl(model, val_loader, device, config)
+                val_loss, val_nse, val_kge = validate_epoch(model, val_loader, device, config)
 
             lr_now = optimizer.param_groups[0]["lr"]
-            phase = "swa" if swa_active else curriculum_phase
+            phase = "swa" if swa_active else "daily"
             active_model = swa_model if swa_active else model
-            train_extra = _get_train_stats(model) if train_extra_keys else None
 
             _record_epoch(epoch, phase, lr_now, train_mse, train_total,
-                          val_loss, val_nse, val_kge, active_model,
-                          train_extra=train_extra)
-
-            if epoch_callback is not None:
-                epoch_callback(epoch, val_loss)
-
+                          val_loss, val_nse, val_kge, active_model)
 
             # Track improvement using the configured validation selection metric.
             selection_score = _validation_selection_score(val_loss, val_nse, val_kge, config)
@@ -697,7 +655,7 @@ def train_model(
             else:
                 wait += 1
 
-            # Patience exhausted â†' transition or stop
+            # Patience exhausted → transition or stop
             current_patience = config.swa_patience if swa_active else config.patience
             if wait >= current_patience:
                 if not swa_active and config.use_swa:

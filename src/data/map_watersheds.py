@@ -15,7 +15,6 @@ import geopandas as gpd
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import matplotlib.ticker as mticker
-from pathlib import Path
 
 from src.paths import (
     WATERSHED_GEOJSON,

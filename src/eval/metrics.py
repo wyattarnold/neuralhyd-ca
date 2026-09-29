@@ -27,9 +27,12 @@ def load_lstm_fold_results(output_dir: Path) -> pd.DataFrame:
         basin_id, tier, nse, kge, fhv, fehv, flv, n_obs
     Each basin appears once (from its held-out validation fold).
 
-    If any expected metric columns are missing (e.g. fehv added after
-    the run was trained), they are recomputed from the per-basin
-    timeseries CSVs stored in each fold's ``timeseries/`` directory.
+    FHV, FeHV and FLV are always recomputed with the current
+    ``src.lstm.loss`` definitions from the per-basin timeseries CSVs in
+    each fold's ``timeseries/`` directory, so runs scored with older
+    definitions match new ones.  Any other missing metric column is
+    backfilled the same way.  Basins without a timeseries CSV keep their
+    stored value (NaN for a missing column).
     """
     all_fold = output_dir / "all_fold_results.csv"
     if all_fold.exists():
@@ -45,11 +48,10 @@ def load_lstm_fold_results(output_dir: Path) -> pd.DataFrame:
             raise FileNotFoundError(f"No basin_results.csv found in {output_dir}")
         df = pd.concat(frames, ignore_index=True)
 
-    # Backfill any missing metric columns from timeseries
-    missing = [m for m in METRICS if m not in df.columns]
-    if missing:
-        df = _backfill_metrics(df, output_dir, missing)
-    return df
+    # Recompute the FDC metrics (stored values may use older definitions)
+    # plus any other missing metric column from the timeseries
+    cols = [m for m in METRICS if m in _FDC_METRICS or m not in df.columns]
+    return _recompute_metrics(df, output_dir, cols)
 
 
 _METRIC_FN = {
@@ -60,11 +62,17 @@ _METRIC_FN = {
     "flv": compute_flv,
 }
 
+_FDC_METRICS = ("fhv", "fehv", "flv")
 
-def _backfill_metrics(
-    df: pd.DataFrame, output_dir: Path, missing: List[str],
+
+def _recompute_metrics(
+    df: pd.DataFrame, output_dir: Path, cols: List[str],
 ) -> pd.DataFrame:
-    """Recompute *missing* metrics from per-basin timeseries CSVs."""
+    """Recompute *cols* from per-basin timeseries CSVs.
+
+    Basins without a timeseries CSV keep their stored value (NaN when the
+    column is missing).
+    """
     # Build basin_id → timeseries path mapping across folds
     ts_map: Dict[str, Path] = {}
     for fold_dir in sorted(output_dir.glob("fold_*")):
@@ -74,23 +82,24 @@ def _backfill_metrics(
         for ts_csv in ts_dir.glob("*.csv"):
             ts_map[ts_csv.stem] = ts_csv
 
-    new_cols: Dict[str, List[float]] = {m: [] for m in missing}
-    for _, row in df.iterrows():
-        bid = str(int(row["basin_id"]))
-        ts_path = ts_map.get(bid)
-        if ts_path is not None and ts_path.exists():
-            ts = pd.read_csv(ts_path)
-            obs = ts["obs"].values
-            pred = ts["pred"].values
-            for m in missing:
-                new_cols[m].append(float(_METRIC_FN[m](obs, pred)))
-        else:
-            for m in missing:
-                new_cols[m].append(float("nan"))
-
-    for m in missing:
-        df[m] = new_cols[m]
+    for m in cols:
+        if m not in df.columns:
+            df[m] = float("nan")
+    for i, bid in df["basin_id"].items():
+        ts_path = ts_map.get(str(int(bid)))
+        if ts_path is None:
+            continue
+        ts = pd.read_csv(ts_path, usecols=["obs", "pred"])
+        obs = ts["obs"].values
+        pred = ts["pred"].values
+        for m in cols:
+            df.at[i, m] = float(_METRIC_FN[m](obs, pred))
     return df
+
+
+def recompute_fdc_metrics(df: pd.DataFrame, output_dir: Path) -> pd.DataFrame:
+    """Recompute FHV/FeHV/FLV in *df* from *output_dir*'s fold timeseries."""
+    return _recompute_metrics(df, output_dir, list(_FDC_METRICS))
 
 
 # ---------------------------------------------------------------------------

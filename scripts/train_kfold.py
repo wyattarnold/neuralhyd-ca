@@ -15,7 +15,7 @@ directory is derived automatically from the filename unless the TOML sets
     python scripts/train_kfold.py scripts/cfg_single_lstm.toml
 
 Outputs (written to ``config.output_dir``):
-    all_fold_results.csv           Tier-median NSE/KGE/FHV/FLV per fold
+    all_fold_results.csv           Per-basin held-out metrics from every fold
     fold_<n>/best_model.pt         Checkpoint: model weights + norm_stats
     fold_<n>/basin_results.csv     Per-basin metrics for the held-out set
     fold_<n>/timeseries/           Observed vs predicted CSV per basin
@@ -121,7 +121,7 @@ def main() -> None:
         tee.close()
 
 
-def _main_lstm(config, config_path: Path, *, start_fold: int = 0, device=None) -> None:  # noqa: D401
+def _main_lstm(config, config_path: Path, *, start_fold: int = 0) -> None:  # noqa: D401
     print(f"Run started: {datetime.now().isoformat(timespec='seconds')}")
     print(f"Config: {config_path}")
     print(f"Output: {config.output_dir}")
