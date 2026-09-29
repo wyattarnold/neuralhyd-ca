@@ -13,7 +13,7 @@ All models in this family consume watershed-scale daily climate forcing and wate
 | [cfg_single_lstm_cmal.toml](./../../scripts/cfg_single_lstm_cmal.toml) | `single` with `output_type = "cmal"` | Single hidden state with a probabilistic CMAL head; point read off the mixture, FDC tails shaped through the CRPS. |
 | [cfg_moe_lstm.toml](./../../scripts/cfg_moe_lstm.toml) | `moe` | Unsupervised mixture-of-experts baseline with learnable softmax temperature. |
 
-All active configs use `training_manifest = "gages"`, the standard watershed-gauge domain. `include_cdec_basins = true` includes CDEC full-natural-flow pseudo-gauges when their flow, climate, and static rows are present.
+All active configs use `training_manifest = "gages"`, the standard watershed-gauge domain, with `include_cdec_basins = false` (also the `Config` default), so they train on the USGS gauges only. Setting `include_cdec_basins = true` adds the CDEC full-natural-flow pseudo-gauges when their flow, climate, and static rows are present.
 
 ## Shared Data Flow
 
@@ -248,7 +248,7 @@ Important settings in the active config:
 | --- | --- |
 | `model_type` | `single` |
 | `training_manifest` | `gages` |
-| `include_cdec_basins` | `true` |
+| `include_cdec_basins` | `false` |
 | `seq_len` | `365` |
 | `single_hidden_size` | `128` |
 | `static_embedding_dim` | `10` |
@@ -306,7 +306,7 @@ Important settings in the active config:
 | --- | --- |
 | `model_type` | `dual` |
 | `training_manifest` | `gages` |
-| `include_cdec_basins` | `true` |
+| `include_cdec_basins` | `false` |
 | `seq_len` | `365` |
 | `fast_window` | `28` |
 | `fast_hidden_size` | `64` |
@@ -468,7 +468,7 @@ Diagnostic interpretation depends on architecture. For single/MoE baselines, `q_
 
 ## CDEC FNF Basin Evaluation
 
-14 CDEC full-natural-flow (FNF) reservoir basins are included in training when `include_cdec_basins = true`. These are pseudo-gauges (IDs ≥ 990 000 000) reconstructed from reservoir inflow records. BND is excluded due to missing static attributes. Station-to-PourPtID mappings are defined in `src/eval/cdec.py:CDEC_MAP`.
+14 CDEC full-natural-flow (FNF) reservoir basins are prepared alongside the USGS gauges (they are in `flow.zarr`) but are excluded from training unless a config sets `include_cdec_basins = true`; the comparison below reads their held-out fold timeseries, so it needs a run trained that way. These are pseudo-gauges (IDs ≥ 990 000 000) reconstructed from reservoir inflow records. BND is excluded due to missing static attributes. Station-to-PourPtID mappings are defined in `src/eval/cdec.py:CDEC_MAP`.
 
 A dedicated post-training comparison (`post_process.py --cdec-barplot`) evaluates trained neural models against the conventional **SAC-SMA** model over the post-calibration window **2003-10-01 – 2018-09-30**. SAC-SMA daily simulations (mm/day) are in `data/external/sacsma15cdec/climate_historical/`. The comparison covers NSE, KGE, FHV, FeHV, and FLV across all 14 basins:
 

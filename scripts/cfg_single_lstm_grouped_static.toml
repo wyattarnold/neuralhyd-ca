@@ -12,7 +12,7 @@ static_climate       = "../data/training/static/watersheds/Climate_Statistics_Wa
 
 [basins]
 training_manifest    = "gages"
-include_cdec_basins  = true
+include_cdec_basins  = false
 
 [sequence]
 seq_len              = 365

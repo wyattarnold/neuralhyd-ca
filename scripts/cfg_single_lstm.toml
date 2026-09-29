@@ -17,10 +17,11 @@ static_basin_atlas   = "../data/training/static/watersheds/Physical_Attributes_W
 static_climate       = "../data/training/static/watersheds/Climate_Statistics_Watersheds.csv"
 
 [basins]
-# "gages" uses the gauge watershed domain.  CDEC full-natural-flow basins are
-# included when their flow, climate, and static rows are available.
+# "gages" uses the gauge watershed domain.  USGS gauges only by default; set
+# include_cdec_basins = true to add the 14 CDEC full-natural-flow basins
+# (needed for post_process.py --cdec-barplot).
 training_manifest    = "gages"
-include_cdec_basins  = true
+include_cdec_basins  = false
 normalize_by_precip  = true
 
 [sequence]

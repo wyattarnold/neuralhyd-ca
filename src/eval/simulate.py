@@ -183,7 +183,7 @@ def _discover_basins(config: Config) -> tuple[List[int], Dict[int, int]]:
 def _normalise_basin(
     climate_df: pd.DataFrame,
     static_df: pd.DataFrame,
-    basin_id: int,
+    basin_id: int | str,
     config: Config,
     norm_stats: dict,
 ) -> tuple[torch.Tensor, torch.Tensor, pd.DatetimeIndex, float]:
@@ -328,28 +328,32 @@ def simulate_training_watersheds(
 # Ensemble simulation (all folds × all basins)
 # ---------------------------------------------------------------------------
 
-def _discover_basins_from_climate_zarr(climate_zarr: Path) -> List[int]:
+def _discover_basins_from_climate_zarr(climate_zarr: Path) -> List[int] | List[str]:
     """Discover basin IDs from a climate zarr cube (no tier needed)."""
     from src.data.io import read_climate_zarr
 
     basins, _, _, dtype = read_climate_zarr(climate_zarr)
     if dtype == "int64":
         return [int(b) for b in basins]
-    return [int(b) for b in basins]
+    return [str(b) for b in basins]
 
 
 def _load_climate_from_zarr(
     climate_zarr: Path,
-    basin_ids: List[int],
+    basin_ids: List[int] | List[str],
     dynamic_features: List[str],
-) -> Dict[int, pd.DataFrame]:
-    """Load raw daily climate from an arbitrary zarr cube."""
+) -> Dict[object, pd.DataFrame]:
+    """Load raw daily climate from an arbitrary zarr cube.
+
+    Keys are returned exactly as ``load_climate_dataframes`` produces them
+    (``int`` for gauge-domain targets, ``str`` for HUC targets) —
+    no forced re-cast, so this works for both int and str basin-ID domains.
+    """
     from src.data.io import load_climate_dataframes
 
-    raw = load_climate_dataframes(
+    return load_climate_dataframes(
         climate_zarr, basin_ids=basin_ids, variables=dynamic_features
     )
-    return {int(bid): df for bid, df in raw.items()}
 
 
 def _load_static_from_paths(
@@ -358,12 +362,6 @@ def _load_static_from_paths(
     config: Config,
 ) -> tuple[pd.DataFrame, pd.Series]:
     """Load and prepare static attributes from explicit CSV paths."""
-    if config.static_attribute_mode != "gauge":
-        raise ValueError(
-            "simulate_ensemble(target=...) with explicit target paths currently supports "
-            "only static_attribute_mode='gauge'. Use --target training_watersheds for "
-            "HUC12 area-weighted dPL-static LSTM runs."
-        )
     return load_static_attributes(basin_atlas_path, climate_stats_path, config)
 
 
@@ -379,14 +377,14 @@ def simulate_ensemble(
     ----------
     config_path : Path to the experiment TOML
     output_base : Root output directory (e.g. data/eval/sim/)
-    target      : "watersheds" or "huc8" — determines input data sources
+    target      : "watersheds", "huc8", "huc10" or "huc12" — determines input data sources
     device      : Torch device; auto-detected if None
 
     Returns
     -------
     Path to the output directory containing per-basin ensemble CSVs.
     """
-    from src.paths import get_target_paths
+    from src.paths import get_target_paths, get_eval_target_paths
 
     config = load_config(config_path)
     run_name = config.output_dir.name
@@ -394,8 +392,16 @@ def simulate_ensemble(
     if device is None:
         device = pick_device()
 
-    # Resolve input paths based on target
-    target_paths = get_target_paths(target)
+    # Resolve input paths based on target.  The gauge-training domain
+    # ("watersheds" / "training_watersheds") is the only one materialised
+    # under data/training/; every other target accepted here (huc8/huc10/
+    # huc12) is an inference-only, full-domain target whose
+    # climate/static outputs live under data/eval/ (see get_eval_target_paths
+    # and scripts/prepare_data.py's scope="eval" routing).
+    target_paths = (
+        get_target_paths(target) if target in ("watersheds", "training_watersheds")
+        else get_eval_target_paths(target)
+    )
     climate_zarr = target_paths["climate_zarr"]
     basin_atlas_path = target_paths["basin_atlas_output"]
     climate_stats_path = target_paths["climate_stats_output"]
@@ -421,6 +427,12 @@ def simulate_ensemble(
     static_df, raw_area_km2 = _load_static_from_paths(
         basin_atlas_path, climate_stats_path, config,
     )
+    # pandas reads numeric PourPtIDs (HUC codes) as int64, while str-keyed
+    # climate cubes yield str IDs; key the static tables the same way.
+    if basin_ids and isinstance(basin_ids[0], str):
+        static_df.index = static_df.index.astype(str)
+        if raw_area_km2 is not None:
+            raw_area_km2.index = raw_area_km2.index.astype(str)
 
     # Keep only basins with both climate and static data
     basin_ids = [b for b in basin_ids if b in climate_data and b in static_df.index]

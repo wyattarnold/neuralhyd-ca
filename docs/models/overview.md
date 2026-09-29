@@ -102,7 +102,7 @@ python scripts/train_kfold.py scripts/cfg_single_lstm.toml
 
 Every active model is trained with spatial cross-validation: basins are split, not timesteps. The goal is ungauged-basin generalization, so no basin appears in both train and validation within a fold.
 
-All active configs use `training_manifest = "gages"`, which uses the gauge watershed domain after optional CDEC filtering and source intersection. The active trained runs include 210 USGS gauge watersheds plus 14 CDEC FNF pseudo-gauge basins (224 total) after QA/QC filtering and static-attribute intersection. Normalization statistics are computed from training basins only. Validation basins are held out for statistics, model fitting, and checkpoint selection except for their fixed metadata needed to construct tensors and report metrics.
+All active configs use `training_manifest = "gages"` with `include_cdec_basins = false`, so training uses the 210 USGS gauge watersheds that survive QA/QC filtering and static-attribute intersection. The 14 CDEC FNF pseudo-gauge basins are still prepared (`flow.zarr` holds 224 basins) and a config can opt back in with `include_cdec_basins = true`; the runs currently under `data/training/output/` were trained that way (224 basins). Normalization statistics are computed from training basins only. Validation basins are held out for statistics, model fitting, and checkpoint selection except for their fixed metadata needed to construct tensors and report metrics.
 
 ```mermaid
 flowchart LR

@@ -20,6 +20,7 @@ load_checkpoint(path, model, device)
 from __future__ import annotations
 
 import math
+import os
 import random
 from contextlib import nullcontext
 
@@ -38,7 +39,14 @@ from .loss import (
 
 
 def pick_device() -> torch.device:
-    """Select the best available torch device: MPS â†' CUDA â†' CPU."""
+    """Select the best available torch device: MPS → CUDA → CPU.
+
+    ``NH_DISABLE_CUDNN=1`` keeps CUDA but routes LSTMs through PyTorch's native
+    kernels — for boxes whose cuDNN cannot load ("Cannot load symbol
+    cudnnGetVersion") while the CUDA runtime itself is fine.
+    """
+    if os.environ.get("NH_DISABLE_CUDNN"):
+        torch.backends.cudnn.enabled = False
     if torch.backends.mps.is_available():
         return torch.device("mps")
     if torch.cuda.is_available():
