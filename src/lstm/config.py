@@ -88,7 +88,7 @@ class Config:
 
     # ----- Basin domain / filtering -----
     training_manifest: str = "gages"
-    include_cdec_basins: bool = True
+    include_cdec_basins: bool = False
 
     # ----- Flow normalisation -----
     # When normalize_by_precip=True (default): scale_map[b] = precip_mean[b];
