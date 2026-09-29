@@ -128,6 +128,8 @@ from src.paths import (
     GRIDDED_AEF_PARTS_DIR,
     GRIDDED_DIR,
     GRIDDED_GRID_CSV,
+    GRIDDED_PROVENANCE,
+    GRIDDED_SHA256SUMS,
 )
 
 # ---------------------------------------------------------------------------
@@ -1077,7 +1079,7 @@ def assemble(*, grid_csv=GRIDDED_GRID_CSV, parts_dir=GRIDDED_AEF_PARTS_DIR,
     counts = {"cells": n, "valid": int(valid.sum()), "zero_w": int(zero.sum()),
               "partial": int(partial.sum()), "low": int(low.sum()),
               "edge_or_12n_partial": int(susp.sum()), "norm_gt_1": n_big}
-    ncio.update_sha256sums({final.name: sha}, out_dir / "SHA256SUMS")
+    ncio.update_sha256sums({final.name: sha}, out_dir / GRIDDED_SHA256SUMS.name)
     ncio.update_provenance("alphaearth", {
         "file": final.name, "sha256": sha, "bytes": size, "content_sha256": csha,
         "content_hash_definition": _CONTENT_HASH_DEFINITION,
@@ -1097,7 +1099,7 @@ def assemble(*, grid_csv=GRIDDED_GRID_CSV, parts_dir=GRIDDED_AEF_PARTS_DIR,
         "earthengine_api": str(inv.get("earthengine_api", "")),
         "library_versions": ncio.library_versions(),
         "git": git, "command": cmd, "date_created": today,
-    }, out_dir / "provenance.toml")
+    }, out_dir / GRIDDED_PROVENANCE.name)
 
     print(f"wrote {final} ({size / 1e6:.2f} MB): {n} cells x 64, {int(valid.sum())} valid"
           + (f", {int(zero.sum())} without valid pixels" if zero.any() else "")
@@ -1441,7 +1443,7 @@ def assemble_mean(*, grid_csv=GRIDDED_GRID_CSV, parts_dir=GRIDDED_AEF_PARTS_DIR,
               "some_years": int((valid & few).sum()), "no_valid": int((~valid).sum()),
               "partial_any": int(partial.sum()), "low_any": int(low.sum()),
               "edge_or_12n_partial": int(susp.sum()), "norm_gt_1": n_big}
-    ncio.update_sha256sums({final.name: sha}, out_dir / "SHA256SUMS")
+    ncio.update_sha256sums({final.name: sha}, out_dir / GRIDDED_SHA256SUMS.name)
     ncio.update_provenance("alphaearth_mean", {
         "file": final.name, "sha256": sha, "bytes": size, "content_sha256": csha,
         "content_sha256_embedding_year": csha_y,
@@ -1464,7 +1466,7 @@ def assemble_mean(*, grid_csv=GRIDDED_GRID_CSV, parts_dir=GRIDDED_AEF_PARTS_DIR,
         "library_versions": ncio.library_versions(),
         "git": git, "command": cmd, "date_created": today,
         "per_year": per_year,
-    }, out_dir / "provenance.toml")
+    }, out_dir / GRIDDED_PROVENANCE.name)
 
     print(f"wrote {final} ({size / 1e6:.2f} MB): {n} cells x 64 x {n_all} years, "
           f"{int((n_years == n_all).sum())} with every year"
@@ -1722,10 +1724,11 @@ def _compare_year(rp: Path, g: pd.DataFrame, parts_dir: Path, scale: float,
         return None
     p = pos[ov]
     wt, wo = tW[ov], b["W"][p]
-    rel_w = np.abs(wo - wt) / wt
+    both0 = (wt == 0) & (wo == 0)               # neither bank found valid pixels: they agree
     with np.errstate(invalid="ignore", divide="ignore"):
+        rel_w = np.where(both0, 0.0, np.abs(wo - wt) / wt)
         d = np.abs(tS[ov] / wt[:, None] - b["S"][p] / wo[:, None]).max(axis=1)
-    d = np.where(wo > 0, d, np.inf)             # we found no valid pixels where the reference did
+    d = np.where(both0, 0.0, np.where((wo > 0) & (wt > 0), d, np.inf))   # only one bank did
     k = int(np.argmax(d))
     ok = bool(d.max() <= REF_TOL and rel_w.max() <= REF_TOL)
     common = timgs & b["imgs"]
@@ -1792,7 +1795,7 @@ def _compare_mean(ours: Path, theirs: Path, g: pd.DataFrame) -> bool:
           f"equal on {int(ny_eq.sum())}/{n_in}, dataset_version per year equal: {dv_eq}"
           + ("" if dv_eq else f" (ours {o_dv})"))
     print(f"  mean: (info) max |d| valid_frac {d_vf:.1e}, year_cos_min {d_cm:.1e}, norm {d_nm:.1e}")
-    ok = bool(n_in > 0 and both.sum() == n_in and d.max() <= REF_MEAN_TOL
+    ok = bool(both.any() and (nan_o == nan_t).all() and d.max() <= REF_MEAN_TOL
               and ny_eq.all() and dv_eq)
     print(f"  mean: {'PASS' if ok else 'FAIL'}  {n_in} overlapping cells within "
           f"{REF_MEAN_TOL:g}")
@@ -1981,11 +1984,11 @@ def _verify_2017(out_dir: Path, grid_csv: Path) -> bool:
         gattrs.get("attribution") == ATTRIBUTION and gattrs.get("license") == LICENSE
         and int(gattrs.get("year", -1)) == YEAR)
 
-    prov = ncio.read_provenance(out_dir / "provenance.toml").get("alphaearth", {})
+    prov = ncio.read_provenance(out_dir / GRIDDED_PROVENANCE.name).get("alphaearth", {})
     csha = ncio.sha256_array(emb).hexdigest()
     rep("content_sha256 matches provenance.toml", prov.get("content_sha256") == csha,
         "no [alphaearth] section" if not prov else "")
-    sums = ncio.read_sha256sums(out_dir / "SHA256SUMS")
+    sums = ncio.read_sha256sums(out_dir / GRIDDED_SHA256SUMS.name)
     fsha = ncio.sha256_file(path)
     rep("SHA256SUMS matches", sums.get(path.name) == fsha,
         "no entry" if path.name not in sums else "")
@@ -2132,14 +2135,14 @@ def _verify_mean(out_dir: Path, grid_csv: Path) -> bool:
             print(f"  note  {single.name} unreadable: {type(e).__name__}: {e}")
         rep(f"embedding_year[{YEAR}] == {single.name} embedding bit for bit", same)
 
-    prov = ncio.read_provenance(out_dir / "provenance.toml").get("alphaearth_mean", {})
+    prov = ncio.read_provenance(out_dir / GRIDDED_PROVENANCE.name).get("alphaearth_mean", {})
     rep("content_sha256 (embedding) matches provenance.toml",
         prov.get("content_sha256") == ncio.sha256_array(emb).hexdigest(),
         "no [alphaearth_mean] section" if not prov else "")
     rep("content_sha256_embedding_year matches provenance.toml",
         prov.get("content_sha256_embedding_year") == ncio.sha256_array(ey).hexdigest(),
         "no [alphaearth_mean] section" if not prov else "")
-    sums = ncio.read_sha256sums(out_dir / "SHA256SUMS")
+    sums = ncio.read_sha256sums(out_dir / GRIDDED_SHA256SUMS.name)
     rep("SHA256SUMS matches", sums.get(path.name) == ncio.sha256_file(path),
         "no entry" if path.name not in sums else "")
     print(f"{'PASS' if ok_all else 'FAIL'}  {path.name}")

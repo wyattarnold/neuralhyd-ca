@@ -93,7 +93,6 @@ Typical order for a fresh build:
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 import traceback
 from collections.abc import Callable
@@ -194,13 +193,6 @@ def _row_range(text: str) -> tuple[int, int]:
     return a, b
 
 
-def _is_repo_gridded_dir(path: Path) -> bool:
-    """True when ``path`` is the committed product directory (data/gridded)."""
-    def _norm(p: Path) -> str:
-        return os.path.normcase(os.path.realpath(p))
-    return _norm(path) == _norm(GRIDDED_DIR)
-
-
 def _guarded(label: str, fn: Callable[[], bool]) -> bool:
     """Run one verifier; an exception counts as a failure, not a crash."""
     try:
@@ -249,7 +241,7 @@ def _cmd_grid(args: argparse.Namespace) -> int:
 
     if len(cells) != L.N_CELLS:
         msg = f"the store has {len(cells):,} cells, expected {L.N_CELLS:,}"
-        if _is_repo_gridded_dir(out_dir):
+        if ncio.is_repo_gridded_dir(out_dir):
             print(f"\n  ERROR: {msg}; refusing to write an incomplete cell list "
                   f"into {_rel(GRIDDED_DIR)} (use a scratch --out-dir)")
             return 1
@@ -285,12 +277,13 @@ def _cmd_grid(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 def _cmd_forcing(args: argparse.Namespace) -> int:
     from src.data.gridded import lattice as L
+    from src.data.gridded import ncio
 
     if args.rows is not None:
         a, b = args.rows
         if b > L.NLAT:
             args.parser.error(f"--rows {a}:{b}: B must be <= {L.NLAT}")
-        if _is_repo_gridded_dir(args.out_dir):
+        if ncio.is_repo_gridded_dir(args.out_dir):
             args.parser.error(f"--rows builds a smoke-test subset and never writes "
                               f"{_rel(GRIDDED_DIR)}; pass a scratch --out-dir")
         label = f"rows {a}:{b}"
@@ -455,7 +448,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
 
         def _aef() -> bool:
             from src.data.gridded import aef
-            return aef.verify_aef(out_dir, grid_csv=out_dir / GRIDDED_GRID_CSV.name)
+            return aef.verify_aef(out_dir)
         results["alphaearth"] = _guarded("alphaearth", _aef)
 
     _banner("VERIFY: summary")
