@@ -18,6 +18,7 @@ dependencies:
   - dataretrieval>=1.1.2
   - zarr>=3.0
   - xarray
+  - netcdf4
   # HTTP / utilities
   - requests
   - tqdm>=4.65
@@ -33,3 +34,4 @@ dependencies:
       - sphinx>=7.0
       - furo>=2024.0
       - pynhd>=0.16
+      - earthengine-api  # (gridded AlphaEarth prep only)

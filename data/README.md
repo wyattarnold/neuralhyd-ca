@@ -57,3 +57,17 @@
 | `barplot_median_metrics.png` | Multipanel barplot of median metrics across VIC + LSTM runs (generated via `--barplot`) |
 | `sim/<run>/<target>/historical/` | Ensemble-simulated daily timeseries produced by `post_process.py --simulate` |
 | `climate/`, `static/` | Cached inputs for simulations over non-training domains (e.g. HUC8) |
+
+## Gridded Inputs
+
+`gridded/` — Statewide 1/16° gridded products on the Livneh lattice (173 × 168 grid, 13,786 in-domain cells), built by `scripts/prepare_gridded.py`. Not yet read by any model. The NetCDFs (~3 GB) are Git LFS objects excluded from the default fetch by `.lfsconfig`; pull them with `git lfs pull --include="data/gridded/*.nc" --exclude=""`. Full dataset card: [`gridded/README.md`](gridded/README.md).
+
+| File / directory | Contents |
+|---|---|
+| `gridded/livneh_{precip_mm,tmax_c,tmin_c}_daily_1915-2018.nc` | Daily forcing from the WGEN NonDetrend-Unsplit store (the same source as `training/climate/`), one float32 NetCDF per variable, NaN outside the domain; x10 summer-precip spikes divided by 10 and tmin/tmax inversions swapped (opt-in LFS) |
+| `gridded/alphaearth_2017.nc` | AlphaEarth Foundations 2017 satellite embedding: 64-band cell mean per cell, plus `valid_frac`, `norm` and `aef_flag` (opt-in LFS, CC-BY 4.0) |
+| `gridded/alphaearth_2017-2025_mean.nc` | Equal-weight mean of the nine annual AlphaEarth embeddings 2017–2025 (64 bands, not renormalised), plus the per-year cell means `embedding_year`, per-year `valid_frac`, `n_years`, `norm` and `year_cos_min` (opt-in LFS, CC-BY 4.0) |
+| `gridded/grid_cells.csv` | The 13,786 domain cells (`key, lat, lon, ilat, ilon, utm_zone`) every product is keyed to |
+| `gridded/precip_x10_corrections.csv` | Every x10-corrected cell-day (raw and corrected value) |
+| `gridded/SHA256SUMS`, `gridded/provenance.toml` | Checksums and build provenance (content hashes, input tree hash, correction counts, versions) |
+| `gridded/aef_parts/` | Banked Earth Engine partials of the AlphaEarth burns, one `<year>/` folder per year (gitignored, local only) |

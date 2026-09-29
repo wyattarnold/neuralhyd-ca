@@ -15,6 +15,9 @@ data/prepare/qa_qc_tier_sort/
 *.gdb
 data/eval/sim/
 *.nc
+!data/gridded/*.nc
+data/gridded/*.part
+data/gridded/aef_parts/
 *cache*
 *.sublime-*
 

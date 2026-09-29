@@ -167,3 +167,22 @@ MAP_WATERSHEDS_DIR       = QA_DIR / "map_watersheds"
 TIER_CHARACTERISTICS_DIR = QA_DIR / "tier_characteristics"
 SPATIAL_ANALYSIS_DIR     = QA_DIR / "spatial_analysis"
 
+# ---------------------------------------------------------------------------
+# Statewide 1/16° gridded inputs (scripts/prepare_gridded.py)
+# ---------------------------------------------------------------------------
+# Dense (lat, lon) products on the Livneh lattice: daily forcing, one NetCDF
+# per variable, plus the AlphaEarth 2017 static embedding.  The NetCDFs are
+# Git LFS objects excluded from the default fetch (.lfsconfig).
+GRIDDED_DIR              = DATA_DIR / "gridded"
+GRIDDED_GRID_CSV         = GRIDDED_DIR / "grid_cells.csv"
+GRIDDED_X10_CSV          = GRIDDED_DIR / "precip_x10_corrections.csv"
+GRIDDED_FORCING_NC       = {
+    var: GRIDDED_DIR / f"livneh_{var}_daily_1915-2018.nc"
+    for var in ("precip_mm", "tmax_c", "tmin_c")
+}
+GRIDDED_AEF_NC           = GRIDDED_DIR / "alphaearth_2017.nc"
+GRIDDED_AEF_MEAN_NC      = GRIDDED_DIR / "alphaearth_2017-2025_mean.nc"
+GRIDDED_AEF_PARTS_DIR    = GRIDDED_DIR / "aef_parts"   # banked EE partials, gitignored
+GRIDDED_SHA256SUMS       = GRIDDED_DIR / "SHA256SUMS"
+GRIDDED_PROVENANCE       = GRIDDED_DIR / "provenance.toml"
+

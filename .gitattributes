@@ -14,3 +14,11 @@ data/training/climate/watersheds.zarr/** filter=lfs diff=lfs merge=lfs -text
 data/training/climate/huc12.zarr/** filter=lfs diff=lfs merge=lfs -text
 data/training/flow.zarr/** filter=lfs diff=lfs merge=lfs -text
 data/raw/gis/WBDHU12.gpkg filter=lfs diff=lfs merge=lfs -text
+
+# Statewide 1/16° gridded NetCDFs (~3 GB).  Excluded from the default LFS
+# fetch by .lfsconfig; see data/gridded/README.md to pull them.
+data/gridded/*.nc filter=lfs diff=lfs merge=lfs -text
+# SHA256SUMS and provenance.toml are plain git but must keep LF on every
+# checkout (core.autocrlf would give them CRLF and break `sha256sum -c`).
+data/gridded/SHA256SUMS text eol=lf
+data/gridded/provenance.toml text eol=lf

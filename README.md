@@ -40,6 +40,11 @@ Run `git lfs pull`, then confirm `git status` is **clean** — a modified file
 under `*.zarr/` or `src/` means a hand-edited / stale metadata file is shadowing
 the real LFS content, and must be reverted (`git restore <file>`).
 
+The optional statewide gridded NetCDFs in `data/gridded/` (~3 GB) are the one
+exception: `.lfsconfig` excludes them from the default fetch, so they stay
+pointer stubs until pulled explicitly (see
+[Statewide gridded inputs](#statewide-gridded-inputs-optional)).
+
 ### 2. Conda environment
 
 Create the conda environment from the included environment file:
@@ -72,6 +77,43 @@ Post-process trained runs:
 python scripts/post_process.py --eval single_lstm
 python scripts/post_process.py --cdf --barplot --runs single_lstm
 python scripts/post_process.py --simulate dual_lstm --target training_watersheds
+```
+
+### Statewide gridded inputs (optional)
+
+`data/gridded/` holds statewide 1/16° products on the Livneh lattice: daily
+precipitation and tmax/tmin for 1915–2018 (one NetCDF per variable, x10 summer
+precip spikes corrected, tmin/tmax inversions swapped), the AlphaEarth 2017
+satellite embedding (64 bands per cell), and the equal-weight 2017–2025 mean of
+the annual AlphaEarth embeddings (with the nine per-year layers alongside).
+No model reads them yet. See the
+[dataset card](data/gridded/README.md) for contents, lineage, caveats and
+licence terms.
+
+Fetch the committed NetCDFs and check them:
+
+```bash
+git lfs pull --include="data/gridded/*.nc" --exclude=""
+python scripts/prepare_gridded.py verify
+```
+
+Or rebuild them. This needs a local copy of the WGEN NonDetrend-Unsplit store,
+DWR WGEN Product A for the x10 gate, and an Earth Engine project for the
+AlphaEarth steps:
+
+```bash
+python scripts/prepare_gridded.py grid      --meteo-dir <store>
+python scripts/prepare_gridded.py forcing   --meteo-dir <store>
+python scripts/prepare_gridded.py check-x10 --meteo-dir <store> --product-a-dir <Product_A/1>
+python scripts/prepare_gridded.py aef --dry-run
+python scripts/prepare_gridded.py aef --run --project <ee-project>      # ~49 EECU-h, resumable
+python scripts/prepare_gridded.py aef --assemble
+python scripts/prepare_gridded.py aef --check 30 --project <ee-project>  # gates partials + NetCDF
+# 2017-2025 mean: 8 more years, ~392 EECU-h, resumable
+python scripts/prepare_gridded.py aef --run --project <ee-project> --years all
+python scripts/prepare_gridded.py aef --assemble-mean
+python scripts/prepare_gridded.py aef --check 30 --year 2021 --project <ee-project>
+python scripts/prepare_gridded.py verify --meteo-dir <store>
 ```
 
 ## Docs

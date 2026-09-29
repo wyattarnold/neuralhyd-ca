@@ -1,0 +1,5 @@
+[lfs]
+	# The statewide gridded NetCDFs (~3 GB) are opt-in: clones, CI and Render
+	# deploys skip them.  Fetch with:
+	#   git lfs pull --include="data/gridded/*.nc" --exclude=""
+	fetchexclude = data/gridded/*.nc

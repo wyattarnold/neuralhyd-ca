@@ -1,0 +1,335 @@
+# Provenance of the statewide 1/16-degree gridded products.
+# Written by scripts/prepare_gridded.py -- do not edit by hand.
+
+[alphaearth]
+file = "alphaearth_2017.nc"
+sha256 = "5a5729a6dd54ce2df4d98337e2227b025f7edcd5b58da38d2aeccaaf5d025e08"
+bytes = 3235546
+content_sha256 = "3f284f975a6029a8d738a5ccc79b757f284557a34467e674e78595e9f15dc61c"
+content_hash_definition = "sha256 over the float32 little-endian values of `embedding` in stored (band, lat, lon) C order over the whole 64 x 173 x 168 grid, NaN (0x7FC00000) outside the cells with valid pixels"
+collection = "GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL"
+source_url = "https://developers.google.com/earth-engine/datasets/catalog/GOOGLE_SATELLITE_EMBEDDING_V1_ANNUAL"
+year = 2017
+bands = "A00..A63"
+dataset_version = "1.1"
+model_version = "2.1"
+processing_software_version = "1.02"
+images_used = ["x1a7tdgjoh7rfvkxc", "x24on5hl6vpqjf9dt", "x29eql2ma9au4234m", "x2hm1r6nc2scmjvmm", "x2ik5eolzjphf7pbf", "x2j9neb0fhiu76jxe", "x3rgwp0fowo2bvkic", "x85uh4xx1ezetrzes", "x871ypyr0z5klyjlp", "x89ujhx21oz8zxf1g", "x8ty19pxodientvx2", "x8uz8uyhxxsefe1ui", "x9m7yjgsek3rom8tb", "xbfnq3kghvygbi4xo", "xd8ks903n2963jf4z", "xewlxj3irsm1wvmys", "xf8fe70fuwdg6fxdl", "xfatehly9k29sc9ns", "xgrzr1tphycdi8uj9", "xh71eg77i7eydod59", "xhdrrurdpf0qwtjrl", "xitjm380h5dblo49l", "xk56actg8jczisumy", "xkjgb7g0reqcdu90l", "xl4ku8b8wkxun8mot", "xlwqtf9h3t9kc6flb", "xml8dffmy9s7d3r4t", "xmszdypje2xr2d600", "xn4o3xo3kh5wa8nuz", "xndebhb6g99021beu", "xo7nju7c30sn1ofab", "xpjk0je0ztcweif55", "xqqp7mglhhu4u354d", "xs0il5oswvomo6asj", "xsar6takwvx6viyit", "xtymtf4j44gfyryax", "xuav1z4j52mlaejsd", "xv3zl2b9ke2sjekto", "xvdotbg35kwgowk8x", "xxbdfwomfprvomf98", "xy2i5wy0ou8i0coq5", "xzvtyrk4kslveelvx"]
+n_images_used = 42
+n_inventory_tiles = 63
+scale_m = 15.0
+chunk = 150
+grid_sha1 = "41bb1dfbb14b5c1ae60e854a0d5ac17efe1e1e45"
+n_partials = 128
+valid_frac_min = 0.9991022374838789
+norm_min = 0.6676698674881874
+norm_max = 0.9989268435832991
+norm_median = 0.8618274359369991
+attribution = "The AlphaEarth Foundations Satellite Embedding dataset is produced by Google and Google DeepMind."
+license = "CC-BY-4.0 (https://creativecommons.org/licenses/by/4.0/)"
+reference = "Brown, C. F., et al. 2025, \"AlphaEarth Foundations: An embedding field model for accurate and efficient global mapping from sparse label data\", arXiv:2507.22291"
+earthengine_api = "1.7.35"
+command = "prepare_gridded.py aef --assemble"
+date_created = "2026-09-28"
+
+[alphaearth.earliest_year_check]
+images_before_year = 0
+images_in_year = 10562
+passed = true
+checked = "2026-09-28"
+
+[alphaearth.counts]
+cells = 13786
+valid = 13786
+zero_w = 0
+partial = 84
+low = 0
+edge_or_12n_partial = 0
+norm_gt_1 = 0
+
+[alphaearth.library_versions]
+python = "3.14.4"
+numpy = "2.4.4"
+pandas = "3.0.3"
+netCDF4 = "1.7.4"
+netcdf_c = "4.9.3"
+hdf5 = "1.14.6"
+
+[alphaearth.git]
+git_commit = "aedfd3d0ffffc0a000a12c4d4532f942e74a3b31"
+git_dirty = "yes"
+
+[alphaearth_mean]
+file = "alphaearth_2017-2025_mean.nc"
+sha256 = "f2949452dcab13f706ef52745a2d7d6e1dc4eac09e139c038f2a3ae6504f359c"
+bytes = 31426931
+content_sha256 = "31615aab994750620ed3e67498dd3c24fb2f8899f20fc56fce4c84777b4ff2d0"
+content_sha256_embedding_year = "706f3fa1a65071f4704010b193052233c2b318f0d92c3ce786244bb9bce4798f"
+content_hash_definition = "content_sha256: sha256 over the float32 little-endian values of `embedding` in stored (band, lat, lon) C order over the whole 64 x 173 x 168 grid, NaN (0x7FC00000) outside the cells with valid pixels in at least one year; content_sha256_embedding_year: the same over `embedding_year` in stored (year, band, lat, lon) C order (9 x 64 x 173 x 168), NaN outside the cell-years with valid pixels"
+collection = "GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL"
+source_url = "https://developers.google.com/earth-engine/datasets/catalog/GOOGLE_SATELLITE_EMBEDDING_V1_ANNUAL"
+years = [2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025]
+bands = "A00..A63"
+mean = "equal weight over the years with valid pixels (sum(w) > 0), not renormalised; float64 sum of the per-year means / n_years"
+dataset_version = ["1.1", "1.0", "1.0", "1.0", "1.0", "1.0", "1.0", "1.0", "1.1"]
+n_images_used = [42, 42, 42, 42, 42, 42, 42, 42, 42]
+scale_m = 15.0
+chunk = 150
+grid_sha1 = "41bb1dfbb14b5c1ae60e854a0d5ac17efe1e1e45"
+n_partials = 1152
+valid_frac_min = 0.9991022374838789
+norm_min = 0.653313566441811
+norm_max = 0.991796368470399
+norm_median = 0.8362131245858939
+year_cos_min_min = 0.47176270633537365
+year_cos_min_median = 0.9605906973042685
+attribution = "The AlphaEarth Foundations Satellite Embedding dataset is produced by Google and Google DeepMind."
+license = "CC-BY-4.0 (https://creativecommons.org/licenses/by/4.0/)"
+reference = "Brown, C. F., et al. 2025, \"AlphaEarth Foundations: An embedding field model for accurate and efficient global mapping from sparse label data\", arXiv:2507.22291"
+command = "prepare_gridded.py aef --assemble-mean"
+date_created = "2026-09-28"
+
+[alphaearth_mean.earliest_year_check]
+images_before_year = 0
+images_in_year = 10562
+passed = true
+checked = "2026-09-28"
+
+[alphaearth_mean.counts]
+cells = 13786
+valid = 13786
+all_years = 13786
+some_years = 0
+no_valid = 0
+partial_any = 84
+low_any = 0
+edge_or_12n_partial = 0
+norm_gt_1 = 0
+
+[alphaearth_mean.library_versions]
+python = "3.14.4"
+numpy = "2.4.4"
+pandas = "3.0.3"
+netCDF4 = "1.7.4"
+netcdf_c = "4.9.3"
+hdf5 = "1.14.6"
+
+[alphaearth_mean.git]
+git_commit = "aedfd3d0ffffc0a000a12c4d4532f942e74a3b31"
+git_dirty = "yes"
+
+[alphaearth_mean.per_year]
+
+[alphaearth_mean.per_year.2017]
+dataset_version = "1.1"
+model_version = "2.1"
+processing_software_version = "1.02"
+n_images_used = 42
+images_used = ["x1a7tdgjoh7rfvkxc", "x24on5hl6vpqjf9dt", "x29eql2ma9au4234m", "x2hm1r6nc2scmjvmm", "x2ik5eolzjphf7pbf", "x2j9neb0fhiu76jxe", "x3rgwp0fowo2bvkic", "x85uh4xx1ezetrzes", "x871ypyr0z5klyjlp", "x89ujhx21oz8zxf1g", "x8ty19pxodientvx2", "x8uz8uyhxxsefe1ui", "x9m7yjgsek3rom8tb", "xbfnq3kghvygbi4xo", "xd8ks903n2963jf4z", "xewlxj3irsm1wvmys", "xf8fe70fuwdg6fxdl", "xfatehly9k29sc9ns", "xgrzr1tphycdi8uj9", "xh71eg77i7eydod59", "xhdrrurdpf0qwtjrl", "xitjm380h5dblo49l", "xk56actg8jczisumy", "xkjgb7g0reqcdu90l", "xl4ku8b8wkxun8mot", "xlwqtf9h3t9kc6flb", "xml8dffmy9s7d3r4t", "xmszdypje2xr2d600", "xn4o3xo3kh5wa8nuz", "xndebhb6g99021beu", "xo7nju7c30sn1ofab", "xpjk0je0ztcweif55", "xqqp7mglhhu4u354d", "xs0il5oswvomo6asj", "xsar6takwvx6viyit", "xtymtf4j44gfyryax", "xuav1z4j52mlaejsd", "xv3zl2b9ke2sjekto", "xvdotbg35kwgowk8x", "xxbdfwomfprvomf98", "xy2i5wy0ou8i0coq5", "xzvtyrk4kslveelvx"]
+n_inventory_tiles = 63
+images_in_year = 10562
+earthengine_api = "1.7.35"
+n_partials = 128
+zero_w = 0
+partial = 84
+low = 0
+valid_frac_min = 0.9991022374838789
+
+[alphaearth_mean.per_year.2018]
+dataset_version = "1.0"
+model_version = "2.1"
+processing_software_version = "1.01"
+n_images_used = 42
+images_used = ["x0ege7nvzatd8p1dr", "x0ly51gna3os9vyws", "x1rwsffxbfnj1159p", "x2qlpmqy3bikbxgyb", "x4hvfsfc0xe1suxhr", "x4ih59itap8c3bygx", "x5rsjsayc749yajpd", "x5u7a6pmlg8qvpwun", "x6ciejz1rwysez0qb", "x6m0yfvpuefdkxgct", "x6wh6vle5e0lzn7to", "x70nu4fokimljbv3r", "x71vpf20eyb62vscj", "x7fk9m0rlom1etxyb", "x8f9zfxq55nqgdc57", "x8id6znbqog1ucwfu", "x9kue1vk9gvmbj8n3", "xc15l1vio935nre4q", "xczimhygekvabs8yf", "xdz8z3a9znk5b1j75", "xg8hrz06lcyri3shg", "xhvd7dgzfco3wa1yn", "xiqrse94np3lfp6nx", "xjw43vtstefyhnzno", "xl9yd6jzh613mmpfm", "xlldrn4m13ambm9qu", "xnowagsql9s21d0mo", "xq5dhxskw0i1nka3u", "xqe6quwm97eawzmtr", "xqez2e1bhnlal67hv", "xqohv37clpyleu93l", "xqpnsy0ipskuothxf", "xqppo5d1our0uj1lq", "xqpwngim6qszquh3m", "xre2ues81mxj5hsph", "xrkzifrai1xua3vcc", "xt29no1dsv2zf0uqu", "xtutuogfzlrgpdjbz", "xuquxmb12mso7st1k", "xut8ocysj34zeqej4", "xw87ml7mjoccf0y8m", "xx2bjbtpsebaa5254"]
+n_inventory_tiles = 63
+images_in_year = 10635
+earthengine_api = "1.7.35"
+n_partials = 128
+zero_w = 0
+partial = 84
+low = 0
+valid_frac_min = 0.9991022374838789
+
+[alphaearth_mean.per_year.2019]
+dataset_version = "1.0"
+model_version = "2.1"
+processing_software_version = "1.01"
+n_images_used = 42
+images_used = ["x0revojsvzzvyp8cc", "x0rjwbxp809azwgmh", "x159zv611p8mt486m", "x1iwox2t6pc3k4pf6", "x1tzzghlbz3uyzpuw", "x1yy5b4q5rftfr1bt", "x2azdtwurz08y0j3z", "x2fl26oots4ym6bey", "x3b14n85qt613kis0", "x464b0i142ntquthi", "x4l1mz2yxackonrmv", "x5bhgslsl73o3oxww", "x5mbahjn9h0xamfaq", "x5nr6srn7urfzblu8", "x7numw2xiima8ij3l", "x8v0b92cdcsnd13fd", "xcinz162knldghby6", "xcr14x1a2ufvdsjjh", "xdnozkig2ai90xfuy", "xe1phlrgm1n6xk23f", "xelkfa3ezwmt3ytsy", "xeqylzdlomo5vte2z", "xevkkzckvn5mdqk97", "xm0mq9s0adztazz0s", "xn6p9dah401a09fmy", "xnow4w0yfdx8wc5ky", "xnwulxlceyu33bwo9", "xnyf0uh3knx38ackt", "xqa32i2fyursxsjft", "xqki3yatj4tue44a9", "xqxb0iupqezkj7gbe", "xrbguf0tz7cryy5r9", "xrmk50egynvpmw1ly", "xrwdw6is7fjti6r7z", "xs5usqxuymyvfoxtr", "xsmgtigeu16k2xdu9", "xt1npenzbvi27ns5y", "xu88c8ila2d0mkj91", "xvgwm4u9c6iojlwfb", "xwasd9k4ypbypuzva", "xxgk5tg337ibu4l61", "xy78o5qv4nzpozop7"]
+n_inventory_tiles = 63
+images_in_year = 10690
+earthengine_api = "1.7.35"
+n_partials = 128
+zero_w = 0
+partial = 84
+low = 0
+valid_frac_min = 0.9991022374838789
+
+[alphaearth_mean.per_year.2020]
+dataset_version = "1.0"
+model_version = "2.1"
+processing_software_version = "1.01"
+n_images_used = 42
+images_used = ["x19z3hp673owalgp1", "x1juhvduh7g0h56pe", "x2n2wz6y1xz6s14dz", "x5e2x4kjcsd3iikwl", "x5xy5w17tief0kbnj", "xa4tw48qlhx9wqdo9", "xah6gb5nlep6lgzy4", "xdbegcrmu6pwnudfn", "xdmovcz8da2d02bet", "xdoy0hdjwfbs4724y", "xdwkw4mm7hoeml04b", "xe7ak1ws7kx5sc7v4", "xezpkeevd9kbi16z9", "xf24e2u0ga0lg3w60", "xfikntd0z5wku96ko", "xg6tboc1a7y6dov6l", "xh70w69ol0if7oed9", "xhgqr7dmfukor8uw8", "xhserqyylrlpsn556", "xiyqkzlpgwor94uj6", "xj398zwagwxqfytql", "xj4256fg7p80zg97f", "xk7i927b6o14m2tix", "xmhilknhhxwfqx80k", "xo0b8wamdvpz9vcrm", "xo39ouca5wj18vj7v", "xrlehioer75aph17o", "xrvxvk6aj4graj16e", "xs698sscclra04tat", "xtcd1sa20t5m0yn2b", "xto1lgxd1ruw47ju5", "xunek58qu3044qu4v", "xvkqhaxxs2yoem8o2", "xxeea05skkwe4r83f", "xxg79s9iv2akogw3k", "xxsbf1u1np2wmeg3w", "xxucbzxidwjr1entw", "xye8wu2zrx0g6335q", "xz2wmb5iud5fp5sod", "xznz6sdt0vrb788c6", "xzprotepn9l9qusmq", "xzufw2megtjxefm30"]
+n_inventory_tiles = 63
+images_in_year = 10576
+earthengine_api = "1.7.35"
+n_partials = 128
+zero_w = 0
+partial = 84
+low = 0
+valid_frac_min = 0.9991022374838789
+
+[alphaearth_mean.per_year.2021]
+dataset_version = "1.0"
+model_version = "2.1"
+processing_software_version = "1.01"
+n_images_used = 42
+images_used = ["x178evkjouuk67uwp", "x2codd2zmw954ofn6", "x2sns0ubuqymjnhyp", "x3isvyqdsgksulhpl", "x4lrqfywplxt4ls74", "x4rexe6dd0mgcrjao", "x5ne431mfxec6mim5", "x6bp4vrvf5oo0r0zz", "x6ozocsbn56ky5lr5", "x7o82xcwvcl6cx1oi", "x8y08u39svkouw03v", "x94er892ne766qmx1", "x955yeu22r86jcxkz", "xace852vj6l2su39z", "xbxk0q0k4ldsg5ngj", "xdzi7049864f15uoh", "xekje998l0mu2c3bo", "xez5v0lz2vykq7w87", "xfhpeu5vz7emmcthb", "xg4h8zpwbexpi86xx", "xgfbdorfy7xw8rdk7", "xgi48lqsqj8bcovwk", "xgkenxuhnnq9th7tp", "xhww8lpmx0duhqkqe", "xjvq6jph9x2dftmdb", "xkkybyggisjb5kb4q", "xlyfhmg5sqj2jwr2i", "xm20nccfdv2ekbuy6", "xmfgln59b9sore6vq", "xn2c9syocutln20ef", "xnj5mntj5mx1wl7kv", "xov80yz3aw75irtmd", "xoy02ik6exxcpez91", "xqz2zncbiqu8wrxxi", "xrl76yfjs7qge8qpo", "xs2wj6qwndpm77nme", "xum5v0ob7tf9j28ri", "xvn46ac7cfepy6wmr", "xvr4sfq5tc2yfnbjv", "xy5wz8qa7kmzt1r3w", "xy6ibp2upy45kfjim", "xyf805rfv2hef6skb"]
+n_inventory_tiles = 63
+images_in_year = 10614
+earthengine_api = "1.7.35"
+n_partials = 128
+zero_w = 0
+partial = 84
+low = 0
+valid_frac_min = 0.9991022374838789
+
+[alphaearth_mean.per_year.2022]
+dataset_version = "1.0"
+model_version = "2.1"
+processing_software_version = "1.01"
+n_images_used = 42
+images_used = ["x1coagw9ibotk2z27", "x1or54tn4xui0fbjv", "x1xtyl9k2orupf8yz", "x29zki0xha2cqug8y", "x36n3j4z2zs4r3kce", "x37ic26hykrarqcb5", "x4kcfo0dsl0egmvam", "x5zpt8r6yqrwx3mr4", "x6oc0dxbfuoet1djz", "x73q97k9vd4v3fzfz", "x7bb49s0htldmhgsr", "x7gnlf0oaa7fa6ly0", "x82g9gv2b4hynbz61", "x9kgs5io6nupa65aw", "x9r2xtygibs9rgnue", "xaspzf5khdg4c5pbs", "xf6q3mgjchwdl8tnw", "xfvq37olgryic3rzc", "xgfsilwwrcmib54la", "xgt69ocfqez1gqdac", "xj2m90hpvsr9sruaw", "xj4u9yfjsocv860ls", "xjau88u25t1w95g9d", "xjpxsz8sn0cxf04ps", "xmplxkxbhn4uapgj3", "xnd1gjloskfp4puu3", "xp20l0wqfy488e8cf", "xph8ki5e9lfkaipu1", "xrurg0pxu65jq423l", "xrwmet34qa3m2u4nt", "xs5vgkley63zklto5", "xsi4d5hxt2i8ujj7p", "xucysryzaiwtt0j70", "xuxh4f95wzxlh7mgn", "xvbtmdjiwl7ya2bw9", "xvv5t3arw1tu9d7dp", "xwgtdmijci7b27jj2", "xwl6j35jr5v8ix1qj", "xwolym4eab6tcchri", "xwwlxcu1ua0pjqlfi", "xy6bzhwu918c53jlg", "xyvbr53bn92etfsdd"]
+n_inventory_tiles = 63
+images_in_year = 10853
+earthengine_api = "1.7.35"
+n_partials = 128
+zero_w = 0
+partial = 84
+low = 0
+valid_frac_min = 0.9991022374838789
+
+[alphaearth_mean.per_year.2023]
+dataset_version = "1.0"
+model_version = "2.1"
+processing_software_version = "1.01"
+n_images_used = 42
+images_used = ["x0t8uuz3yr549h16c", "x179eqbtvceo81qy5", "x26k3cqth0e83jxlo", "x2giuk9t4ta3omwka", "x2jp8z7cy2wqi9jjy", "x2jr6c188f1q1bkol", "x5hzx8auq1wi4lg9r", "x73gelmkzwsv1h7hi", "x8i4l3sm7bpawwopc", "x9z845gs6jdt9roji", "xa9t3go00ja9wlwwn", "xag7cu6q0vnst6rfh", "xaj538uuxt45mtxkv", "xdqa81npcesz87jzq", "xfle95f3s196iniqp", "xfwqib4fuqxvrgef8", "xg4s1k8y6h7rwo5u8", "xgc6oyx3h2yte2io2", "xjtqldak16clgy5os", "xjuribcn7cek48rza", "xkp6r0pb86qj470nz", "xku8p8gomi9epnkkk", "xl88ou3kz6qlbq6pk", "xmyw96gamze8csdcg", "xnptbrm5iwpv81r9f", "xntnl60y5qibo3pxd", "xo7pdg8ulfmi0gdxk", "xpgi54r8yyux2t0pf", "xpoq8usl4sf3pl8q2", "xpung34fs3vpjpmww", "xpw1sx8qprdxxnctw", "xq4vkge7n9jj5ufs8", "xrvfoqk1dxtelnqok", "xtevkrchfavfm7un5", "xtjg52gb4iyu7avud", "xvbbm2elmpnm65f84", "xvrx8h7gdfl48f8pz", "xvy1wnzsr32yw8i6z", "xwnnjy0vtviklepjw", "xyy06yl9wxmd23n8t", "xzko88d1vg3ydtwyn", "xzzuf8rgnlwefsdmo"]
+n_inventory_tiles = 63
+images_in_year = 11074
+earthengine_api = "1.7.35"
+n_partials = 128
+zero_w = 0
+partial = 84
+low = 0
+valid_frac_min = 0.9991022374838789
+
+[alphaearth_mean.per_year.2024]
+dataset_version = "1.0"
+model_version = "2.1"
+processing_software_version = "1.01"
+n_images_used = 42
+images_used = ["x0d2zpqq6suynnv8d", "x0s81ghrmvp7lfwzr", "x24p3y4tbrez3ggql", "x2ddreeuc63wqv7dh", "x43sygvusayihlvfa", "x4af5iqxzp6wdm4sw", "x4pi2a593zj8bb64a", "x4wkobz78xmg7x7lf", "x5dks4vctm6q6mia4", "x5tcne6l35iiv7ook", "x6dnarf2229msm0n4", "x6l61w1psbinwkaa9", "x6nf6fanohtknkr4j", "x83cf99ev7uy45rwt", "x8fd76oyaxg2fl7yd", "x8swivgwx1t58zt22", "x9xlp0vscuske24ti", "xa0oozi85pfc80pm8", "xcyo46pot2fg6a61t", "xdb1i2tq701ktf5om", "xdojcxj23tkdtf2av", "xdrajd4jpjhjl3f72", "xejxvol9ot3blw9e3", "xf5t0j9q2tfahem4d", "xfgtco438u4mb6e5u", "xgar4ix28eqvwxuxk", "xgodigouzejni918u", "xgzesh1rjgwvrjh72", "xhesizqak6reu35wv", "xkllongyoosjf5jg6", "xkoopig5e7v0w8c0i", "xkp2nm4jdhw1bgtot", "xlpg0yodbp6lws89o", "xm8mdfftcd7ymnjc1", "xn7gmxswrdogbrv42", "xp0dz1a59s4c1w736", "xq7s5af1yl9ahoqm6", "xx4c8g7kfdjg2mpfk", "xx4d0tyno4344w9f3", "xxvzfy07cr5ql2c2z", "xz9x51e3xefeibiww", "xzjce79smjtwo2r0r"]
+n_inventory_tiles = 63
+images_in_year = 11073
+earthengine_api = "1.7.35"
+n_partials = 128
+zero_w = 0
+partial = 84
+low = 0
+valid_frac_min = 0.9991022374838789
+
+[alphaearth_mean.per_year.2025]
+dataset_version = "1.1"
+model_version = "2.1"
+processing_software_version = "1.02"
+n_images_used = 42
+images_used = ["x0fp48lx1cubw8n5n", "x0jzukxg4ro266fuz", "x14y8nd09j8z2qv2v", "x1ql6e9atl8j3bmnq", "x2lqsp4xl1lnajb1p", "x3aq84c1rknnir6l5", "x4jhz626pxoz4664u", "x5xcwxv0hft4hl7bq", "x6wm6yv0le2uyuqrw", "x739dbtgyt4vghyf0", "x8q5y4969a3fnw43g", "xay4peqimt6zg5ygr", "xbkekuddaj2z9nnjd", "xbtap6jhe3ksm3ncu", "xcstdocb4hn7iwz70", "xdci03l2jmm1gorwh", "xdkobv2yaf7h23tdq", "xdocsdzap5sqfzywe", "xfkquudrzd2fe2sze", "xfpt7behtay7l7n7x", "xg9c6bw3mqx6y6fhq", "xgdryjyq8zmmj9h9c", "xgf4cr5z3x6obopco", "xj1kxkjhdfu5ccolf", "xjeqcn1gg88huceni", "xjlggdbebi9nakb1a", "xjp223rd7ltmmu9xa", "xkocze0n3z4y9opo0", "xkyg7y3c7261uphem", "xl6prs47uvr6ppfsb", "xl7le4mflh1t7bobw", "xo5f9z71t3oxn3qvw", "xo6a5koczxe50whzs", "xrr1bj3uh9if9e1os", "xsh6kjdf7namtym1j", "xuvetlx47vvq2hkky", "xvlz2mf6tm5jlb7ci", "xvm2txrxto80yn8sj", "xxpc7l8rqzdv6h15d", "xxqfu6m0are1yt1ig", "xykxl4b80o9kyjiuc", "xzv4v3b28vzf9xdx0"]
+n_inventory_tiles = 63
+images_in_year = 11078
+earthengine_api = "1.7.35"
+n_partials = 128
+zero_w = 0
+partial = 84
+low = 0
+valid_frac_min = 0.9991022374838789
+
+[forcing]
+date_created = "2026-09-28"
+command = "prepare_gridded.py forcing --meteo-dir WGEN_NonDetrend_Unsplit_Statewide --force"
+input_dir = "WGEN_NonDetrend_Unsplit_Statewide"
+input_tree_sha256 = "04dd86b71852019cd092ed1fd5ea8cb6b516374feb40380d439e95cf267c9cea"
+input_tree_hash_definition = "sha256 over \"\".join(f\"{filename} {sha256_hex}\\n\") of the store files read, sorted by file name"
+n_input_files = 13786
+n_cells = 13786
+time_start = "1915-01-01"
+time_end = "2018-12-31"
+n_days = 37986
+chunks = [1461, 16, 16]
+content_hash_definition = "sha256 over the float32 little-endian values of the variable in (lat, lon, time) C order over the whole 173 x 168 grid including NaN cells (canonical quiet NaN 0x7fc00000), i.e. each cell's full daily series in turn, cells in ascending (lat, lon) order; independent of the HDF5/netCDF-C build"
+
+[forcing.files]
+
+[forcing.files.precip_mm]
+name = "livneh_precip_mm_daily_1915-2018.nc"
+sha256 = "7fa76d845f64df20cb5ee9350dec53fbc0fd27301215a4d5186ac4dc7a0e10a6"
+bytes = 469672875
+content_sha256 = "b2ae8db38403f93ff224bf44e1d8eb82e16f41351e3aa92daca924309a00b7b0"
+
+[forcing.files.tmax_c]
+name = "livneh_tmax_c_daily_1915-2018.nc"
+sha256 = "00f659e2ddd77337955aa5951fcd0b6608c8314e7568b6ef600af8746a941dec"
+bytes = 1241498158
+content_sha256 = "336c7e090b852e3a8ed9c7767e7da1774144488b681542800e3d536d7d126c0c"
+
+[forcing.files.tmin_c]
+name = "livneh_tmin_c_daily_1915-2018.nc"
+sha256 = "526eb04ad5c34b5eb50682982bc42006c02a8de88a37152dbebad2cd0cebc211"
+bytes = 1322461239
+content_sha256 = "bd08a9af51819fc99b2a764437c19fc832d5444520ac160e2d57603a42e6547c"
+
+[forcing.files.grid_cells]
+name = "grid_cells.csv"
+sha256 = "7bcf025026117255c5d4c9854a5da2b6f4849fb2000a227a3e76f6ac15fb4fec"
+bytes = 684365
+
+[forcing.files.precip_x10_corrections]
+name = "precip_x10_corrections.csv"
+sha256 = "770f808c069e5e5808586193cf772cf8f1c2a088f87a043f33a275c1860530e7"
+bytes = 41423
+
+[forcing.x10]
+rule = "precip_mm divided by 10 where month in (6, 7, 8) and raw precip >= 150.0 mm (DWR upstream misplaced-decimal rule; float64 divide of the parsed ASCII value, then float32 cast)"
+months = [6, 7, 8]
+threshold_mm = 150.0
+n_pairs = 620
+n_cells = 445
+n_dates = 44
+
+[forcing.temp_swap]
+n_cell_days = 181660
+n_cells = 6008
+n_equal_days = 1893
+n_cell_days_before_seam = 181507
+n_cell_days_from_seam = 153
+seam_date = "2016-01-01"
+
+[forcing.encoding]
+dtype = "float32"
+fill_value = "NaN"
+zlib = true
+complevel = 4
+shuffle = true
+
+[forcing.library_versions]
+python = "3.14.4"
+numpy = "2.4.4"
+pandas = "3.0.3"
+netCDF4 = "1.7.4"
+netcdf_c = "4.9.3"
+hdf5 = "1.14.6"
+
+[forcing.git]
+git_commit = "aedfd3d0ffffc0a000a12c4d4532f942e74a3b31"
+git_dirty = "yes"
