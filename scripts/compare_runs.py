@@ -14,7 +14,9 @@ Two modes:
   so an apparent "win" can be judged against initialisation noise.
 
 Runs are resolved under ``data/training/output/<name>/`` and read from each
-``fold_*/basin_results.csv``.
+``fold_*/basin_results.csv``.  FHV, FeHV and FLV are recomputed from the
+fold timeseries with the current definitions (as ``post_process.py --eval``
+does), so runs scored with older code compare like for like.
 
 Usage::
 
@@ -33,6 +35,7 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from src.eval.metrics import recompute_fdc_metrics
 from src.paths import TRAINING_OUTPUT_DIR
 
 ALL_METRICS = ["nse", "kge", "fhv", "fehv", "flv"]
@@ -51,7 +54,7 @@ def load_run(run_dir: Path) -> pd.DataFrame:
         frames.append(df)
     if not frames:
         raise FileNotFoundError(f"No fold_*/basin_results.csv found under {run_dir}")
-    return pd.concat(frames, ignore_index=True)
+    return recompute_fdc_metrics(pd.concat(frames, ignore_index=True), run_dir)
 
 
 def discover_seed_runs(root: Path, base: str) -> list[Path]:
@@ -87,7 +90,8 @@ def compare_pairwise(run_dirs: list[Path], metrics: list[str]) -> None:
     print("=" * 78)
     print(f"TIER-MEDIAN METRICS on {len(shared)} shared basins  (delta vs. {base})")
     print("=" * 78)
-    header = f"{'tier':>5} {'n':>5}  {'metric':<6}" + "".join(f"{n:>12}" for n in names)
+    header = (f"{'tier':>5} {'n':>5}  {'metric':<6}" + f"{names[0]:>12}"
+              + "".join(f"{n:>20}" for n in names[1:]))
     print(header)
     for tier in list(tiers) + ["ALL"]:
         if tier == "ALL":
@@ -97,14 +101,14 @@ def compare_pairwise(run_dirs: list[Path], metrics: list[str]) -> None:
         n = len(ids)
         for m in metrics:
             cells = []
-            base_med = float(np.median(tables[base].loc[ids, m]))
+            base_med = float(tables[base].loc[ids, m].median())
             for name in names:
-                med = float(np.median(tables[name].loc[ids, m]))
+                med = float(tables[name].loc[ids, m].median())
                 if name == base:
                     cells.append(f"{med:>12.3f}")
                 else:
                     d = med - base_med
-                    cells.append(f"{med:>8.3f}{('+' if d >= 0 else '')}{d:>.3f}")
+                    cells.append(f"{med:>10.3f}{f'({d:+.3f})':>10}")
             tlabel = tier if tier == "ALL" else int(tier)
             print(f"{str(tlabel):>5} {n:>5}  {m:<6}" + "".join(cells))
         print()

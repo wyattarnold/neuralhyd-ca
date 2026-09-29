@@ -5,7 +5,7 @@ Usage
 Compute evaluation metrics (CSVs written to data/eval/); matching VIC basins are included automatically:
     python post_process.py --eval dual_lstm single_lstm
 
-Plot CDF for all metrics (NSE, KGE, FHV, FLV) + VIC calibrated/regionalized KGE comparison:
+Plot CDF for all metrics (NSE, KGE, FHV, FeHV, FLV) + VIC calibrated/regionalized KGE comparison:
     python post_process.py --cdf --runs single_lstm dual_lstm --barplot
 
 Simulate trained models over historical climate inputs:
@@ -49,6 +49,14 @@ from src.paths import (
 )
 
 VIC_LABEL = "vic_simulated"
+
+# Default --cdec-barplot labels keyed by run name (unknown runs keep their name)
+_CDEC_DEFAULT_LABELS = {
+    "single_lstm": "Single",
+    "dual_lstm": "Dual",
+    "moe_lstm": "MoE",
+    "single_lstm_cmal": "Single CMAL",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -124,7 +132,7 @@ def _print_summary(df: pd.DataFrame, label: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# --cdf-metric: CDF plot from eval_metrics.csv files
+# --cdf: per-metric CDF plot from data/eval/<run>.csv files
 # ---------------------------------------------------------------------------
 
 def run_cdf(metric: str, run_names: list[str]) -> None:
@@ -197,7 +205,7 @@ def run_cdf(metric: str, run_names: list[str]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# --cdf-vic-kge: CDF of KGE for LSTM vs VIC calibrated/regionalized
+# --cdf: CDF of KGE for LSTM vs VIC calibrated/regionalized
 # ---------------------------------------------------------------------------
 
 def _load_vic_cal_kge(path: Path, kge_col: str) -> pd.DataFrame:
@@ -210,15 +218,15 @@ def _load_vic_cal_kge(path: Path, kge_col: str) -> pd.DataFrame:
     return df[["basin_id", "kge"]]
 
 
-def run_cdf_vic_kge() -> None:
-    """CDF of KGE: LSTM models vs VIC calibrated & regionalized on overlapping basins."""
+def run_cdf_vic_kge(run_names: list[str]) -> None:
+    """CDF of KGE: LSTM runs vs VIC calibrated & regionalized on overlapping basins."""
     # Load VIC calibrated / regionalized
     cal = _load_vic_cal_kge(VIC_CAL_DIR / "calibrated_daily_kge.csv", "KGE")
     reg = _load_vic_cal_kge(VIC_CAL_DIR / "regionalized_daily_kge.csv", "daily_new_KGE")
 
     # Load LSTM eval metrics
     lstm_dfs: dict[str, pd.DataFrame] = {}
-    for name in ("dual_lstm", "single_lstm"):
+    for name in run_names:
         csv_path = EVAL_DIR / f"{name}.csv"
         if not csv_path.exists():
             print(f"  WARNING: {csv_path} not found. Run --eval first for {name}.")
@@ -228,8 +236,8 @@ def run_cdf_vic_kge() -> None:
         lstm_dfs[name] = df
 
     if not lstm_dfs:
-        print("ERROR: No LSTM eval data found. Run --eval first.")
-        sys.exit(1)
+        print("  WARNING: No LSTM eval data found — skipping VIC KGE comparison. Run --eval first.")
+        return
 
     # Find basins present in ALL datasets
     common = set(cal["basin_id"]) & set(reg["basin_id"])
@@ -239,8 +247,8 @@ def run_cdf_vic_kge() -> None:
     print(f"Overlapping basins across all datasets: {len(common)}")
 
     if len(common) < 2:
-        print("ERROR: Too few overlapping basins.")
-        sys.exit(1)
+        print("  WARNING: Too few overlapping basins — skipping VIC KGE comparison.")
+        return
 
     # Build series on common basins
     series: dict[str, np.ndarray] = {}
@@ -396,9 +404,9 @@ def main() -> None:
         metavar="RUN",
         dest="cdec_barplot",
         help="CDEC comparison barplot (conventional SAC-SMA vs neural models). "
-             "Provide run names from data/training/output/ in order: "
-             "e.g. single_lstm dual_lstm moe_lstm. "
-             "Labels can be set via --cdec-labels.",
+             "Provide run names from data/training/output/ in plot order: "
+             "e.g. single_lstm dual_lstm moe_lstm. Runs must be trained with "
+             "include_cdec_basins = true. Labels can be set via --cdec-labels.",
     )
     parser.add_argument(
         "--cdec-labels",
@@ -406,20 +414,22 @@ def main() -> None:
         metavar="LABEL",
         dest="cdec_labels",
         help="Display labels for --cdec-barplot runs (same order). "
-             "Default: Single Dual MoE",
+             "Default: derived from each run name (e.g. dual_lstm -> Dual).",
     )
     parser.add_argument(
         "--simulate",
         nargs="+",
         metavar="RUN",
-        help="Simulate trained models (ensemble of all folds) over climate inputs. "
-             "Output: data/eval/sim/<run>/<target>/historical/",
+        help="Simulate trained models over climate inputs: the held-out fold "
+             "per basin for training_watersheds, the all-fold ensemble for other "
+             "targets. Output: data/eval/sim/<run>/<target>/historical/",
     )
     parser.add_argument(
         "--target",
         default="training_watersheds",
-        choices=["training_watersheds", "watersheds", "huc8"],
-        help="Input domain for --simulate: training watersheds or HUC8 basins. "
+        choices=["training_watersheds", "watersheds", "huc8", "huc10", "huc12"],
+        help="Input domain for --simulate: training watersheds (held-out fold), "
+             "or watersheds / HUC8 / HUC10 / HUC12 basins (all-fold ensemble). "
              "(default: training_watersheds)",
     )
 
@@ -440,7 +450,7 @@ def main() -> None:
             sys.exit(1)
         for metric in METRICS:
             run_cdf(metric, runs)
-        run_cdf_vic_kge()
+        run_cdf_vic_kge(runs)
 
     if args.barplot:
         runs = args.runs if args.runs else (args.eval or [])
@@ -450,15 +460,19 @@ def main() -> None:
         run_barplot(runs)
 
     if args.cdec_barplot is not None:
-        default_labels = ["Single", "Dual", "MoE"]
-        labels = args.cdec_labels if args.cdec_labels else default_labels[: len(args.cdec_barplot)]
+        labels = args.cdec_labels or [
+            _CDEC_DEFAULT_LABELS.get(name, name) for name in args.cdec_barplot
+        ]
         if len(labels) != len(args.cdec_barplot):
             print(
                 f"ERROR: --cdec-labels ({len(labels)}) must match "
                 f"--cdec-barplot run count ({len(args.cdec_barplot)})."
             )
             sys.exit(1)
-        run_cdec_barplot(args.cdec_barplot, labels)
+        try:
+            run_cdec_barplot(args.cdec_barplot, labels)
+        except RuntimeError as exc:
+            print(f"WARNING: skipping --cdec-barplot: {exc}")
 
     if args.simulate is not None:
         run_simulate(args.simulate, target=args.target)
