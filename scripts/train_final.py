@@ -1,18 +1,23 @@
 #!/usr/bin/env python3
-"""Train a final model on all 216 watersheds for deployment.
+"""Train a final model on all gauge watersheds for deployment.
 
 Unlike ``train_kfold.py`` no basins are withheld; all available data are
 used for training so the checkpoint captures the full distribution of
-California watershed behaviour.  The saved checkpoint bundles model
-weights and normalisation statistics so it can be loaded for inference
-on new basins without the original training data.
+California watershed behaviour.  By default that is the 210 USGS gauges
+(224 with ``include_cdec_basins = true``).  The saved checkpoint bundles
+model weights and normalisation statistics so it can be loaded for
+inference on new basins without the original training data.
 
 Usage
 -----
     python scripts/train_final.py scripts/cfg_dual_lstm.toml
 
-Output (written to ``config.output_dir``):
-    best_model.pt    Checkpoint: ``model_state_dict`` + ``norm_stats``
+Outputs (written to ``<config.output_dir>_final/``, e.g.
+``data/training/output/dual_lstm_final/``):
+    fold_0/best_model.pt           Checkpoint: ``model_state_dict`` + ``norm_stats``
+    fold_0/basin_results.csv       In-sample per-basin metrics
+    fold_0/timeseries/             Observed vs predicted CSV per basin
+    all_basin_results.csv          Copy of the per-basin metrics
 """
 
 from __future__ import annotations

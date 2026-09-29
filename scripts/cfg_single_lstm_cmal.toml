@@ -16,14 +16,12 @@
 # =============================================================================
 
 [paths]
-data_dir             = "../data"
 climate_zarr          = "../data/training/climate/watersheds.zarr"
 flow_zarr             = "../data/training/flow.zarr"
 static_basin_atlas   = "../data/training/static/watersheds/Physical_Attributes_Watersheds.csv"
 static_climate       = "../data/training/static/watersheds/Climate_Statistics_Watersheds.csv"
 
 [basins]
-training_manifest    = "gages"
 include_cdec_basins  = false
 normalize_by_precip  = true
 

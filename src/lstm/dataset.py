@@ -2,29 +2,33 @@
 
 Typical call order::
 
-    basin_data  = load_all_data(config)
-    folds       = create_folds(basin_data, config)
-    norm_stats  = compute_norm_stats(train_basins, basin_data, config)
-    dataset     = HydroDataset(basin_data, basin_ids, norm_stats, config)
+    basin_ids, climate_data, flow_data, static_df, tier_map = load_all_data(config)
+    folds      = create_folds(basin_ids, tier_map, flow_data, config.n_folds, config.seed)
+    norm_stats = compute_norm_stats(climate_data, flow_data, static_df,
+                                    train_ids, basin_ids, config)
+    dataset    = HydroDataset(train_ids, climate_data, flow_data, static_df,
+                              config, norm_stats)
 
 Key exports
 -----------
 load_all_data(config)
-    Read climate CSVs, flow CSVs, and static attribute tables; return a
-    dict mapping basin_id → combined DataFrame.
-create_folds(basin_data, config)
-    Produce ``config.n_folds`` stratified folds, keeping each tier
+    Read daily climate and flow from the zarr cubes plus the static
+    attribute tables; return ``(basin_ids, climate_data, flow_data,
+    static_df, tier_map)``.
+create_folds(basin_ids, tier_map, flow_data, n_folds, seed)
+    Produce *n_folds* disjoint stratified folds, keeping each tier
     (T1/T2/T3) proportionally represented in every held-out set.
-compute_norm_stats(train_ids, basin_data, config)
+compute_norm_stats(climate_data, flow_data, static_df, train_ids, all_ids, config)
     Compute global z-score statistics from training basins only
-    (climate + static) and per-basin flow std for denormalisation.
+    (climate + static) and the per-basin precip_mean denormalisation scale.
 HydroDataset
     ``torch.utils.data.Dataset`` returning 8-tuples:
     ``(x_dynamic, x_static, y_norm, y_components, basin_id, precip_mean,
     loss_weight, extreme_qs)``.  ``precip_mean`` is the per-basin
     denormalisation scale (mean daily precipitation, mm/day).
     ``loss_weight`` is the per-basin gradient-balancing weight
-    (1 / var of flow/precip_mean).  ``extreme_qs`` is a (2,) tensor
+    (1 / max(var, basin_loss_min_var) ** basin_loss_weight_exponent of
+    flow/precip_mean).  ``extreme_qs`` is a (2,) tensor
     ``[y_q_start, y_q_top]`` giving per-basin start/end thresholds
     (normalised-flow units) for the extreme-flow aux-loss ramp.
 """
@@ -47,21 +51,11 @@ from .config import Config
 # ---------------------------------------------------------------------------
 
 
-def _window_derived_static_features(config: Config) -> set[str]:
-    feats = set()
-    if config.use_window_snow_fraction and "snow_fraction" in config.effective_static_features:
-        feats.add("snow_fraction")
-    return feats
-
-
 def _encoded_static_frame(raw_static: pd.DataFrame, config: Config) -> pd.DataFrame:
     """Return model-ready static columns, expanding categorical features."""
     categorical = set(config.categorical_static_features)
-    window_derived = _window_derived_static_features(config)
     pieces: dict[str, np.ndarray] = {}
     for feature in config.effective_static_features:
-        if feature in window_derived:
-            continue
         if feature not in raw_static.columns:
             raise KeyError(f"static attributes are missing requested feature {feature!r}")
         values = pd.to_numeric(raw_static[feature], errors="coerce")
@@ -218,7 +212,7 @@ def load_all_data(config: Config):
 
 
 # ---------------------------------------------------------------------------
-# Fold creation  –  stratified 80/20 repeated random splits
+# Fold creation  –  stratified disjoint k-fold partition
 # ---------------------------------------------------------------------------
 
 
@@ -312,53 +306,9 @@ def compute_norm_stats(
 
     # --- static ---
     eff_feats = config.encoded_static_feature_names
-    # Features sourced from static_df vs computed from the climate window
-    window_derived = _window_derived_static_features(config)
-    df_feats = [f for f in eff_feats if f not in window_derived]
-
-    # Stats for CSV-based static features
-    if df_feats:
-        svs = static_df.loc[train_ids, df_feats].values.astype(np.float32)
-        df_mean = svs.mean(axis=0)
-        df_std = svs.std(axis=0)
-    else:
-        df_mean = np.array([], dtype=np.float32)
-        df_std = np.array([], dtype=np.float32)
-
-    # Stats for window-derived features (in order they appear in eff_feats)
-    wd_means: List[np.float32] = []
-    wd_stds: List[np.float32] = []
-    if "snow_fraction" in window_derived:
-        # Approximate training-set snow_fraction stats from full climate records
-        basin_sf = []
-        for bid in train_ids:
-            cdf = climate_data[bid]
-            tmean = (cdf["tmax_c"].values + cdf["tmin_c"].values) / 2.0
-            precip = cdf["precip_mm"].values
-            total_p = precip.sum()
-            if total_p > 0:
-                basin_sf.append(float(precip[tmean < 0.0].sum() / total_p))
-            else:
-                basin_sf.append(0.0)
-        wd_means.append(np.float32(np.mean(basin_sf)))
-        wd_stds.append(np.float32(np.std(basin_sf)))
-
-    # Concatenate in the order of eff_feats
-    stat_mean_parts: list = []
-    stat_std_parts: list = []
-    df_idx = 0
-    wd_idx = 0
-    for feat in eff_feats:
-        if feat in window_derived:
-            stat_mean_parts.append(wd_means[wd_idx])
-            stat_std_parts.append(wd_stds[wd_idx])
-            wd_idx += 1
-        else:
-            stat_mean_parts.append(df_mean[df_idx])
-            stat_std_parts.append(df_std[df_idx])
-            df_idx += 1
-    stat_mean = np.array(stat_mean_parts, dtype=np.float32)
-    stat_std = np.array(stat_std_parts, dtype=np.float32)
+    svs = static_df.loc[train_ids, eff_feats].values.astype(np.float32)
+    stat_mean = svs.mean(axis=0).astype(np.float32)
+    stat_std = svs.std(axis=0).astype(np.float32)
     categorical_mask = np.asarray(config.encoded_static_is_categorical, dtype=bool)
     if categorical_mask.any():
         stat_mean[categorical_mask] = 0.0
@@ -368,7 +318,7 @@ def compute_norm_stats(
     # Default (normalize_by_precip=True): scale = mean daily precipitation so
     # targets become dimensionless runoff ratios.
     # When normalize_by_precip=False: scale = 1.0 so targets stay in mm/day
-    # and ScaleHead must learn absolute amplitude from static attributes.
+    # and the static embedding must learn absolute amplitude from static attributes.
     scale_map: Dict[int, np.float32] = {}
     if config.normalize_by_precip:
         precip_idx = config.dynamic_features.index("precip_mm")
@@ -388,7 +338,7 @@ def compute_norm_stats(
     # Balances per-basin gradient contributions; see Config fields
     # `basin_loss_weight_exponent` and `basin_loss_min_var` for rationale.
     loss_var_map: Dict[int, np.float32] = {}
-    min_var = 0.1
+    min_var = float(config.basin_loss_min_var)
     for bid in all_ids:
         if bid in flow_data and bid in climate_data:
             flow_vals = flow_data[bid]["flow"].dropna().values
@@ -535,28 +485,12 @@ class HydroDataset(Dataset):
     ):
         super().__init__()
         self.seq_len = config.seq_len
-        self.use_window_snow_fraction = config.use_window_snow_fraction
 
         clim_mean, clim_std = norm_stats["climate"]
         stat_mean, stat_std = norm_stats["static"]
 
-        # Determine which effective features come from static_df vs window
+        # Static columns in the same order as stat_mean / stat_std
         eff_feats = config.encoded_static_feature_names
-        window_derived = _window_derived_static_features(config)
-        df_feats = [f for f in eff_feats if f not in window_derived]
-
-        # Build index mapping: for each effective feature, its position in
-        # stat_mean / stat_std (which are ordered by eff_feats).
-        self._eff_feats = eff_feats
-        self._window_derived = window_derived
-        # Positions of window-derived features in the final vector
-        self._wd_positions: Dict[str, int] = {}
-        for i, f in enumerate(eff_feats):
-            if f in window_derived:
-                self._wd_positions[f] = i
-        # Norm stats for window-derived features (indexed by position)
-        self._wd_mean = {f: stat_mean[i] for f, i in self._wd_positions.items()}
-        self._wd_std = {f: stat_std[i] for f, i in self._wd_positions.items()}
 
         self.samples: List[Tuple[int, int]] = []   # (basin_id, time_index)
         self.basin_data: Dict[int, dict] = {}
@@ -594,21 +528,9 @@ class HydroDataset(Dataset):
             record_weight = n_valid ** (-record_p) if record_p > 0 else 1.0
             lw = np.float32(var_weight * record_weight)
 
-            # normalised static vector (only CSV-sourced features)
-            if df_feats:
-                sv = static_df.loc[bid, df_feats].values.astype(np.float32)
-            else:
-                sv = np.array([], dtype=np.float32)
-
-            # Build the full static vector with placeholders for window-derived
-            sv_full = np.zeros(len(eff_feats), dtype=np.float32)
-            df_idx = 0
-            for i, f in enumerate(eff_feats):
-                if f not in window_derived:
-                    sv_full[i] = sv[df_idx]
-                    df_idx += 1
-                # window-derived slots stay 0 — filled per sample
-            sv_norm = (sv_full - stat_mean) / (stat_std + 1e-8)
+            # normalised static vector
+            sv = static_df.loc[bid, eff_feats].values.astype(np.float32)
+            sv_norm = (sv - stat_mean) / (stat_std + 1e-8)
 
             bd_dict: dict = {
                 "dynamic": torch.from_numpy(dynamic),
@@ -623,13 +545,6 @@ class HydroDataset(Dataset):
                 ], dtype=torch.float32),
                 "dates": dates,                            # climate DatetimeIndex
             }
-
-            # Store raw precip & tmean for window snow_fraction computation
-            if self.use_window_snow_fraction:
-                bd_dict["precip_raw"] = cdf["precip_mm"].values.astype(np.float32)
-                bd_dict["tmean_raw"] = (
-                    (cdf["tmax_c"].values + cdf["tmin_c"].values) / 2.0
-                ).astype(np.float32)
 
             self.basin_data[bid] = bd_dict
             self.samples.extend((bid, int(i)) for i in valid)
@@ -668,22 +583,6 @@ class HydroDataset(Dataset):
         x_s = bd["static"]                                         # (n_static,)
         y = bd["flow_norm"][tidx]                                  # scalar tensor
         y_comp = bd["components_norm"][tidx]                       # (2,) — [fast, slow]
-
-        # Compute window-derived static features on the fly
-        if self.use_window_snow_fraction and "snow_fraction" in self._wd_positions:
-            x_s = x_s.clone()
-            start = tidx - self.seq_len + 1
-            precip_win = bd["precip_raw"][start : tidx + 1]
-            tmean_win = bd["tmean_raw"][start : tidx + 1]
-            total_p = precip_win.sum()
-            if total_p > 0:
-                sf = float(precip_win[tmean_win < 0.0].sum() / total_p)
-            else:
-                sf = 0.0
-            pos = self._wd_positions["snow_fraction"]
-            std_val = float(self._wd_std["snow_fraction"])
-            mean_val = float(self._wd_mean["snow_fraction"])
-            x_s[pos] = (sf - mean_val) / (std_val + 1e-8)
 
         return (x_d, x_s, y, y_comp, bid,
                 bd["precip_mean_tensor"], bd["loss_w_tensor"],

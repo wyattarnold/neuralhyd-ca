@@ -22,14 +22,13 @@ from typing import List
 from src.paths import TRAINING_OUTPUT_DIR
 
 _PATH_FIELDS = frozenset(
-    ["data_dir", "climate_zarr", "flow_zarr", "static_basin_atlas", "static_climate", "output_dir"]
+    ["climate_zarr", "flow_zarr", "static_basin_atlas", "static_climate", "output_dir"]
 )
 
 
 @dataclass
 class Config:
     # ----- Paths -----
-    data_dir: Path
     climate_zarr: Path           # data/training/climate/<scope>.zarr
     flow_zarr: Path              # data/training/flow.zarr
     static_basin_atlas: Path
@@ -87,7 +86,6 @@ class Config:
     static_hidden_size: int = 64     # flat encoder only; ignored in grouped mode
 
     # ----- Basin domain / filtering -----
-    training_manifest: str = "gages"
     include_cdec_basins: bool = False
 
     # ----- Flow normalisation -----
@@ -97,20 +95,9 @@ class Config:
     # mm/day and the model must learn absolute amplitude from static embedding.
     normalize_by_precip: bool = True
 
-    # ----- Optional climate-static handling -----
-    exclude_climate_statics: bool = False
-    climate_static_features: List[str] = field(default_factory=lambda: [
-        "precip_mean", "pet_mean", "aridity_index",
-        "snow_fraction", "low_precip_dur",
-    ])
-    use_window_snow_fraction: bool = False
-
-    # ----- Static attribute representation -----
-    # ``static_attribute_mode='flat'`` uses one row per gauge watershed with the
-    # flat MLP encoder. ``'grouped'`` uses gauge-watershed static attributes,
-    # adds gauge-level derived routing/area features when requested, and feeds
-    # them through semantic static groups.
-    static_attribute_mode: str = "flat"  # "flat" or "grouped"
+    # ----- Categorical static attributes -----
+    # Each listed feature is one-hot encoded over the category codes given in
+    # ``categorical_static_feature_values`` and kept on its native 0/1 scale.
     categorical_static_features: List[str] = field(default_factory=list)
     categorical_static_feature_values: dict[str, List[int]] = field(default_factory=dict)
 
@@ -196,18 +183,6 @@ class Config:
             val = getattr(self, f)
             if isinstance(val, str):
                 setattr(self, f, Path(val))
-        self.training_manifest = str(self.training_manifest).lower()
-        if self.training_manifest not in {"gages"}:
-            raise ValueError(
-                "training_manifest must be 'gages'; "
-                f"got {self.training_manifest!r}"
-            )
-        self.static_attribute_mode = str(self.static_attribute_mode).lower()
-        if self.static_attribute_mode not in {"flat", "grouped"}:
-            raise ValueError(
-                "static_attribute_mode must be 'flat' or 'grouped'; "
-                f"got {self.static_attribute_mode!r}"
-            )
         if not (0.0 <= self.static_group_dropout < 1.0):
             raise ValueError("static_group_dropout must be in [0, 1)")
         categorical = set(self.categorical_static_features)
@@ -246,19 +221,13 @@ class Config:
 
     @property
     def effective_static_features(self) -> List[str]:
-        """Static features after optional exclusion/addition of climate-derived ones.
+        """Static features in model-input order.
 
         When ``static_feature_groups`` is defined, features are returned in
         **group order** (group-1 features, then group-2, ...) so that
         ``GroupedStaticEncoder`` can split the flat vector by group sizes.
         """
         feats = list(self.static_features)
-        if self.exclude_climate_statics and self.climate_static_features:
-            exclude = set(self.climate_static_features)
-            feats = [f for f in feats if f not in exclude]
-        if self.use_window_snow_fraction:
-            if "snow_fraction" not in feats:
-                feats.append("snow_fraction")
 
         if self.static_feature_groups is not None:
             # Re-order features to match group order
@@ -357,6 +326,8 @@ def load_config(path: str | Path) -> Config:
             flat[key] = val
         elif isinstance(val, dict):
             flat.update(val)
+        else:
+            flat[key] = val
 
     # Derive output_dir from filename when the TOML doesn't specify it.
     if "output_dir" not in flat:

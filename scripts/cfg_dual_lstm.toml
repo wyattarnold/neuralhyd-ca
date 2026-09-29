@@ -3,23 +3,21 @@
 # Run with: python scripts/train_kfold.py scripts/cfg_dual_lstm.toml
 #
 # This file keeps only settings used by the deterministic dual LSTM path.
-# Single-LSTM, MoE, CMAL-only, and regime-gate knobs are intentionally absent.
+# Single-LSTM, MoE, and CMAL-only knobs are intentionally absent.
 # =============================================================================
 
 [paths]
 # Paths are resolved relative to this TOML file.  The run output directory is
 # derived from the filename: cfg_dual_lstm.toml -> data/training/output/dual_lstm/.
-data_dir             = "../data"
 climate_zarr          = "../data/training/climate/watersheds.zarr"
 flow_zarr             = "../data/training/flow.zarr"
 static_basin_atlas   = "../data/training/static/watersheds/Physical_Attributes_Watersheds.csv"
 static_climate       = "../data/training/static/watersheds/Climate_Statistics_Watersheds.csv"
 
 [basins]
-# "gages" uses the gauge watershed domain.  USGS gauges only by default; set
+# Gauge watershed domain.  USGS gauges only by default; set
 # include_cdec_basins = true to add the 14 CDEC full-natural-flow basins
 # (needed for post_process.py --cdec-barplot).
-training_manifest    = "gages"
 include_cdec_basins  = false
 normalize_by_precip  = true
 
@@ -33,8 +31,7 @@ info_gap             = false
 
 [model]
 # model_type="dual" builds DualPathwayLSTM: q_total = q_slow * (1 + q_fast_ratio).
-# Hidden sizes apply only to the two dual pathways.  The ScaleHead is always on
-# in code, so it is not repeated as a config switch.
+# Hidden sizes apply only to the two dual pathways.
 model_type           = "dual"
 fast_hidden_size     = 64
 slow_hidden_size     = 108
@@ -66,7 +63,8 @@ extreme_top_quantile   = 0.995
 extreme_peak_boost     = 30.0
 
 [training]
-# AdamW schedule: warmup, cosine annealing, early stopping, then optional SWA.
+# Adam (L2 weight_decay) schedule: warmup, cosine annealing, early stopping,
+# then optional SWA.
 batch_size           = 512
 learning_rate        = 4e-4
 weight_decay         = 1e-4
