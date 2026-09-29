@@ -2,18 +2,19 @@ Architecture
 ============
 
 Four LSTM model variants are documented here, selected via ``model_type``
-in the experiment TOML: a **single-LSTM baseline**, a **dual-pathway
-LSTM**, the same dual-pathway model with a **CMAL probabilistic head**,
-and an **unsupervised mixture-of-experts LSTM** (``model_type="moe"``).
+(and ``output_type``) in the experiment TOML: a **single-LSTM baseline**,
+a **dual-pathway LSTM**, the single LSTM with a **CMAL probabilistic
+head** (``output_type="cmal"``), and an **unsupervised mixture-of-experts
+LSTM** (``model_type="moe"``).
 All hyperparameters (hidden sizes, window lengths, feature lists, etc.)
 are configurable — see ``scripts/cfg_single_lstm.toml``,
-``scripts/cfg_dual_lstm.toml``, ``scripts/cfg_dual_lstm_cmal.toml``, and
+``scripts/cfg_dual_lstm.toml``, ``scripts/cfg_single_lstm_cmal.toml``, and
 ``scripts/cfg_moe_lstm.toml`` for current values. See
 ``docs/models/lstm.md`` for the implementation-level reference.
 
-Both variants return the 3-tuple ``(q_total, q_fast, q_slow)`` from
-``forward()``. For the single-LSTM, ``q_fast`` and ``q_slow`` are zeros
-so the same downstream code handles both models.
+All variants return the 3-tuple ``(q_total, q_fast, q_slow)`` from
+``forward()``. For the single-LSTM and MoE models, ``q_fast`` and
+``q_slow`` are zeros so the same downstream code handles every model.
 
 Dual-Pathway LSTM (default)
 ----------------------------
@@ -48,10 +49,26 @@ static encoder, same Softplus head, no pathway decomposition. Returns
 zeros for ``q_fast`` and ``q_slow`` to keep the 3-tuple interface
 stable.
 
+Single LSTM with CMAL Head
+--------------------------
+
+The single LSTM's hidden state feeds a CMAL (countable mixture of
+asymmetric Laplacians) head that predicts a distribution over normalised
+flow; ``q_total`` is the mixture mean or median
+(``cmal_point_estimate``). The dual-pathway model has no CMAL variant.
+
+Mixture-of-Experts LSTM
+-----------------------
+
+``moe_n_experts`` independent full-lookback LSTM experts are mixed by a
+gate LSTM through a softmax with a learnable temperature. Expert
+specialisation is unsupervised, and like the single LSTM the model
+returns zeros for ``q_fast`` and ``q_slow``.
+
 Static Encoder (shared)
 ------------------------
 
-Both architectures use the same static encoder — a small MLP that
+All variants use the same static encoder — a small MLP that
 projects 18 raw watershed attributes into a 10-dimensional embedding
 (via a 32-unit hidden layer), which is then tiled across each dynamic
 timestep. This conditions the LSTMs on watershed properties so the same
@@ -69,17 +86,6 @@ PET, aridity index, snow fraction, high/low precipitation frequency and
 duration). ``total_Shape_Area_km2`` and ``ria_ha_usu`` are
 log10-transformed before z-score normalisation.
 
-Per-Basin Scale Head
---------------------
-
-Both variants carry a small **ScaleHead** on the static embedding that
-emits ``log(s_b)``; pathway outputs are multiplied by ``exp(log s_b)``.
-The final layer is zero-initialised so training starts with ``s = 1`` for
-every basin (identical to the ``precip_mean`` baseline normalisation),
-after which the scale drifts end-to-end under the main loss. This lets
-the LSTMs operate in a compact output range while per-basin amplitude is
-absorbed by the scale head.
-
 Loss Function
 -------------
 
@@ -90,9 +96,12 @@ against the observed target in dimensionless runoff-ratio units (flow
 divided by each basin's mean daily precipitation):
 
 - **Blended MSE + log-MSE** (default, with ``log_loss_lambda > 0``):
-  ``L = MSE(Q, Q̂) + λ · MSE(log(Q+ε), log(Q̂+ε))``. The log-space term
-  amplifies sensitivity to low flows. Set ``log_loss_lambda = 0`` for
-  pure MSE.
+  ``L = (1 − λ) · MSE(Q, Q̂) + λ · MSE(log(Q+ε), log(Q̂+ε))``. The
+  log-space term amplifies sensitivity to low flows. Set
+  ``log_loss_lambda = 0`` for pure MSE.
+
+The CMAL variant replaces this primary loss with a CRPS (or NLL,
+``cmal_loss``) on the predicted mixture.
 
 **Auxiliary loss** (dual-pathway only) supervises each pathway component
 against targets from Lyne–Hollick digital baseflow separation (α=0.925):

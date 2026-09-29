@@ -16,12 +16,12 @@ Run-specific metrics are not repeated here because they change as experiments ar
 ### Grouped Static Encoder Variants
 
 Two additional configs swap the default flat static-attribute MLP for a
-**grouped** encoder (`static_attribute_mode = "grouped"`) that gives each
-semantic group of watershed attributes (topography, routing, soil,
-land_cover, hydroclimate) its own small sub-encoder before a fusion
-layer. Group membership is declared in the config's
-`[static_feature_groups]` table; `static_group_dropout` randomly drops
-whole groups during training as a regularizer.
+**grouped** encoder that gives each semantic group of watershed
+attributes (topography, routing, soil, land_cover, hydroclimate) its own
+small sub-encoder before a fusion layer. A `[static_feature_groups]`
+table in the config selects the grouped encoder and declares group
+membership; `static_group_dropout` randomly drops whole groups during
+training as a regularizer.
 
 | Config | Base architecture |
 | --- | --- |
@@ -49,8 +49,6 @@ flowchart TD
     FlowClean["Step 6<br/>flow cleaning and filtering"]:::seq
     QA["Step 7<br/>comprehensive QA/QC"]:::seq
     Tier["Step 8<br/>flow-precip QA and tier sorting"]:::seq
-    HUCSubset["Step 9<br/>copy in-scope HUC subsets"]:::seq
-    SimManifests["Step 10<br/>HUC12 to HUC10/HUC8 manifests"]:::seq
     TrainingTree["data/training<br/>model-ready zarr/CSV inputs"]:::output
     EvalTree["data/eval<br/>full-domain HUC products and post-process outputs"]:::output
 
@@ -63,9 +61,9 @@ flowchart TD
     ClimateQA --> TrainingTree
     ClimStats --> TrainingTree
     Static --> TrainingTree
-    ClimStats --> HUCSubset --> TrainingTree
-    HUCSubset --> EvalTree
-    SimManifests --> EvalTree
+    Climate --> EvalTree
+    Static --> EvalTree
+    ClimStats --> EvalTree
 
     classDef input fill:#e3f2fd,stroke:#1976d2,color:#0d47a1
     classDef seq fill:#ede7f6,stroke:#5e35b1,color:#311b92
@@ -74,9 +72,11 @@ flowchart TD
 
 Important preparation concepts:
 
-- `--target watersheds` writes watershed products directly under `data/training/{climate,static}/watersheds/`.
-- `--target huc8`, `huc10`, or `huc12` writes full-domain products under `data/eval/{climate,static}/<level>/`; step 9 materializes the model-training subset under `data/training/{climate,static}/<level>/`.
-- Step 0 can include or exclude CDEC full-natural-flow basins. Model configs still have `include_cdec_basins` because a run may intentionally exclude them even when prepared data exist.
+- Step 2 reads the gridded meteo archive, so a run that includes it needs `--meteo-dir <store>`; without it the script exits before step 0.
+- `--target watersheds` writes `data/training/climate/watersheds.zarr` and `data/training/static/watersheds/`.
+- `--target huc8`, `huc10`, or `huc12` writes full-domain, inference-only products to `data/eval/climate/<level>.zarr` and `data/eval/static/<level>/`. There is no HUC training subset; `post_process.py --simulate --target <level>` reads these.
+- `--geo-intersect` (a one-time GIS step that writes the `data/prepare/geo_ops/` intersect tables used by steps 2 and 4) runs after step 0 and before step 1.
+- Step 0 can include or exclude CDEC full-natural-flow basins; `--exclude-cdec` also skips CDEC flows in steps 6 and 8. Model configs still have `include_cdec_basins` because a run may intentionally exclude them even when prepared data exist.
 - Step 8 assigns hydroclimatic tiers used for fold stratification and reporting.
 
 Statewide 1/16° gridded inputs (daily forcing from the same WGEN store as step 2, but with the x10 precip and tmin/tmax corrections applied, plus the AlphaEarth 2017 embedding and its 2017–2025 multi-year mean) come from a separate entry point, [prepare_gridded.py](./../../scripts/prepare_gridded.py). They sit outside this chart and no model reads them yet; see the [dataset card](./../../data/gridded/README.md).
@@ -102,7 +102,7 @@ python scripts/train_kfold.py scripts/cfg_single_lstm.toml
 
 Every active model is trained with spatial cross-validation: basins are split, not timesteps. The goal is ungauged-basin generalization, so no basin appears in both train and validation within a fold.
 
-All active configs use `training_manifest = "gages"` with `include_cdec_basins = false`, so training uses the 210 USGS gauge watersheds that survive QA/QC filtering and static-attribute intersection. The 14 CDEC FNF pseudo-gauge basins are still prepared (`flow.zarr` holds 224 basins) and a config can opt back in with `include_cdec_basins = true`; the runs currently under `data/training/output/` were trained that way (224 basins). Normalization statistics are computed from training basins only. Validation basins are held out for statistics, model fitting, and checkpoint selection except for their fixed metadata needed to construct tensors and report metrics.
+All active configs use `include_cdec_basins = false`, so training uses the 210 USGS gauge watersheds that survive QA/QC filtering and static-attribute intersection. The 14 CDEC FNF pseudo-gauge basins are still prepared (`flow.zarr` holds 224 basins) and a config can opt back in with `include_cdec_basins = true`; the runs currently under `data/training/output/` were trained that way (224 basins). Normalization statistics are computed from training basins only. Validation basins are held out for statistics, model fitting, and checkpoint selection except for their fixed metadata needed to construct tensors and report metrics.
 
 ```mermaid
 flowchart LR
@@ -158,11 +158,13 @@ Typical training outputs are:
 Post-processing is handled by [post_process.py](./../../scripts/post_process.py):
 
 ```bash
-python scripts/post_process.py --eval dual_lstm single_lstm          # per-basin metrics → data/eval/*_kfold.csv
+python scripts/post_process.py --eval dual_lstm single_lstm          # per-basin metrics → data/eval/<run>.csv
 python scripts/post_process.py --cdf --barplot --runs dual_lstm ...  # CDF + median barplot PNGs
 python scripts/post_process.py --simulate dual_lstm --target training_watersheds  # historical sim CSVs
 python scripts/post_process.py --cdec-barplot dual_lstm single_lstm  # SAC-SMA vs neural on 14 CDEC basins
 ```
+
+`--eval` recomputes FHV, FeHV and FLV from each fold's saved timeseries with the current flow-duration-curve definitions, so a run's stored `basin_results.csv` values may differ from its `data/eval/<run>.csv`. `--simulate --target` takes `training_watersheds` (each basin's held-out fold model) or `watersheds`, `huc8`, `huc10`, `huc12` (ensemble of all fold models). `--cdec-barplot` needs runs trained with `include_cdec_basins = true`.
 
 After regenerating sim products, run `python -m app.build_data` to refresh the Streamflow Explorer app's Parquet bundles in `app/data/timeseries/`.
 

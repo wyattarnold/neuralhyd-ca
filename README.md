@@ -58,10 +58,11 @@ conda activate neuralhyd
 
 Run commands from the repository root.
 
-Prepare data for a fresh setup:
+Prepare data for a fresh setup. Step 2 reads the gridded meteo files, so
+`--meteo-dir` is required:
 
 ```bash
-python scripts/prepare_data.py
+python scripts/prepare_data.py --meteo-dir <store>
 ```
 
 Train an experiment:
@@ -133,22 +134,17 @@ docs/        Sphinx docs and model-family documentation
 
 ## Web App
 
-The backend is FastAPI and the frontend is React + Leaflet. The app serves prepared GeoJSON layers and timeseries data from `app/data/` and `data/eval/` products.
+The backend is FastAPI and the frontend is React + Leaflet. The app serves pre-built GeoJSON layers and timeseries Parquets from `app/data/` (generated from `data/eval/` sims and training outputs by `app/build_data.py`); the React bundle is built into the gitignored `app/static/` by `npm run build`.
 
-Build it with:
+After retraining or re-simulating, refresh the app data and build the frontend:
 
 ```bash
-python -c "import app.build_data as b; 
-			b.build_training_watersheds_geojson(0.0001); 
-			b.build_static_attrs();
-			b.build_obs_parquet();
-			b.build_obs_baseflow_parquet();  
-			b.build_lstm_parquets();
-			b.build_lstm_single_parquets();
-			b.build_sacsma_parquet()"
+python -c "import app.build_data as b; b.build_training_watersheds_geojson(0.0001); b.build_static_attrs(); b.build_obs_parquet(); b.build_obs_baseflow_parquet(); b.build_lstm_parquets(); b.build_lstm_single_parquets(); b.build_sacsma_parquet()"
 
-cd app\frontend; npm run build
+(cd app/frontend && npm run build)
 ```
+
+For a full rebuild, including the HUC-8 layer and the VIC-Sim Parquets, run `python -m app.build_data` instead.
 
 Serve the Streamflow Explorer app locally with:
 
